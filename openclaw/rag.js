@@ -5,6 +5,7 @@ const path = require('path');
 const ai = require('./ai');
 
 const DOCS_PATH = path.join(__dirname, '..', 'data', 'docs.json');
+const MAX_CONTEXT_CHARS = 2000;
 
 /**
  * Load all documents from the local JSON store.
@@ -67,9 +68,15 @@ async function ask(query, aiOptions = {}) {
     };
   }
 
-  const context = relevantDocs
+  let context = relevantDocs
     .map((doc) => `[${doc.title}]\n${doc.content}`)
     .join('\n\n');
+
+  if (context.length > MAX_CONTEXT_CHARS) {
+    const truncated = context.slice(0, MAX_CONTEXT_CHARS);
+    const lastSpace = truncated.lastIndexOf(' ');
+    context = lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated;
+  }
 
   const prompt = [
     'You are a helpful assistant. Answer the question using ONLY the context provided below.',

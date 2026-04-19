@@ -10,22 +10,34 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 /**
+ * Validate that a request field is a non-empty string.
+ *
+ * @param {*} value - The value to validate.
+ * @param {string} fieldName - Field name used in the error message.
+ * @returns {string|null} Error message string, or null if valid.
+ */
+function validateStringField(value, fieldName) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return `Request body must include a non-empty "${fieldName}" string.`;
+  }
+  return null;
+}
+
+/**
  * POST /ask
  * Body: { "query": "your question here" }
  * Retrieves relevant context from the knowledge base and queries the AI.
  */
 app.post('/ask', async (req, res) => {
   const { query } = req.body;
-
-  if (!query || typeof query !== 'string' || query.trim() === '') {
-    return res.status(400).json({ error: 'Request body must include a non-empty "query" string.' });
-  }
+  const err = validateStringField(query, 'query');
+  if (err) return res.status(400).json({ error: err });
 
   try {
     const result = await rag.ask(query.trim());
     return res.json(result);
-  } catch (err) {
-    return res.status(502).json({ error: `OpenClaw RAG error: ${err.message}` });
+  } catch (e) {
+    return res.status(502).json({ error: `OpenClaw RAG error: ${e.message}` });
   }
 });
 
@@ -36,16 +48,14 @@ app.post('/ask', async (req, res) => {
  */
 app.post('/analyze', async (req, res) => {
   const { text } = req.body;
-
-  if (!text || typeof text !== 'string' || text.trim() === '') {
-    return res.status(400).json({ error: 'Request body must include a non-empty "text" string.' });
-  }
+  const err = validateStringField(text, 'text');
+  if (err) return res.status(400).json({ error: err });
 
   try {
     const result = await feedback.analyze(text.trim());
     return res.json(result);
-  } catch (err) {
-    return res.status(502).json({ error: `OpenClaw Feedback error: ${err.message}` });
+  } catch (e) {
+    return res.status(502).json({ error: `OpenClaw Feedback error: ${e.message}` });
   }
 });
 

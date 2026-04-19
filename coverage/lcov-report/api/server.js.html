@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">92.3% </span>
+                <span class="strong">93.54% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>24/26</span>
+                <span class='fraction'>29/31</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">92.85% </span>
+                <span class="strong">91.66% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>13/14</span>
+                <span class='fraction'>11/12</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">66.66% </span>
+                <span class="strong">75% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>2/3</span>
+                <span class='fraction'>3/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">92.3% </span>
+                <span class="strong">93.1% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>24/26</span>
+                <span class='fraction'>27/29</span>
             </div>
         
             
@@ -121,7 +121,17 @@
 <a name='L56'></a><a href='#L56'>56</a>
 <a name='L57'></a><a href='#L57'>57</a>
 <a name='L58'></a><a href='#L58'>58</a>
-<a name='L59'></a><a href='#L59'>59</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -131,6 +141,20 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -139,10 +163,8 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-yes">4x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-yes">3x</span>
@@ -159,10 +181,8 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-yes">4x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-yes">3x</span>
@@ -191,22 +211,34 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 &nbsp;
 /**
+ * Validate that a request field is a non-empty string.
+ *
+ * @param {*} value - The value to validate.
+ * @param {string} fieldName - Field name used in the error message.
+ * @returns {string|null} Error message string, or null if valid.
+ */
+function validateStringField(value, fieldName) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return `Request body must include a non-empty "${fieldName}" string.`;
+  }
+  return null;
+}
+&nbsp;
+/**
  * POST /ask
  * Body: { "query": "your question here" }
  * Retrieves relevant context from the knowledge base and queries the AI.
  */
 app.post('/ask', async (req, res) =&gt; {
   const { query } = req.body;
-&nbsp;
-  if (!query || typeof query !== 'string' || query.trim() === '') {
-    return res.status(400).json({ error: 'Request body must include a non-empty "query" string.' });
-  }
+  const err = validateStringField(query, 'query');
+  if (err) return res.status(400).json({ error: err });
 &nbsp;
   try {
     const result = await rag.ask(query.trim());
     return res.json(result);
-  } catch (err) {
-    return res.status(502).json({ error: `OpenClaw RAG error: ${err.message}` });
+  } catch (e) {
+    return res.status(502).json({ error: `OpenClaw RAG error: ${e.message}` });
   }
 });
 &nbsp;
@@ -217,16 +249,14 @@ app.post('/ask', async (req, res) =&gt; {
  */
 app.post('/analyze', async (req, res) =&gt; {
   const { text } = req.body;
-&nbsp;
-  if (!text || typeof text !== 'string' || text.trim() === '') {
-    return res.status(400).json({ error: 'Request body must include a non-empty "text" string.' });
-  }
+  const err = validateStringField(text, 'text');
+  if (err) return res.status(400).json({ error: err });
 &nbsp;
   try {
     const result = await feedback.analyze(text.trim());
     return res.json(result);
-  } catch (err) {
-    return res.status(502).json({ error: `OpenClaw Feedback error: ${err.message}` });
+  } catch (e) {
+    return res.status(502).json({ error: `OpenClaw Feedback error: ${e.message}` });
   }
 });
 &nbsp;
@@ -244,7 +274,7 @@ module.exports = app;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T04:34:56.400Z
+                at 2026-04-19T04:37:11.341Z
             </div>
         <script src="../prettify.js"></script>
         <script>
