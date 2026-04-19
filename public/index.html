@@ -1184,8 +1184,10 @@
 
   // ── Emotion-tag helpers ───────────────────────────────────────────────────
 
-  // Matches an [emotion:X] tag at the start of a string (with optional leading
-  // whitespace).  Must stay in sync with the server-side EMOTION_TAG_RE.
+  // Matches an [emotion:X] tag at the start of a chunk string (with optional
+  // leading whitespace) for tag extraction.  Note: this is intentionally
+  // anchored with ^ so it only extracts a leading tag; the global replacement
+  // in stripEmotionTags() uses the unanchored form to remove tags anywhere.
   const EMOTION_TAG_RE = /^\[emotion:([a-z]+)\]\s*/;
 
   /**
@@ -1202,15 +1204,17 @@
    * Like splitIntoChunks() but returns { text, emotion } objects instead of
    * plain strings.  The emotion is extracted from the leading [emotion:X] tag
    * of each chunk (if present) and cascades to subsequent chunks until a new
-   * tag appears.  The tag is stripped from the returned text so the TTS
-   * service receives clean prose.
+   * tag appears.  The stripped text is placed in the `text` property of each
+   * returned object so the TTS service receives clean prose via `chunk.text`.
    *
    * @param {string} rawText - Chapter content with optional [emotion:X] tags.
+   * @param {string} [fallbackEmotion] - Preset used before the first tag is seen;
+   *   defaults to voicePrefs.emotion_preset (or 'neutral' if that is unset).
    * @returns {Array<{text: string, emotion: string}>}
    */
-  function splitIntoChunksWithEmotion(rawText) {
+  function splitIntoChunksWithEmotion(rawText, fallbackEmotion) {
     const rawChunks = splitIntoChunks(rawText);
-    let currentEmotion = voicePrefs.emotion_preset || 'neutral';
+    let currentEmotion = fallbackEmotion || voicePrefs.emotion_preset || 'neutral';
     return rawChunks.map((chunk) => {
       const match = chunk.match(EMOTION_TAG_RE);
       if (match) currentEmotion = match[1];

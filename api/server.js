@@ -344,8 +344,10 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
 
 /**
  * Regex matching an emotion tag of the form [emotion:preset] at the start of a
- * chunk (possibly preceded by whitespace).  Presets mirror the keys in
- * _EMOTION_PRESETS in zonos/server.py.
+ * chunk (possibly preceded by whitespace), used for tag extraction.  Note: this
+ * is intentionally anchored with ^ so it only matches a leading tag; the global
+ * replacement in stripEmotionTags() uses the unanchored form.  Unknown presets
+ * extracted here are passed through to Zonos, which falls back to "neutral".
  */
 const EMOTION_TAG_RE = /^\[emotion:([a-z]+)\]\s*/;
 
