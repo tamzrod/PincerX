@@ -206,4 +206,44 @@ async function deleteChapter(storyId, chapterNumber) {
   return { storyId, chapterNumber };
 }
 
-module.exports = { create, generateChapter, deleteChapter };
+module.exports = { create, generateChapter, deleteChapter, list, get };
+
+/**
+ * Return summary metadata for every saved story, newest first.
+ *
+ * @returns {Array<{id, title, genre, tone, outline, createdAt, chapterCount}>}
+ */
+function list() {
+  if (!fs.existsSync(STORIES_DIR)) return [];
+  return fs.readdirSync(STORIES_DIR)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(STORIES_DIR, f), 'utf8'));
+        return {
+          id: data.id,
+          title: data.title,
+          genre: data.genre,
+          tone: data.tone,
+          outline: data.outline,
+          createdAt: data.createdAt,
+          chapterCount: (data.chapters || []).length,
+        };
+      } catch { return null; }
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+/**
+ * Load the full data for a single story (including chapters).
+ *
+ * @param {string} storyId - The story ID.
+ * @returns {{id, title, genre, tone, outline, createdAt, chapters: Array}}
+ */
+function get(storyId) {
+  const filename = path.basename(`${storyId}.json`);
+  const filepath = path.join(STORIES_DIR, filename);
+  if (!fs.existsSync(filepath)) throw new Error(`Story not found: ${storyId}`);
+  return JSON.parse(fs.readFileSync(filepath, 'utf8'));
+}

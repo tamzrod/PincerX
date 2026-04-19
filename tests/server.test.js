@@ -583,15 +583,27 @@ describe('POST /story/create', () => {
 
 // ─── POST /tts ───────────────────────────────────────────────────────────────
 
+const TTS_CACHE_DIR = path.join(__dirname, '..', 'data', 'tts-cache');
+
+function clearTtsCache() {
+  if (fs.existsSync(TTS_CACHE_DIR)) {
+    for (const f of fs.readdirSync(TTS_CACHE_DIR).filter((n) => n.endsWith('.wav'))) {
+      fs.unlinkSync(path.join(TTS_CACHE_DIR, f));
+    }
+  }
+}
+
 describe('POST /tts', () => {
   let originalFetch;
 
   beforeEach(() => {
     originalFetch = global.fetch;
+    clearTtsCache();
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
+    clearTtsCache();
   });
 
   it('returns 400 when text is missing', async () => {
@@ -701,6 +713,81 @@ describe('POST /tts', () => {
     expect(res.status).toBe(502);
     expect(res.body.error).toMatch(/TTS service unreachable/i);
     expect(res.body.error).toMatch(/ECONNREFUSED/);
+  });
+
+  it('saves audio to the cache after the first synthesis', async () => {
+    const fakeWav = Buffer.from('RIFF-fake-wav');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    await request(app).post('/tts').send({ text: 'Cache me please' });
+
+    const files = fs.existsSync(TTS_CACHE_DIR) ? fs.readdirSync(TTS_CACHE_DIR).filter((f) => f.endsWith('.wav')) : [];
+    expect(files.length).toBe(1);
+  });
+
+  it('serves audio from the cache on a repeat request without calling Zonos', async () => {
+    const fakeWav = Buffer.from('RIFF-cached');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    // First request – synthesizes and caches.
+    await request(app).post('/tts').send({ text: 'Cached text' });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    // Second request with identical params – must be served from cache.
+    const res = await request(app).post('/tts').send({ text: 'Cached text' });
+    expect(res.status).toBe(200);
+    expect(global.fetch).toHaveBeenCalledTimes(1); // Zonos not called again
+    expect(res.headers['x-tts-cache']).toBe('hit');
+  });
+
+  it('uses a separate cache entry for different voice settings', async () => {
+    const fakeWav = Buffer.from('RIFF');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    await request(app).post('/tts').send({ text: 'Same text', speaking_rate: 12 });
+    await request(app).post('/tts').send({ text: 'Same text', speaking_rate: 20 });
+
+    // Two different cache keys → Zonos called twice.
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const files = fs.existsSync(TTS_CACHE_DIR) ? fs.readdirSync(TTS_CACHE_DIR).filter((f) => f.endsWith('.wav')) : [];
+    expect(files.length).toBe(2);
+  });
+});
+
+// ─── DELETE /tts/cache ───────────────────────────────────────────────────────
+
+describe('DELETE /tts/cache', () => {
+  beforeEach(() => { clearTtsCache(); });
+  afterEach(() => { clearTtsCache(); });
+
+  it('returns 200 with count 0 when the cache is already empty', async () => {
+    const res = await request(app).delete('/tts/cache');
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(0);
+    expect(res.body.message).toMatch(/0/);
+  });
+
+  it('removes all cached WAV files and reports the count', async () => {
+    // Manually plant two fake cache files.
+    fs.mkdirSync(TTS_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(path.join(TTS_CACHE_DIR, 'aaa.wav'), 'fake');
+    fs.writeFileSync(path.join(TTS_CACHE_DIR, 'bbb.wav'), 'fake');
+
+    const res = await request(app).delete('/tts/cache');
+
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(2);
+    const remaining = fs.readdirSync(TTS_CACHE_DIR).filter((f) => f.endsWith('.wav'));
+    expect(remaining.length).toBe(0);
   });
 });
 
@@ -872,5 +959,118 @@ describe('DELETE /tts/voice/:id', () => {
 
     expect(res.status).toBe(502);
     expect(res.body.error).toMatch(/TTS service unreachable/i);
+  });
+});
+
+// ─── GET /story/list ──────────────────────────────────────────────────────────
+
+describe('GET /story/list', () => {
+  it('returns an empty stories array when story.list returns []', async () => {
+    story.list = jest.fn().mockReturnValue([]);
+    const res = await request(app).get('/story/list');
+    expect(res.status).toBe(200);
+    expect(res.body.stories).toEqual([]);
+  });
+
+  it('returns stories from story.list', async () => {
+    const fakeStory = { id: '123-test', title: 'Test', genre: 'fantasy', tone: 'dark', createdAt: new Date().toISOString(), chapterCount: 2 };
+    story.list = jest.fn().mockReturnValue([fakeStory]);
+    const res = await request(app).get('/story/list');
+    expect(res.status).toBe(200);
+    expect(res.body.stories).toHaveLength(1);
+    expect(res.body.stories[0].id).toBe('123-test');
+  });
+
+  it('returns 500 when story.list throws', async () => {
+    story.list = jest.fn().mockImplementation(() => { throw new Error('disk error'); });
+    const res = await request(app).get('/story/list');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/Failed to list stories/i);
+  });
+});
+
+// ─── GET /story/:id ───────────────────────────────────────────────────────────
+
+describe('GET /story/:id', () => {
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app).get('/story/INVALID_ID!');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns the full story when story.get succeeds', async () => {
+    const fakeStory = { id: '123-test', title: 'Test', chapters: [] };
+    story.get = jest.fn().mockReturnValue(fakeStory);
+    const res = await request(app).get('/story/123-test');
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe('123-test');
+    expect(story.get).toHaveBeenCalledWith('123-test');
+  });
+
+  it('returns 404 when story.get throws "Story not found"', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: 123-test'); });
+    const res = await request(app).get('/story/123-test');
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── POST /story/:id/chapter/:num/tts-prebake ────────────────────────────────
+
+describe('POST /story/:id/chapter/:num/tts-prebake', () => {
+  let originalFetch;
+  beforeEach(() => { originalFetch = global.fetch; clearTtsCache(); });
+  afterEach(() => { global.fetch = originalFetch; clearTtsCache(); });
+
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app).post('/story/BAD_ID/chapter/1/tts-prebake').send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for a non-integer chapter number', async () => {
+    story.get = jest.fn().mockReturnValue({ id: 'abc-test', chapters: [] });
+    const res = await request(app).post('/story/abc-test/chapter/0/tts-prebake').send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when story.get throws Story not found', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: abc-test'); });
+    const res = await request(app).post('/story/abc-test/chapter/1/tts-prebake').send({});
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 when chapter does not exist in story', async () => {
+    story.get = jest.fn().mockReturnValue({ id: 'abc-test', chapters: [{ number: 2, content: 'text' }] });
+    const res = await request(app).post('/story/abc-test/chapter/1/tts-prebake').send({});
+    expect(res.status).toBe(404);
+  });
+
+  it('returns jobId and total immediately without waiting for synthesis', async () => {
+    story.get = jest.fn().mockReturnValue({
+      id: 'abc-test',
+      chapters: [{ number: 1, content: 'Hello world. This is a chapter.' }],
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(Buffer.from('RIFF').buffer),
+    });
+
+    const res = await request(app)
+      .post('/story/abc-test/chapter/1/tts-prebake')
+      .send({ speaking_rate: 15, pitch_std: 45, emotion_preset: 'neutral' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('jobId');
+    expect(res.body).toHaveProperty('total');
+    expect(typeof res.body.jobId).toBe('string');
+    expect(typeof res.body.total).toBe('number');
+  });
+});
+
+// ─── GET /tts-prebake/:jobId ──────────────────────────────────────────────────
+
+describe('GET /tts-prebake/:jobId', () => {
+  it('returns a synthetic complete status for an unknown job ID', async () => {
+    const res = await request(app).get('/tts-prebake/nonexistent-job-id');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('complete');
   });
 });
