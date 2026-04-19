@@ -183,6 +183,7 @@
     .sources-list li { margin-left: 16px; margin-top: 2px; }
 
     .analyze-field { margin-bottom: 8px; }
+    .story-field { margin-bottom: 8px; }
     .analyze-field .field-name { font-weight: 600; color: #333; }
 
     .spinner {
@@ -390,9 +391,9 @@
     <div class="section">
       <h3>✍️ Story Writer</h3>
       <label for="story-title">Title</label>
-      <input type="text" id="story-title" placeholder="e.g. The Last Horizon" style="margin-bottom:8px;" />
+      <input type="text" id="story-title" placeholder="e.g. The Last Horizon" class="story-field" />
       <label for="story-genre">Genre</label>
-      <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" style="margin-bottom:8px;" />
+      <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" class="story-field" />
       <label for="story-tone">Tone</label>
       <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
       <div class="row">
@@ -785,7 +786,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, genre, tone }),
       });
-      document.getElementById('story-outline').textContent = data.outline || JSON.stringify(data, null, 2);
+      document.getElementById('story-outline').textContent = data.outline || 'No outline was returned.';
       document.getElementById('story-result').classList.add('visible');
       clearMsg('story-msg');
     } catch (e) {
