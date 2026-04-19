@@ -43,6 +43,17 @@ async function create(title, genre, tone, aiOptions = {}) {
 }
 
 /**
+ * Normalise text returned by the AI so that literal `\n` escape sequences
+ * become real newlines and leading/trailing whitespace is removed.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizeText(text) {
+  return text.replace(/\\n/g, '\n').replace(/\\t/g, '\t').trim();
+}
+
+/**
  * Extract the outline string from the AI response.
  * Falls back to the raw response text if JSON parsing fails.
  *
@@ -52,16 +63,25 @@ async function create(title, genre, tone, aiOptions = {}) {
 function parseOutline(raw) {
   const match = raw.match(/\{[\s\S]*\}/);
   if (match) {
+    const jsonStr = match[0];
+    // Attempt 1: parse as-is
     try {
-      const parsed = JSON.parse(match[0]);
+      const parsed = JSON.parse(jsonStr);
       if (typeof parsed.outline === 'string' && parsed.outline.trim()) {
-        return parsed.outline.trim();
+        return normalizeText(parsed.outline.trim());
       }
-    } catch {
-      // fall through to raw fallback
-    }
+    } catch { /* try next */ }
+    // Attempt 2: some models embed literal newlines inside JSON strings which
+    // is invalid JSON — escape them first, then re-try
+    try {
+      const fixed = jsonStr.replace(/\r?\n/g, '\\n');
+      const parsed = JSON.parse(fixed);
+      if (typeof parsed.outline === 'string' && parsed.outline.trim()) {
+        return normalizeText(parsed.outline.trim());
+      }
+    } catch { /* fall through */ }
   }
-  return raw.trim();
+  return normalizeText(raw.trim());
 }
 
 /**
@@ -133,16 +153,25 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
 function parseChapterContent(raw) {
   const match = raw.match(/\{[\s\S]*\}/);
   if (match) {
+    const jsonStr = match[0];
+    // Attempt 1: parse as-is
     try {
-      const parsed = JSON.parse(match[0]);
+      const parsed = JSON.parse(jsonStr);
       if (typeof parsed.content === 'string' && parsed.content.trim()) {
-        return parsed.content.trim();
+        return normalizeText(parsed.content.trim());
       }
-    } catch {
-      // fall through to raw fallback
-    }
+    } catch { /* try next */ }
+    // Attempt 2: escape unescaped literal newlines inside JSON string values
+    // (a common pattern for AI models that don't strictly format JSON)
+    try {
+      const fixed = jsonStr.replace(/\r?\n/g, '\\n');
+      const parsed = JSON.parse(fixed);
+      if (typeof parsed.content === 'string' && parsed.content.trim()) {
+        return normalizeText(parsed.content.trim());
+      }
+    } catch { /* fall through */ }
   }
-  return raw.trim();
+  return normalizeText(raw.trim());
 }
 
 /**
