@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">78.93% </span>
+                <span class="strong">79.1% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>296/375</span>
+                <span class='fraction'>299/378</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">80.22% </span>
+                <span class="strong">80.39% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>280/349</span>
+                <span class='fraction'>283/352</span>
             </div>
         
             
@@ -860,7 +860,14 @@
 <a name='L795'></a><a href='#L795'>795</a>
 <a name='L796'></a><a href='#L796'>796</a>
 <a name='L797'></a><a href='#L797'>797</a>
-<a name='L798'></a><a href='#L798'>798</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L798'></a><a href='#L798'>798</a>
+<a name='L799'></a><a href='#L799'>799</a>
+<a name='L800'></a><a href='#L800'>800</a>
+<a name='L801'></a><a href='#L801'>801</a>
+<a name='L802'></a><a href='#L802'>802</a>
+<a name='L803'></a><a href='#L803'>803</a>
+<a name='L804'></a><a href='#L804'>804</a>
+<a name='L805'></a><a href='#L805'>805</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -1173,9 +1180,15 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1197,6 +1210,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1970,10 +1984,16 @@ function ttsFetchError(e) {
  */
 const TTS_MAX_CHARS = 50_000;  // ~8 000 words – more than enough for one chapter
 const TTS_TIMEOUT_MS = 180_000; // 3 min: Zonos on GPU generates ~real-time
+const PREBAKE_JOB_RETENTION_MS = 10 * 60 * 1000; // 10 min – then evict from memory
 &nbsp;
 // Chunk size used by both the frontend player and the server-side prebake —
 // must stay in sync so that cache keys computed on both sides match.
 const TTS_CHUNK_MAX_CHARS = 300;
+&nbsp;
+// Default Zonos voice parameters used when the caller omits them.
+// These must match the defaults in the frontend's voicePrefs object.
+const TTS_DEFAULT_SPEAKING_RATE = 15.0;
+const TTS_DEFAULT_PITCH_STD = 45.0;
 &nbsp;
 /**
  * Build a deterministic cache key from the normalised TTS request parameters.
@@ -1989,8 +2009,8 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
   const normalized = JSON.stringify({
     text,
     voice_id: voiceId || '',
-    speaking_rate: typeof speakingRate === 'number' ? speakingRate : 15.0,
-    pitch_std: typeof pitchStd === 'number' ? pitchStd : 45.0,
+    speaking_rate: typeof speakingRate === 'number' ? speakingRate : TTS_DEFAULT_SPEAKING_RATE,
+    pitch_std: typeof pitchStd === 'number' ? pitchStd : TTS_DEFAULT_PITCH_STD,
     emotion_preset: emotionPreset || 'neutral',
   });
   return crypto.createHash('sha256').update(normalized).digest('hex');
@@ -2000,6 +2020,7 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
  * Split *text* into sentence-sized chunks of at most *TTS_CHUNK_MAX_CHARS*
  * characters.  Mirrors the frontend splitIntoChunks() function exactly so that
  * both sides produce the same chunk list (and therefore the same cache keys).
+ * NOTE: if the split regex below is changed, update the frontend copy too.
  *
  * @param {string} text
  * @returns {string[]}
@@ -2147,9 +2168,9 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
       job.done++;
     }
     job.status = 'complete';
-    // Evict the job from memory after 10 minutes so the Map doesn't grow forever.
+    // Evict the job from memory after a while so the Map doesn't grow forever.
     // .unref() ensures this timer does not keep the process alive during testing.
-    setTimeout(<span class="fstat-no" title="function not covered" >()</span> =&gt; <span class="cstat-no" title="statement not covered" >_prebakeJobs.delete(jobId),</span> 10 * 60 * 1000).unref();
+    setTimeout(<span class="fstat-no" title="function not covered" >()</span> =&gt; <span class="cstat-no" title="statement not covered" >_prebakeJobs.delete(jobId),</span> PREBAKE_JOB_RETENTION_MS).unref();
   })();
 &nbsp;
   return jobId;
@@ -2461,7 +2482,7 @@ module.exports = app;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T14:12:54.960Z
+                at 2026-04-19T14:15:27.256Z
             </div>
         <script src="../prettify.js"></script>
         <script>

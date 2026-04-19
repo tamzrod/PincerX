@@ -1996,9 +1996,13 @@
   async function startChapterPrebake(chapterNumber, sectionEl) {
     if (!storyState.id) return;
 
-    // Cancel any existing poll for this chapter.
-    const existingId = chapterPrebakeJobs.get(chapterNumber);
-    if (existingId) { clearInterval(existingId); chapterPrebakeJobs.delete(chapterNumber); }
+    // Local helper: stop the active poll for this chapter.
+    function stopPolling() {
+      const id = chapterPrebakeJobs.get(chapterNumber);
+      if (id) { clearInterval(id); chapterPrebakeJobs.delete(chapterNumber); }
+    }
+
+    stopPolling(); // Cancel any existing poll before starting a new one.
 
     const wrapEl  = sectionEl.querySelector('.tts-prebake-wrap');
     const fillEl  = sectionEl.querySelector('.tts-prebake-fill');
@@ -2033,22 +2037,20 @@
         try {
           const status = await fetch(`/tts-prebake/${encodeURIComponent(jobId)}`)
             .then((r) => r.ok ? r.json() : null).catch(() => null);
-          if (!status) { clearInterval(intervalId); chapterPrebakeJobs.delete(chapterNumber); return; }
+          if (!status) { stopPolling(); return; }
 
           const pct = status.total > 0 ? Math.round((status.done / status.total) * 100) : 100;
           fillEl.style.width = `${pct}%`;
           labelEl.textContent = `🎙 Preparing audio… ${status.done} / ${status.total}`;
 
           if (status.status === 'complete') {
-            clearInterval(intervalId);
-            chapterPrebakeJobs.delete(chapterNumber);
+            stopPolling();
             fillEl.style.width = '100%';
             labelEl.textContent = '🎙 Audio ready — click Read to play instantly';
             setTimeout(() => { wrapEl.style.display = 'none'; }, 5000);
           }
         } catch {
-          clearInterval(intervalId);
-          chapterPrebakeJobs.delete(chapterNumber);
+          stopPolling();
           wrapEl.style.display = 'none';
         }
       }, 2000);
@@ -2112,7 +2114,7 @@
         .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)));
 
       stopTTS();
-      for (const [, id] of chapterPrebakeJobs) { clearInterval(id); }
+      for (const [, intervalId] of chapterPrebakeJobs) { clearInterval(intervalId); }
       chapterPrebakeJobs.clear();
 
       // Reset story state

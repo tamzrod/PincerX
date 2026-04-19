@@ -311,10 +311,16 @@ function ttsFetchError(e) {
  */
 const TTS_MAX_CHARS = 50_000;  // ~8 000 words – more than enough for one chapter
 const TTS_TIMEOUT_MS = 180_000; // 3 min: Zonos on GPU generates ~real-time
+const PREBAKE_JOB_RETENTION_MS = 10 * 60 * 1000; // 10 min – then evict from memory
 
 // Chunk size used by both the frontend player and the server-side prebake —
 // must stay in sync so that cache keys computed on both sides match.
 const TTS_CHUNK_MAX_CHARS = 300;
+
+// Default Zonos voice parameters used when the caller omits them.
+// These must match the defaults in the frontend's voicePrefs object.
+const TTS_DEFAULT_SPEAKING_RATE = 15.0;
+const TTS_DEFAULT_PITCH_STD = 45.0;
 
 /**
  * Build a deterministic cache key from the normalised TTS request parameters.
@@ -330,8 +336,8 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
   const normalized = JSON.stringify({
     text,
     voice_id: voiceId || '',
-    speaking_rate: typeof speakingRate === 'number' ? speakingRate : 15.0,
-    pitch_std: typeof pitchStd === 'number' ? pitchStd : 45.0,
+    speaking_rate: typeof speakingRate === 'number' ? speakingRate : TTS_DEFAULT_SPEAKING_RATE,
+    pitch_std: typeof pitchStd === 'number' ? pitchStd : TTS_DEFAULT_PITCH_STD,
     emotion_preset: emotionPreset || 'neutral',
   });
   return crypto.createHash('sha256').update(normalized).digest('hex');
@@ -341,6 +347,7 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
  * Split *text* into sentence-sized chunks of at most *TTS_CHUNK_MAX_CHARS*
  * characters.  Mirrors the frontend splitIntoChunks() function exactly so that
  * both sides produce the same chunk list (and therefore the same cache keys).
+ * NOTE: if the split regex below is changed, update the frontend copy too.
  *
  * @param {string} text
  * @returns {string[]}
@@ -488,9 +495,9 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
       job.done++;
     }
     job.status = 'complete';
-    // Evict the job from memory after 10 minutes so the Map doesn't grow forever.
+    // Evict the job from memory after a while so the Map doesn't grow forever.
     // .unref() ensures this timer does not keep the process alive during testing.
-    setTimeout(() => _prebakeJobs.delete(jobId), 10 * 60 * 1000).unref();
+    setTimeout(() => _prebakeJobs.delete(jobId), PREBAKE_JOB_RETENTION_MS).unref();
   })();
 
   return jobId;
