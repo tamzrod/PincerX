@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -16,11 +17,13 @@ const PORT = process.env.PORT || 3000;
 const PDF_DIR = path.join(__dirname, '..', 'pdfs');
 const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
 const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
+const TTS_CACHE_DIR = path.join(__dirname, '..', 'data', 'tts-cache');
 
 // Ensure required directories exist at startup
 fs.mkdirSync(PDF_DIR, { recursive: true });
 fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
 fs.mkdirSync(STORIES_DIR, { recursive: true });
+fs.mkdirSync(TTS_CACHE_DIR, { recursive: true });
 
 // Multer storage: save to /pdfs with original filename
 const storage = multer.diskStorage({
@@ -301,9 +304,34 @@ function ttsFetchError(e) {
  * Proxies the request to the Zonos TTS sidecar and streams back a WAV file.
  * Falls back to a 502 with a JSON error body if the sidecar is unreachable so
  * the browser can fall back to the Web Speech API gracefully.
+ *
+ * Generated audio is cached to disk (data/tts-cache/) keyed by a SHA-256 hash
+ * of the normalised request parameters.  Subsequent requests with identical
+ * parameters are served from the cache instantly without calling Zonos.
  */
 const TTS_MAX_CHARS = 50_000;  // ~8 000 words – more than enough for one chapter
 const TTS_TIMEOUT_MS = 180_000; // 3 min: Zonos on GPU generates ~real-time
+
+/**
+ * Build a deterministic cache key from the normalised TTS request parameters.
+ *
+ * @param {string} text - The (already trimmed+capped) text to synthesize.
+ * @param {string} voiceId - Voice ID, or empty string for the default voice.
+ * @param {number|undefined} speakingRate - Speaking rate (tokens/s).
+ * @param {number|undefined} pitchStd - Pitch standard deviation.
+ * @param {string} emotionPreset - Emotion preset name.
+ * @returns {string} Hex SHA-256 digest usable as a filename stem.
+ */
+function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
+  const normalized = JSON.stringify({
+    text,
+    voice_id: voiceId || '',
+    speaking_rate: typeof speakingRate === 'number' ? speakingRate : 15.0,
+    pitch_std: typeof pitchStd === 'number' ? pitchStd : 45.0,
+    emotion_preset: emotionPreset || 'neutral',
+  });
+  return crypto.createHash('sha256').update(normalized).digest('hex');
+}
 
 app.post('/tts', async (req, res) => {
   const { text, voice_id, speaking_rate, pitch_std, emotion_preset } = req.body;
@@ -313,9 +341,23 @@ app.post('/tts', async (req, res) => {
   const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
   const trimmed = text.trim().slice(0, TTS_MAX_CHARS);
 
-  const zonosBody = { text: trimmed };
   const voiceId = typeof voice_id === 'string' ? voice_id.trim() : '';
   const emotionPreset = typeof emotion_preset === 'string' ? emotion_preset.trim() : '';
+
+  // ── Cache lookup ──────────────────────────────────────────────────────────
+  const cacheKey = ttsCacheKey(trimmed, voiceId, speaking_rate, pitch_std, emotionPreset);
+  const cachePath = path.join(TTS_CACHE_DIR, `${cacheKey}.wav`);
+
+  if (fs.existsSync(cachePath)) {
+    const cached = fs.readFileSync(cachePath);
+    res.set('Content-Type', 'audio/wav');
+    res.set('Content-Length', String(cached.length));
+    res.set('X-TTS-Cache', 'hit');
+    return res.send(cached);
+  }
+
+  // ── Cache miss: synthesize via Zonos ─────────────────────────────────────
+  const zonosBody = { text: trimmed };
   if (voiceId) zonosBody.voice_id = voiceId;
   if (typeof speaking_rate === 'number') zonosBody.speaking_rate = speaking_rate;
   if (typeof pitch_std === 'number') zonosBody.pitch_std = pitch_std;
@@ -335,8 +377,18 @@ app.post('/tts', async (req, res) => {
     }
 
     const audioBuffer = await response.arrayBuffer();
+
+    // Persist to cache so future identical requests skip Zonos entirely.
+    try {
+      fs.writeFileSync(cachePath, Buffer.from(audioBuffer));
+    } catch (writeErr) {
+      // Non-fatal: log and continue serving the audio even if caching fails.
+      console.warn('[TTS cache] Failed to write cache file:', writeErr.message);
+    }
+
     res.set('Content-Type', 'audio/wav');
     res.set('Content-Length', String(audioBuffer.byteLength));
+    res.set('X-TTS-Cache', 'miss');
     return res.send(Buffer.from(audioBuffer));
   } catch (e) {
     return res.status(502).json({ error: ttsFetchError(e) });
@@ -357,6 +409,24 @@ app.get('/tts/voices', async (_req, res) => {
     return res.json(await response.json());
   } catch (e) {
     return res.status(502).json({ error: ttsFetchError(e) });
+  }
+});
+
+/**
+ * DELETE /tts/cache
+ * Removes all cached TTS audio files from data/tts-cache/.
+ * Call this after re-uploading a voice embedding so that stale audio generated
+ * with the old embedding is not served from the cache.
+ */
+app.delete('/tts/cache', (_req, res) => {
+  try {
+    const files = fs.readdirSync(TTS_CACHE_DIR).filter((f) => f.endsWith('.wav'));
+    for (const f of files) {
+      fs.unlinkSync(path.join(TTS_CACHE_DIR, f));
+    }
+    return res.json({ message: `Cleared ${files.length} cached audio file(s).`, count: files.length });
+  } catch (e) {
+    return res.status(500).json({ error: `Failed to clear TTS cache: ${e.message}` });
   }
 });
 

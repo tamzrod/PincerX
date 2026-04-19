@@ -583,15 +583,27 @@ describe('POST /story/create', () => {
 
 // ─── POST /tts ───────────────────────────────────────────────────────────────
 
+const TTS_CACHE_DIR = path.join(__dirname, '..', 'data', 'tts-cache');
+
+function clearTtsCache() {
+  if (fs.existsSync(TTS_CACHE_DIR)) {
+    for (const f of fs.readdirSync(TTS_CACHE_DIR).filter((n) => n.endsWith('.wav'))) {
+      fs.unlinkSync(path.join(TTS_CACHE_DIR, f));
+    }
+  }
+}
+
 describe('POST /tts', () => {
   let originalFetch;
 
   beforeEach(() => {
     originalFetch = global.fetch;
+    clearTtsCache();
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
+    clearTtsCache();
   });
 
   it('returns 400 when text is missing', async () => {
@@ -701,6 +713,81 @@ describe('POST /tts', () => {
     expect(res.status).toBe(502);
     expect(res.body.error).toMatch(/TTS service unreachable/i);
     expect(res.body.error).toMatch(/ECONNREFUSED/);
+  });
+
+  it('saves audio to the cache after the first synthesis', async () => {
+    const fakeWav = Buffer.from('RIFF-fake-wav');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    await request(app).post('/tts').send({ text: 'Cache me please' });
+
+    const files = fs.existsSync(TTS_CACHE_DIR) ? fs.readdirSync(TTS_CACHE_DIR).filter((f) => f.endsWith('.wav')) : [];
+    expect(files.length).toBe(1);
+  });
+
+  it('serves audio from the cache on a repeat request without calling Zonos', async () => {
+    const fakeWav = Buffer.from('RIFF-cached');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    // First request – synthesizes and caches.
+    await request(app).post('/tts').send({ text: 'Cached text' });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    // Second request with identical params – must be served from cache.
+    const res = await request(app).post('/tts').send({ text: 'Cached text' });
+    expect(res.status).toBe(200);
+    expect(global.fetch).toHaveBeenCalledTimes(1); // Zonos not called again
+    expect(res.headers['x-tts-cache']).toBe('hit');
+  });
+
+  it('uses a separate cache entry for different voice settings', async () => {
+    const fakeWav = Buffer.from('RIFF');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    await request(app).post('/tts').send({ text: 'Same text', speaking_rate: 12 });
+    await request(app).post('/tts').send({ text: 'Same text', speaking_rate: 20 });
+
+    // Two different cache keys → Zonos called twice.
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const files = fs.existsSync(TTS_CACHE_DIR) ? fs.readdirSync(TTS_CACHE_DIR).filter((f) => f.endsWith('.wav')) : [];
+    expect(files.length).toBe(2);
+  });
+});
+
+// ─── DELETE /tts/cache ───────────────────────────────────────────────────────
+
+describe('DELETE /tts/cache', () => {
+  beforeEach(() => { clearTtsCache(); });
+  afterEach(() => { clearTtsCache(); });
+
+  it('returns 200 with count 0 when the cache is already empty', async () => {
+    const res = await request(app).delete('/tts/cache');
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(0);
+    expect(res.body.message).toMatch(/0/);
+  });
+
+  it('removes all cached WAV files and reports the count', async () => {
+    // Manually plant two fake cache files.
+    fs.mkdirSync(TTS_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(path.join(TTS_CACHE_DIR, 'aaa.wav'), 'fake');
+    fs.writeFileSync(path.join(TTS_CACHE_DIR, 'bbb.wav'), 'fake');
+
+    const res = await request(app).delete('/tts/cache');
+
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(2);
+    const remaining = fs.readdirSync(TTS_CACHE_DIR).filter((f) => f.endsWith('.wav'));
+    expect(remaining.length).toBe(0);
   });
 });
 
