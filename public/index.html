@@ -1124,13 +1124,12 @@
 
       sectionEl.remove();
 
-      // If the deleted chapter was beyond the current nextChapter counter,
-      // no adjustment needed. If it was at or before, update so the next
-      // generate button stays sensible.
-      if (chapterNumber < storyState.nextChapter) {
-        storyState.nextChapter = Math.max(1, storyState.nextChapter - 1);
-        document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
-      }
+      // Recompute nextChapter as highest remaining chapter number + 1
+      const remainingNums = Array.from(document.querySelectorAll('.reading-chapter'))
+        .map((el) => Number(el.dataset.chapter))
+        .filter((n) => !isNaN(n) && n > 0);
+      storyState.nextChapter = remainingNums.length > 0 ? Math.max(...remainingNums) + 1 : 1;
+      document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
 
       // Hide reading panel if no chapters remain
       if (!document.querySelector('.reading-chapter')) {
@@ -1147,9 +1146,19 @@
   function appendChapterToReading(chapterNumber, content) {
     const readingView = document.getElementById('reading-view');
 
-    // Remove existing section for this chapter number if present (regeneration)
+    // If a section for this chapter already exists, update it in-place
     const existing = readingView.querySelector(`[data-chapter="${chapterNumber}"]`);
-    if (existing) existing.remove();
+    if (existing) {
+      existing.querySelectorAll('p').forEach((p) => p.remove());
+      const paragraphs = content.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+      paragraphs.forEach((text) => {
+        const p = document.createElement('p');
+        p.textContent = text;
+        existing.appendChild(p);
+      });
+      existing.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
 
     const section = document.createElement('div');
     section.className = 'reading-chapter';
