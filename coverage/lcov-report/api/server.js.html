@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">78.62% </span>
+                <span class="strong">72.72% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>103/131</span>
+                <span class='fraction'>104/143</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">73.13% </span>
+                <span class="strong">62.02% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>49/67</span>
+                <span class='fraction'>49/79</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">78.57% </span>
+                <span class="strong">72.46% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>99/126</span>
+                <span class='fraction'>100/138</span>
             </div>
         
             
@@ -338,8 +338,30 @@
 <a name='L273'></a><a href='#L273'>273</a>
 <a name='L274'></a><a href='#L274'>274</a>
 <a name='L275'></a><a href='#L275'>275</a>
-<a name='L276'></a><a href='#L276'>276</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L276'></a><a href='#L276'>276</a>
+<a name='L277'></a><a href='#L277'>277</a>
+<a name='L278'></a><a href='#L278'>278</a>
+<a name='L279'></a><a href='#L279'>279</a>
+<a name='L280'></a><a href='#L280'>280</a>
+<a name='L281'></a><a href='#L281'>281</a>
+<a name='L282'></a><a href='#L282'>282</a>
+<a name='L283'></a><a href='#L283'>283</a>
+<a name='L284'></a><a href='#L284'>284</a>
+<a name='L285'></a><a href='#L285'>285</a>
+<a name='L286'></a><a href='#L286'>286</a>
+<a name='L287'></a><a href='#L287'>287</a>
+<a name='L288'></a><a href='#L288'>288</a>
+<a name='L289'></a><a href='#L289'>289</a>
+<a name='L290'></a><a href='#L290'>290</a>
+<a name='L291'></a><a href='#L291'>291</a>
+<a name='L292'></a><a href='#L292'>292</a>
+<a name='L293'></a><a href='#L293'>293</a>
+<a name='L294'></a><a href='#L294'>294</a>
+<a name='L295'></a><a href='#L295'>295</a>
+<a name='L296'></a><a href='#L296'>296</a>
+<a name='L297'></a><a href='#L297'>297</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -611,6 +633,26 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">'use strict';
@@ -621,6 +663,7 @@ const path = require('path');
 const multer = require('multer');
 const rag = require('../openclaw/rag');
 const feedback = require('../openclaw/feedback');
+const ai = require('../openclaw/ai');
 const { ingest } = require('../ingest');
 &nbsp;
 const app = express();
@@ -882,8 +925,28 @@ app.delete('/pdf', async (req, res) =&gt; {
 });
 &nbsp;
 <span class="missing-if-branch" title="if path not taken" >I</span>if (require.main === module) {
-<span class="cstat-no" title="statement not covered" >  app.listen(PORT, <span class="fstat-no" title="function not covered" >()</span> =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >  app.listen(PORT, <span class="fstat-no" title="function not covered" >as</span>ync () =&gt; {</span>
 <span class="cstat-no" title="statement not covered" >    console.log(`PincerX API running on http://localhost:${PORT}`);</span>
+&nbsp;
+    // Validate configured AI model against available models at startup.
+<span class="cstat-no" title="statement not covered" >    try {</span>
+      let stored = <span class="cstat-no" title="statement not covered" >{};</span>
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        if (fs.existsSync(CONFIG_PATH)) {</span>
+<span class="cstat-no" title="statement not covered" >          stored = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));</span>
+        }
+      } catch { /* ignore corrupt config */ }
+&nbsp;
+      const baseUrl = <span class="cstat-no" title="statement not covered" >stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';</span>
+      const configuredModel = <span class="cstat-no" title="statement not covered" >stored.model || process.env.AI_MODEL || 'llama3';</span>
+      const models = <span class="cstat-no" title="statement not covered" >await ai.listModels({ baseUrl });</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >      if (models.length &gt; 0 &amp;&amp; !models.includes(configuredModel)) {</span>
+<span class="cstat-no" title="statement not covered" >        console.warn(`[AI] Configured model "${configuredModel}" not found in available models list. Available: ${models.join(', ')}`);</span>
+      }
+    } catch (e) {
+<span class="cstat-no" title="statement not covered" >      console.error('[AI] Could not validate model on startup:', e.message);</span>
+    }
   });
 }
 &nbsp;
@@ -895,7 +958,7 @@ module.exports = app;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T06:51:49.927Z
+                at 2026-04-19T06:55:56.830Z
             </div>
         <script src="../prettify.js"></script>
         <script>

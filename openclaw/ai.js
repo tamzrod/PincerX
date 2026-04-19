@@ -13,6 +13,61 @@ const DEFAULT_TIMEOUT_MS = 30000;
 const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
 
 /**
+ * Normalize and validate an AI base URL.
+ *
+ * - Ensures the URL starts with "http://" or "https://".
+ * - Removes trailing slashes.
+ * - Rejects bare protocol names (e.g. "http"), empty strings, and other
+ *   values that cannot form a valid URL.
+ *
+ * @param {string} url - Raw base URL string to normalize.
+ * @returns {string} Normalized URL.
+ * @throws {Error} When the value cannot be made into a valid URL.
+ */
+function normalizeBaseUrl(url) {
+  if (!url || typeof url !== 'string' || url.trim() === '') {
+    throw new Error('Invalid AI_BASE_URL configuration');
+  }
+
+  let normalized = url.trim();
+
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    // Valid protocol prefix — check for accidental double-protocol such as
+    // "http://http://..." which produces a nonsensical hostname.
+    const withoutProtocol = normalized.replace(/^https?:\/\//, '');
+    if (/^https?:\/\//i.test(withoutProtocol)) {
+      throw new Error('Invalid AI_BASE_URL configuration');
+    }
+  } else if (/^https?/i.test(normalized)) {
+    // Starts with "http" or "https" but without "://" — malformed protocol.
+    throw new Error('Invalid AI_BASE_URL configuration');
+  } else {
+    // No protocol present; assume http://.
+    normalized = 'http://' + normalized;
+  }
+
+  // Remove trailing slashes.
+  normalized = normalized.replace(/\/+$/, '');
+
+  // Final structural validation via the WHATWG URL parser.
+  try {
+    new URL(normalized); // eslint-disable-line no-new
+  } catch {
+    throw new Error('Invalid AI_BASE_URL configuration');
+  }
+
+  return normalized;
+}
+
+// Log the resolved base URL at module load so misconfiguration is visible
+// immediately on startup.
+try {
+  console.log('[AI] Using base URL:', normalizeBaseUrl(DEFAULT_BASE_URL));
+} catch (e) {
+  console.error('[AI] Warning: AI_BASE_URL is invalid:', e.message);
+}
+
+/**
  * Load runtime AI config from data/ai-config.json.
  * Returns an empty object if the file is missing or unreadable.
  *
@@ -23,6 +78,80 @@ function loadRuntimeConfig() {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
     return {};
+  }
+}
+
+/**
+ * Build a low-level http/https request and return the full response body.
+ *
+ * @param {string} method - HTTP method (e.g. "GET", "POST").
+ * @param {string} baseUrl - Normalized base URL.
+ * @param {string} endpointPath - Path to append (e.g. "/api/tags").
+ * @param {string|null} [body] - Optional request body to send.
+ * @param {object} [extraHeaders] - Additional headers.
+ * @returns {Promise<string>} Raw response body.
+ */
+function httpRequest(method, baseUrl, endpointPath, body = null, extraHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(endpointPath, baseUrl);
+    const isHttps = url.protocol === 'https:';
+    const transport = isHttps ? https : http;
+
+    const headers = { ...extraHeaders };
+    if (body !== null) {
+      headers['Content-Type'] = 'application/json';
+      headers['Content-Length'] = Buffer.byteLength(body);
+    }
+
+    const req = transport.request(
+      {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname,
+        method,
+        headers,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => resolve(data));
+      }
+    );
+
+    req.on('error', reject);
+
+    if (body !== null) {
+      req.write(body);
+    }
+    req.end();
+  });
+}
+
+/**
+ * List available model names from an Ollama-compatible backend.
+ *
+ * @param {object} [options]
+ * @param {string} [options.baseUrl] - Base URL of the AI API.
+ * @returns {Promise<string[]>} Array of model name strings.
+ */
+async function listModels(options = {}) {
+  const runtimeConfig = loadRuntimeConfig();
+  const baseUrl = normalizeBaseUrl(
+    options.baseUrl || runtimeConfig.baseUrl || DEFAULT_BASE_URL
+  );
+
+  let raw;
+  try {
+    raw = await httpRequest('GET', baseUrl, '/api/tags');
+  } catch (err) {
+    throw new Error(`Failed to list models: ${err.message}`);
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return (parsed.models || []).map((m) => m.name).filter((name) => typeof name === 'string' && name.length > 0);
+  } catch (err) {
+    throw new Error(`Failed to parse model list: ${err.message}`);
   }
 }
 
@@ -39,7 +168,9 @@ function loadRuntimeConfig() {
  */
 function ask(prompt, options = {}) {
   const runtimeConfig = loadRuntimeConfig();
-  const baseUrl = options.baseUrl || runtimeConfig.baseUrl || DEFAULT_BASE_URL;
+  const baseUrl = normalizeBaseUrl(
+    options.baseUrl || runtimeConfig.baseUrl || DEFAULT_BASE_URL
+  );
   const model = options.model || runtimeConfig.model || DEFAULT_MODEL;
   const apiKey = options.apiKey || runtimeConfig.apiKey || DEFAULT_API_KEY;
   const timeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
@@ -103,7 +234,7 @@ function ask(prompt, options = {}) {
     });
 
     req.on('error', (err) => {
-      settle(() => reject(new Error(`AI request failed: ${err.message}`)));
+      settle(() => reject(new Error(`AI request failed (${baseUrl}, model=${model}): ${err.message}`)));
     });
 
     // Destroy the request on timeout only if the promise is not yet settled.
@@ -121,4 +252,4 @@ function ask(prompt, options = {}) {
   });
 }
 
-module.exports = { ask };
+module.exports = { ask, listModels, normalizeBaseUrl };
