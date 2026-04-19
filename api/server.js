@@ -14,8 +14,9 @@ const PORT = process.env.PORT || 3000;
 const PDF_DIR = path.join(__dirname, '..', 'pdfs');
 const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
 
-// Ensure the pdfs directory exists at startup
+// Ensure required directories exist at startup
 fs.mkdirSync(PDF_DIR, { recursive: true });
+fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
 
 // Multer storage: save to /pdfs with original filename
 const storage = multer.diskStorage({
@@ -108,6 +109,7 @@ app.post('/config', (req, res) => {
   }
 
   try {
+    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
     return res.json({ message: 'Configuration saved.' });
   } catch (e) {
