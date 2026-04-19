@@ -580,3 +580,91 @@ describe('POST /story/create', () => {
     expect(res.body.error).toMatch(/AI offline/);
   });
 });
+
+// ─── POST /tts ───────────────────────────────────────────────────────────────
+
+describe('POST /tts', () => {
+  let originalFetch;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('returns 400 when text is missing', async () => {
+    const res = await request(app).post('/tts').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/text/i);
+  });
+
+  it('returns 400 when text is an empty string', async () => {
+    const res = await request(app).post('/tts').send({ text: '' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/text/i);
+  });
+
+  it('returns 400 when text is a blank string', async () => {
+    const res = await request(app).post('/tts').send({ text: '   ' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/text/i);
+  });
+
+  it('returns audio/wav with 200 when Zonos responds successfully', async () => {
+    const fakeWav = Buffer.from('RIFF');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    const res = await request(app).post('/tts').send({ text: 'Hello world' });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/audio\/wav/);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/synthesize'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('sends the text to Zonos trimmed and capped at 50 000 characters', async () => {
+    const fakeWav = Buffer.from('RIFF');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    const longText = 'a'.repeat(60_000);
+    await request(app).post('/tts').send({ text: `  ${longText}  ` });
+
+    const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sentBody.text.length).toBeLessThanOrEqual(50_000);
+  });
+
+  it('returns 502 with error message when Zonos returns a non-OK status', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: () => Promise.resolve('model crashed'),
+    });
+
+    const res = await request(app).post('/tts').send({ text: 'Hello world' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/TTS service error/i);
+    expect(res.body.error).toMatch(/model crashed/);
+  });
+
+  it('returns 502 when the Zonos sidecar is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const res = await request(app).post('/tts').send({ text: 'Hello world' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/TTS service unreachable/i);
+    expect(res.body.error).toMatch(/ECONNREFUSED/);
+  });
+});

@@ -271,6 +271,46 @@ app.delete('/pdf', async (req, res) => {
 });
 
 /**
+ * POST /tts
+ * Body: { "text": "chapter text to synthesize" }
+ * Proxies the request to the Zonos TTS sidecar and streams back a WAV file.
+ * Falls back to a 502 with a JSON error body if the sidecar is unreachable so
+ * the browser can fall back to the Web Speech API gracefully.
+ */
+const TTS_MAX_CHARS = 50_000;  // ~8 000 words – more than enough for one chapter
+const TTS_TIMEOUT_MS = 180_000; // 3 min: Zonos on GPU generates ~real-time
+
+app.post('/tts', async (req, res) => {
+  const { text } = req.body;
+  const err = validateStringField(text, 'text');
+  if (err) return res.status(400).json({ error: err });
+
+  const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
+  const trimmed = text.trim().slice(0, TTS_MAX_CHARS);
+
+  try {
+    const response = await fetch(`${zonosUrl}/synthesize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: trimmed }),
+      signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText);
+      return res.status(502).json({ error: `TTS service error: ${detail}` });
+    }
+
+    const audioBuffer = await response.arrayBuffer();
+    res.set('Content-Type', 'audio/wav');
+    res.set('Content-Length', String(audioBuffer.byteLength));
+    return res.send(Buffer.from(audioBuffer));
+  } catch (e) {
+    return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
+  }
+});
+
+/**
  * POST /story/create
  * Body: { "title": "...", "genre": "...", "tone": "..." }
  * Generates a story outline via AI and saves it to data/stories/.

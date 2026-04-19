@@ -117,6 +117,9 @@ docker compose -f deploy/docker-compose.local.yml down
 
 # Stack mode
 docker compose -f deploy/docker-compose.stack.yml down
+
+# Stack + Zonos
+docker compose -f deploy/docker-compose.stack.yml -f deploy/docker-compose.zonos.yml down
 ```
 
 To also remove the Ollama model volume (stack mode only):
@@ -124,6 +127,64 @@ To also remove the Ollama model volume (stack mode only):
 ```bash
 docker compose -f deploy/docker-compose.stack.yml down -v
 ```
+
+---
+
+## Zonos TTS (GPU text-to-speech)
+
+PincerX includes a `🔊 Read` button on every story chapter. By default it uses
+the browser's built-in Web Speech API. If you have an NVIDIA GPU you can run
+the Zonos neural TTS sidecar for dramatically better voice quality.
+
+### Requirements
+
+- Docker with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed
+- At least one NVIDIA GPU accessible to Docker
+
+### Start the Zonos sidecar
+
+Combine the Zonos overlay with the main stack compose file:
+
+```bash
+docker compose \
+  -f deploy/docker-compose.stack.yml \
+  -f deploy/docker-compose.zonos.yml \
+  --env-file deploy/.env \
+  up -d
+```
+
+The first run downloads the Zonos model weights (~5 GB) from Hugging Face and
+caches them in the `zonos_cache` Docker volume.  Subsequent starts are fast.
+
+### How it works
+
+1. The `zonos` service runs a FastAPI server (`zonos/server.py`) on port 8000.
+2. PincerX's Node backend exposes `POST /tts` which proxies text to `zonos/synthesize`.
+3. The browser plays the returned WAV file directly via the Web Audio API.
+4. If the Zonos sidecar is unreachable (e.g. not started), the `🔊 Read` button
+   falls back transparently to the browser's Web Speech API.
+
+### Environment variable
+
+| Variable    | Description                        | Default                    |
+|-------------|------------------------------------|----------------------------|
+| `ZONOS_URL` | URL of the Zonos sidecar           | `http://localhost:8000`    |
+
+Set `ZONOS_URL=http://zonos:8000` when running inside Docker Compose (the
+overlay sets this automatically on the `pincerx` service).
+
+### Running Zonos without Docker
+
+If you prefer to run Zonos directly on the host (e.g. in a Python venv):
+
+```bash
+cd zonos
+pip install -r requirements.txt
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+Then set `ZONOS_URL=http://host.docker.internal:8000` (or `http://localhost:8000`
+if PincerX is also running directly on the host).
 
 ---
 
