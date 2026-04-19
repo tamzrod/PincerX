@@ -1,0 +1,42 @@
+[
+  {
+    "id": "1",
+    "title": "Introduction to Machine Learning",
+    "content": "Machine learning is a subset of artificial intelligence that enables systems to learn and improve from experience without being explicitly programmed. It focuses on developing computer programs that can access data and use it to learn for themselves."
+  },
+  {
+    "id": "2",
+    "title": "Natural Language Processing",
+    "content": "Natural language processing (NLP) is a branch of AI that helps computers understand, interpret, and manipulate human language. NLP draws from many disciplines, including computer science and computational linguistics, in its pursuit to fill the gap between human communication and computer understanding."
+  },
+  {
+    "id": "3",
+    "title": "Node.js Overview",
+    "content": "Node.js is an open-source, cross-platform JavaScript runtime environment built on Chrome's V8 engine. It allows developers to run JavaScript on the server side, enabling full-stack development using a single programming language."
+  },
+  {
+    "id": "4",
+    "title": "RESTful APIs",
+    "content": "A RESTful API is an interface that uses HTTP requests to perform CRUD operations (Create, Read, Update, Delete). REST stands for Representational State Transfer. APIs following REST principles are stateless, scalable, and easy to integrate."
+  },
+  {
+    "id": "5",
+    "title": "Retrieval-Augmented Generation",
+    "content": "Retrieval-Augmented Generation (RAG) is a technique that combines information retrieval with language model generation. It retrieves relevant documents from a knowledge base and provides them as context to the language model, reducing hallucinations and grounding answers in factual data."
+  },
+  {
+    "id": "6",
+    "title": "Sentiment Analysis",
+    "content": "Sentiment analysis is the use of natural language processing to identify and extract subjective information from text. It classifies text as positive, negative, or neutral, and is widely used in customer feedback analysis, social media monitoring, and product reviews."
+  },
+  {
+    "id": "7",
+    "title": "Ollama Local AI",
+    "content": "Ollama is a tool that allows you to run large language models locally on your own machine. It provides an API-compatible interface at http://localhost:11434, supporting models like Llama, Mistral, and others without requiring cloud services."
+  },
+  {
+    "id": "8",
+    "title": "JSON Data Format",
+    "content": "JSON (JavaScript Object Notation) is a lightweight data-interchange format. It is easy for humans to read and write and easy for machines to parse and generate. JSON is widely used for transmitting data between a server and web application."
+  }
+]
