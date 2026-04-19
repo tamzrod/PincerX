@@ -534,6 +534,11 @@
       color: #888;
       font-family: system-ui, sans-serif;
     }
+
+    .tts-prebake-label.done {
+      color: #1e7e45;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -651,6 +656,13 @@
     </div>
 
     <div class="msg" id="cfg-msg"></div>
+
+    <div class="field-group" style="border-top:1px solid #eee;padding-top:14px;margin-top:6px">
+      <h3 style="margin-bottom:6px">TTS Cache</h3>
+      <p style="font-size:12px;color:#666;margin-bottom:8px">Clears all pre-generated audio files. Use this if voices or settings have changed and audio sounds wrong.</p>
+      <button class="btn-danger" id="cfg-clear-cache-btn" type="button" onclick="clearTTSCache()">🗑 Clear TTS Cache</button>
+      <div class="msg" id="cfg-cache-msg"></div>
+    </div>
 
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeSettings()">Cancel</button>
@@ -1037,6 +1049,7 @@
 
   async function openSettings() {
     clearMsg('cfg-msg');
+    clearMsg('cfg-cache-msg');
     document.getElementById('settings-overlay').classList.add('open');
     try {
       const cfg = await apiFetch('/config');
@@ -1171,6 +1184,20 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Save';
+    }
+  }
+
+  async function clearTTSCache() {
+    const btn = document.getElementById('cfg-clear-cache-btn');
+    btn.disabled = true;
+    showMsg('cfg-cache-msg', 'Clearing cache…', 'loading');
+    try {
+      const data = await apiFetch('/tts/cache', { method: 'DELETE' });
+      showMsg('cfg-cache-msg', data.message || 'Cache cleared.', 'success');
+    } catch (e) {
+      showMsg('cfg-cache-msg', e.message, 'error');
+    } finally {
+      btn.disabled = false;
     }
   }
 
@@ -2155,8 +2182,9 @@
               // All chunks failed — hide bar silently (Zonos likely unavailable)
               wrapEl.style.display = 'none';
             } else {
-              labelEl.textContent = '🎙 Audio ready — click Read to play instantly';
-              setTimeout(() => { wrapEl.style.display = 'none'; }, 5000);
+              labelEl.textContent = '✅ Audio ready — click Read to play instantly';
+              labelEl.classList.add('done');
+              setTimeout(() => { wrapEl.style.display = 'none'; labelEl.classList.remove('done'); }, 5000);
             }
           }
         } catch {

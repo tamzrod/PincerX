@@ -528,17 +528,20 @@ const _prebakeJobs = new Map();
  *
  * @returns {string} jobId – pass to GET /tts-prebake/:jobId to poll progress.
  */
-function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPreset) {
+function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPreset, storyId) {
   const jobId = crypto.randomUUID();
   const chunks = splitIntoTTSChunksWithEmotion(chapterText, emotionPreset || 'neutral');
   const job = { total: chunks.length, done: 0, errors: 0, status: 'running' };
   _prebakeJobs.set(jobId, job);
 
   (async () => {
+    const generatedKeys = [];
     for (const chunk of chunks) {
       if (job.status === 'cancelled') break;
+      const cacheKey = ttsCacheKey(chunk.text, voiceId, speakingRate, pitchStd, chunk.emotion);
       try {
         await _ensureAudioCached(chunk.text, voiceId, speakingRate, pitchStd, chunk.emotion);
+        generatedKeys.push(cacheKey);
       } catch (e) {
         job.errors++;
         console.warn(`[TTS prebake ${jobId}] chunk failed:`, e.message);
@@ -546,6 +549,17 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
       job.done++;
     }
     job.status = 'complete';
+
+    // Persist cache keys for this story so they can be removed when the story is deleted.
+    if (storyId && /^[a-z0-9-]+$/.test(storyId) && generatedKeys.length > 0) {
+      try {
+        const keysPath = path.join(TTS_CACHE_DIR, `${storyId}.cachekeys`);
+        fs.appendFileSync(keysPath, generatedKeys.join('\n') + '\n', 'utf8');
+      } catch (e) {
+        console.warn('[TTS prebake] Failed to write cache keys:', e.message);
+      }
+    }
+
     // Evict the job from memory after a while so the Map doesn't grow forever.
     // .unref() ensures this timer does not keep the process alive during testing.
     setTimeout(() => _prebakeJobs.delete(jobId), PREBAKE_JOB_RETENTION_MS).unref();
@@ -776,6 +790,7 @@ app.delete('/story/:id/chapter/:chapterNumber', async (req, res) => {
 /**
  * DELETE /story/:id
  * Permanently deletes an entire story and all its chapters from disk.
+ * Also removes any TTS cache audio files that were pre-generated for this story.
  */
 app.delete('/story/:id', (req, res) => {
   const { id } = req.params;
@@ -783,6 +798,21 @@ app.delete('/story/:id', (req, res) => {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
   try {
+    // Remove TTS cache audio files recorded for this story during prebaking.
+    // id is validated above to match /^[a-z0-9-]+$/, so it is safe to use in a path.
+    const keysPath = path.join(TTS_CACHE_DIR, `${id}.cachekeys`);
+    if (fs.existsSync(keysPath)) {
+      const keys = fs.readFileSync(keysPath, 'utf8').split('\n').filter(Boolean);
+      // Validate each key is a SHA-256 hex digest (64 lowercase hex chars) before use.
+      const SHA256_RE = /^[0-9a-f]{64}$/;
+      for (const key of keys) {
+        if (!SHA256_RE.test(key)) continue;
+        const wavPath = path.join(TTS_CACHE_DIR, `${key}.wav`);
+        try { if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath); } catch { /* ignore */ }
+      }
+      try { fs.unlinkSync(keysPath); } catch { /* ignore */ }
+    }
+
     const result = story.deleteStory(id);
     return res.json(result);
   } catch (e) {
@@ -827,7 +857,7 @@ app.post('/story/:id/chapter/:num/tts-prebake', (req, res) => {
   const voiceId = typeof voice_id === 'string' ? voice_id.trim() : '';
   const emotionPreset = typeof emotion_preset === 'string' ? emotion_preset.trim() : '';
 
-  const jobId = startPrebakeJob(chapter.content, voiceId, speaking_rate, pitch_std, emotionPreset);
+  const jobId = startPrebakeJob(chapter.content, voiceId, speaking_rate, pitch_std, emotionPreset, id);
   return res.json({ jobId, total: _prebakeJobs.get(jobId).total });
 });
 
