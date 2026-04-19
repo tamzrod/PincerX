@@ -3,10 +3,14 @@
 // Mock OpenClaw modules so integration tests don't call real AI
 jest.mock('../openclaw/rag');
 jest.mock('../openclaw/feedback');
+jest.mock('../ingest');
 
 const request = require('supertest');
+const path = require('path');
+const fs = require('fs');
 const rag = require('../openclaw/rag');
 const feedback = require('../openclaw/feedback');
+const { ingest } = require('../ingest');
 
 // Import the app — must happen after jest.mock() calls
 let app;
@@ -147,5 +151,128 @@ describe('POST /analyze', () => {
     expect(res.status).toBe(502);
     expect(res.body.error).toMatch(/OpenClaw Feedback error/);
     expect(res.body.error).toMatch(/parse failure/);
+  });
+});
+
+// ─── POST /upload ─────────────────────────────────────────────────────────────
+
+describe('POST /upload', () => {
+  const PDF_DIR = path.join(__dirname, '..', 'pdfs');
+  const testPdf = path.join(PDF_DIR, 'test-upload.pdf');
+
+  beforeAll(() => {
+    fs.mkdirSync(PDF_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(testPdf)) fs.unlinkSync(testPdf);
+  });
+
+  it('returns 200 and triggers ingest when a valid PDF is uploaded', async () => {
+    ingest.mockResolvedValue();
+
+    const res = await request(app)
+      .post('/upload')
+      .attach('file', Buffer.from('%PDF-1.4 fake'), 'test-upload.pdf');
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/test-upload\.pdf/);
+    expect(ingest).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 400 when no file is provided', async () => {
+    const res = await request(app).post('/upload').send();
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when uploaded file is not a PDF', async () => {
+    const res = await request(app)
+      .post('/upload')
+      .attach('file', Buffer.from('hello'), 'test.txt');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/PDF/i);
+  });
+
+  it('returns 500 when ingestion fails', async () => {
+    ingest.mockRejectedValue(new Error('ingest error'));
+
+    const res = await request(app)
+      .post('/upload')
+      .attach('file', Buffer.from('%PDF-1.4 fake'), 'test-upload.pdf');
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/ingest error/);
+  });
+});
+
+// ─── DELETE /pdf ──────────────────────────────────────────────────────────────
+
+describe('DELETE /pdf', () => {
+  const PDF_DIR = path.join(__dirname, '..', 'pdfs');
+  const testFilename = 'delete-me.pdf';
+  const testPdf = path.join(PDF_DIR, testFilename);
+
+  beforeAll(() => {
+    fs.mkdirSync(PDF_DIR, { recursive: true });
+  });
+
+  it('returns 200 and triggers ingest when a valid PDF is deleted', async () => {
+    fs.writeFileSync(testPdf, '%PDF-1.4 fake');
+    ingest.mockResolvedValue();
+
+    const res = await request(app)
+      .delete('/pdf')
+      .send({ filename: testFilename });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/delete-me\.pdf/);
+    expect(fs.existsSync(testPdf)).toBe(false);
+    expect(ingest).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 404 when the file does not exist', async () => {
+    const res = await request(app)
+      .delete('/pdf')
+      .send({ filename: 'nonexistent.pdf' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not found/i);
+  });
+
+  it('returns 400 when filename is missing', async () => {
+    const res = await request(app).delete('/pdf').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/filename/i);
+  });
+
+  it('returns 400 when filename is not a PDF', async () => {
+    const res = await request(app)
+      .delete('/pdf')
+      .send({ filename: 'secret.txt' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/\.pdf/i);
+  });
+
+  it('returns 400 when filename contains path traversal', async () => {
+    const res = await request(app)
+      .delete('/pdf')
+      .send({ filename: '../secret.pdf' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid/i);
+  });
+
+  it('returns 500 when ingestion fails', async () => {
+    fs.writeFileSync(testPdf, '%PDF-1.4 fake');
+    ingest.mockRejectedValue(new Error('ingest boom'));
+
+    const res = await request(app)
+      .delete('/pdf')
+      .send({ filename: testFilename });
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/ingest boom/);
   });
 });
