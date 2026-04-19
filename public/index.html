@@ -1409,34 +1409,9 @@
     } catch (e) {
       testTTSController = null;
       if (e.name === 'AbortError') return; // user cancelled – button already reset
-      // Zonos unavailable – fall back to browser speech synthesis for the test.
-      console.warn('[TTS] Zonos unavailable for test, falling back to browser speech synthesis:', e.message);
-      if (window.speechSynthesis) {
-        const voiceType = document.getElementById('voice-type').value || voicePrefs.voice_type || 'narrator';
-        const voice = pickBrowserVoice(voiceType);
-        const utterance = new SpeechSynthesisUtterance(TTS_SAMPLE_TEXT);
-        if (voice) utterance.voice = voice;
-        utterance.lang = voice ? voice.lang : 'en-US';
-        utterance.rate = zonosRateToSpeechRate(Number(document.getElementById('voice-rate').value) || 15);
-        btn.textContent = '⏹ Stop';
-        btn.classList.remove('loading');
-        btn.classList.add('speaking');
-        utterance.onend = () => {
-          btn.textContent = '▶ Test';
-          btn.classList.remove('loading', 'speaking');
-          btn.disabled = false;
-        };
-        utterance.onerror = () => {
-          btn.textContent = '▶ Test';
-          btn.classList.remove('loading', 'speaking');
-          btn.disabled = false;
-        };
-        window.speechSynthesis.speak(utterance);
-      } else {
-        btn.textContent = '▶ Test';
-        btn.classList.remove('loading', 'speaking');
-        btn.disabled = false;
-      }
+      btn.textContent = '▶ Test';
+      btn.classList.remove('loading', 'speaking');
+      btn.disabled = false;
     }
   }
 
@@ -1785,11 +1760,8 @@
     } catch (e) {
       if (isTTSCancelled(btn)) return;
       activeTTSController = null;
-      console.warn('[TTS] Zonos unavailable, falling back to browser speech synthesis:', e.message);
-      // Put the failed chunk back and hand all remaining chunks to the browser TTS engine.
-      const remaining = [chunk, ...activeTTSQueue];
-      activeTTSQueue = [];
-      speakWithBrowserTTS(remaining, btn);
+      console.warn('[TTS] Zonos unavailable:', e.message);
+      stopTTS();
     }
   }
 
