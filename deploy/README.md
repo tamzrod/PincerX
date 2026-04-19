@@ -8,6 +8,7 @@ This guide explains how to build and run PincerX using Docker in three modes.
 
 - [Docker](https://docs.docker.com/get-docker/) ≥ 24
 - [Docker Compose](https://docs.docker.com/compose/install/) v2 (bundled with Docker Desktop)
+- **NVIDIA GPU (recommended):** Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) so that both Ollama and Zonos can use your GPU. Without it, inference runs on CPU and will be significantly slower.
 
 ---
 
@@ -60,7 +61,7 @@ PincerX will reach Ollama via `http://host.docker.internal:11434`.
 
 ## Mode 2 – Full Stack (Ollama in Docker)
 
-Starts both PincerX and an Ollama container.
+Starts both PincerX and an Ollama container. If the NVIDIA Container Toolkit is installed, Ollama will automatically use your GPU.
 
 ```bash
 docker compose -f deploy/docker-compose.stack.yml --env-file deploy/.env up -d
