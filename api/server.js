@@ -312,6 +312,10 @@ function ttsFetchError(e) {
 const TTS_MAX_CHARS = 50_000;  // ~8 000 words – more than enough for one chapter
 const TTS_TIMEOUT_MS = 180_000; // 3 min: Zonos on GPU generates ~real-time
 
+// Chunk size used by both the frontend player and the server-side prebake —
+// must stay in sync so that cache keys computed on both sides match.
+const TTS_CHUNK_MAX_CHARS = 300;
+
 /**
  * Build a deterministic cache key from the normalised TTS request parameters.
  *
@@ -333,67 +337,164 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
   return crypto.createHash('sha256').update(normalized).digest('hex');
 }
 
+/**
+ * Split *text* into sentence-sized chunks of at most *TTS_CHUNK_MAX_CHARS*
+ * characters.  Mirrors the frontend splitIntoChunks() function exactly so that
+ * both sides produce the same chunk list (and therefore the same cache keys).
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+function splitIntoTTSChunks(text) {
+  // Split on blank lines (paragraph boundaries) and sentence-ending punctuation
+  // followed by whitespace and an uppercase letter or opening quote.
+  // Unicode: \u201C = left double quotation mark, \u2018 = left single quote.
+  const sentences = text
+    .split(/\n\n+|(?<=[.!?…])\s+(?=[A-Z"'\u201C\u2018])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!sentences.length) return [text];
+
+  const chunks = [];
+  let current = '';
+  for (const sentence of sentences) {
+    if (sentence.length > TTS_CHUNK_MAX_CHARS) {
+      if (current) { chunks.push(current); current = ''; }
+      let remaining = sentence;
+      while (remaining.length > TTS_CHUNK_MAX_CHARS) {
+        const cut = remaining.lastIndexOf(' ', TTS_CHUNK_MAX_CHARS);
+        const hasWordBoundary = cut > 0;
+        chunks.push(hasWordBoundary ? remaining.slice(0, cut) : remaining.slice(0, TTS_CHUNK_MAX_CHARS));
+        remaining = remaining.slice(hasWordBoundary ? cut + 1 : TTS_CHUNK_MAX_CHARS);
+      }
+      current = remaining;
+    } else if (current && current.length + 1 + sentence.length > TTS_CHUNK_MAX_CHARS) {
+      chunks.push(current);
+      current = sentence;
+    } else {
+      current = current ? `${current} ${sentence}` : sentence;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.length ? chunks : [text];
+}
+
+/**
+ * Ensure that the WAV audio for *text* with the given voice settings is present
+ * in the disk cache.  Returns the cached Buffer (from disk or freshly
+ * synthesized) and whether it was a cache hit.
+ *
+ * Throws an Error (with message starting "TTS service error:") on Zonos
+ * failures, or re-throws native network errors so the caller can apply
+ * ttsFetchError() to them.
+ *
+ * @param {string} text - Already-trimmed text.
+ * @param {string} voiceId
+ * @param {number|undefined} speakingRate
+ * @param {number|undefined} pitchStd
+ * @param {string} emotionPreset
+ * @returns {Promise<{buf: Buffer, hit: boolean}>}
+ */
+async function _ensureAudioCached(text, voiceId, speakingRate, pitchStd, emotionPreset) {
+  const cacheKey = ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset);
+  const cachePath = path.join(TTS_CACHE_DIR, `${cacheKey}.wav`);
+
+  if (fs.existsSync(cachePath)) {
+    return { buf: fs.readFileSync(cachePath), hit: true };
+  }
+
+  const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
+  const zonosBody = { text };
+  if (voiceId) zonosBody.voice_id = voiceId;
+  if (typeof speakingRate === 'number') zonosBody.speaking_rate = speakingRate;
+  if (typeof pitchStd === 'number') zonosBody.pitch_std = pitchStd;
+  if (emotionPreset) zonosBody.emotion_preset = emotionPreset;
+
+  const response = await fetch(`${zonosUrl}/synthesize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(zonosBody),
+    signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(`TTS service error: ${detail}`);
+  }
+
+  const audioBuffer = await response.arrayBuffer();
+  const buf = Buffer.from(audioBuffer);
+  try {
+    fs.writeFileSync(cachePath, buf);
+  } catch (writeErr) {
+    console.warn('[TTS cache] Failed to write cache file:', writeErr.message);
+  }
+  return { buf, hit: false };
+}
+
 app.post('/tts', async (req, res) => {
   const { text, voice_id, speaking_rate, pitch_std, emotion_preset } = req.body;
   const err = validateStringField(text, 'text');
   if (err) return res.status(400).json({ error: err });
 
-  const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
   const trimmed = text.trim().slice(0, TTS_MAX_CHARS);
-
   const voiceId = typeof voice_id === 'string' ? voice_id.trim() : '';
   const emotionPreset = typeof emotion_preset === 'string' ? emotion_preset.trim() : '';
 
-  // ── Cache lookup ──────────────────────────────────────────────────────────
-  const cacheKey = ttsCacheKey(trimmed, voiceId, speaking_rate, pitch_std, emotionPreset);
-  const cachePath = path.join(TTS_CACHE_DIR, `${cacheKey}.wav`);
-
-  if (fs.existsSync(cachePath)) {
-    const cached = fs.readFileSync(cachePath);
-    res.set('Content-Type', 'audio/wav');
-    res.set('Content-Length', String(cached.length));
-    res.set('X-TTS-Cache', 'hit');
-    return res.send(cached);
-  }
-
-  // ── Cache miss: synthesize via Zonos ─────────────────────────────────────
-  const zonosBody = { text: trimmed };
-  if (voiceId) zonosBody.voice_id = voiceId;
-  if (typeof speaking_rate === 'number') zonosBody.speaking_rate = speaking_rate;
-  if (typeof pitch_std === 'number') zonosBody.pitch_std = pitch_std;
-  if (emotionPreset) zonosBody.emotion_preset = emotionPreset;
-
   try {
-    const response = await fetch(`${zonosUrl}/synthesize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(zonosBody),
-      signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => response.statusText);
-      return res.status(502).json({ error: `TTS service error: ${detail}` });
-    }
-
-    const audioBuffer = await response.arrayBuffer();
-
-    // Persist to cache so future identical requests skip Zonos entirely.
-    try {
-      fs.writeFileSync(cachePath, Buffer.from(audioBuffer));
-    } catch (writeErr) {
-      // Non-fatal: log and continue serving the audio even if caching fails.
-      console.warn('[TTS cache] Failed to write cache file:', writeErr.message);
-    }
-
+    const { buf, hit } = await _ensureAudioCached(trimmed, voiceId, speaking_rate, pitch_std, emotionPreset);
     res.set('Content-Type', 'audio/wav');
-    res.set('Content-Length', String(audioBuffer.byteLength));
-    res.set('X-TTS-Cache', 'miss');
-    return res.send(Buffer.from(audioBuffer));
+    res.set('Content-Length', String(buf.length));
+    res.set('X-TTS-Cache', hit ? 'hit' : 'miss');
+    return res.send(buf);
   } catch (e) {
+    if (e.message.startsWith('TTS service error:')) {
+      return res.status(502).json({ error: e.message });
+    }
     return res.status(502).json({ error: ttsFetchError(e) });
   }
 });
+
+// ── TTS prebake job system ────────────────────────────────────────────────────
+// Jobs live in memory (cleared on restart) but the WAV files they produce are
+// persisted in TTS_CACHE_DIR, so reloaded stories still get cache hits.
+
+/** @type {Map<string, {total: number, done: number, errors: number, status: string}>} */
+const _prebakeJobs = new Map();
+
+/**
+ * Start a background job that synthesizes every chunk of *chapterText* and
+ * writes each result to the TTS cache.  Already-cached chunks are counted as
+ * done immediately.  Chunks are processed sequentially to avoid overloading
+ * the Zonos sidecar.
+ *
+ * @returns {string} jobId – pass to GET /tts-prebake/:jobId to poll progress.
+ */
+function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPreset) {
+  const jobId = crypto.randomUUID();
+  const chunks = splitIntoTTSChunks(chapterText);
+  const job = { total: chunks.length, done: 0, errors: 0, status: 'running' };
+  _prebakeJobs.set(jobId, job);
+
+  (async () => {
+    for (const chunk of chunks) {
+      if (job.status === 'cancelled') break;
+      try {
+        await _ensureAudioCached(chunk, voiceId, speakingRate, pitchStd, emotionPreset);
+      } catch (e) {
+        job.errors++;
+        console.warn(`[TTS prebake ${jobId}] chunk failed:`, e.message);
+      }
+      job.done++;
+    }
+    job.status = 'complete';
+    // Evict the job from memory after 10 minutes so the Map doesn't grow forever.
+    // .unref() ensures this timer does not keep the process alive during testing.
+    setTimeout(() => _prebakeJobs.delete(jobId), 10 * 60 * 1000).unref();
+  })();
+
+  return jobId;
+}
 
 /**
  * GET /tts/voices
@@ -502,6 +603,37 @@ app.delete('/tts/voice/:id', async (req, res) => {
 });
 
 /**
+ * GET /story/list
+ * Returns summary metadata for all saved stories, newest first.
+ */
+app.get('/story/list', (_req, res) => {
+  try {
+    return res.json({ stories: story.list() });
+  } catch (e) {
+    return res.status(500).json({ error: `Failed to list stories: ${e.message}` });
+  }
+});
+
+/**
+ * GET /story/:id
+ * Returns the full story data including all generated chapters.
+ */
+app.get('/story/:id', (req, res) => {
+  const { id } = req.params;
+  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    return res.json(story.get(id));
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: `Failed to load story: ${e.message}` });
+  }
+});
+
+/**
  * POST /story/create
  * Body: { "title": "...", "genre": "...", "tone": "..." }
  * Generates a story outline via AI and saves it to data/stories/.
@@ -581,6 +713,59 @@ app.delete('/story/:id/chapter/:chapterNumber', async (req, res) => {
     }
     return res.status(500).json({ error: `Delete chapter error: ${e.message}` });
   }
+});
+
+/**
+ * POST /story/:id/chapter/:num/tts-prebake
+ * Body: { "voice_id": "", "speaking_rate": 15, "pitch_std": 45, "emotion_preset": "neutral" }
+ * Starts a background job that synthesizes every sentence chunk of the chapter
+ * and writes each WAV to the TTS cache.  Already-cached chunks are skipped.
+ * Returns { jobId, total } immediately; poll GET /tts-prebake/:jobId for progress.
+ */
+app.post('/story/:id/chapter/:num/tts-prebake', (req, res) => {
+  const { id, num } = req.params;
+  const chapterNum = parseInt(num, 10);
+
+  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  if (!Number.isInteger(chapterNum) || chapterNum < 1) {
+    return res.status(400).json({ error: 'Invalid chapter number.' });
+  }
+
+  let storyData;
+  try {
+    storyData = story.get(id);
+  } catch (e) {
+    return res.status(404).json({ error: e.message });
+  }
+
+  const chapter = (storyData.chapters || []).find((c) => c.number === chapterNum);
+  if (!chapter) {
+    return res.status(404).json({ error: `Chapter ${chapterNum} not found in story ${id}.` });
+  }
+
+  const { voice_id, speaking_rate, pitch_std, emotion_preset } = req.body;
+  const voiceId = typeof voice_id === 'string' ? voice_id.trim() : '';
+  const emotionPreset = typeof emotion_preset === 'string' ? emotion_preset.trim() : '';
+
+  const jobId = startPrebakeJob(chapter.content, voiceId, speaking_rate, pitch_std, emotionPreset);
+  return res.json({ jobId, total: _prebakeJobs.get(jobId).total });
+});
+
+/**
+ * GET /tts-prebake/:jobId
+ * Poll the progress of a TTS prebake job.
+ * Returns { total, done, errors, status } where status is 'running' | 'complete'.
+ */
+app.get('/tts-prebake/:jobId', (req, res) => {
+  const job = _prebakeJobs.get(req.params.jobId);
+  if (!job) {
+    // Job not found – either completed and evicted, or invalid.  Return a
+    // synthetic "complete" so the client stops polling.
+    return res.json({ total: 0, done: 0, errors: 0, status: 'complete' });
+  }
+  return res.json({ total: job.total, done: job.done, errors: job.errors, status: job.status });
 });
 
 if (require.main === module) {

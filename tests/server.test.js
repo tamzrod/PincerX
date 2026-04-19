@@ -961,3 +961,116 @@ describe('DELETE /tts/voice/:id', () => {
     expect(res.body.error).toMatch(/TTS service unreachable/i);
   });
 });
+
+// ─── GET /story/list ──────────────────────────────────────────────────────────
+
+describe('GET /story/list', () => {
+  it('returns an empty stories array when story.list returns []', async () => {
+    story.list = jest.fn().mockReturnValue([]);
+    const res = await request(app).get('/story/list');
+    expect(res.status).toBe(200);
+    expect(res.body.stories).toEqual([]);
+  });
+
+  it('returns stories from story.list', async () => {
+    const fakeStory = { id: '123-test', title: 'Test', genre: 'fantasy', tone: 'dark', createdAt: new Date().toISOString(), chapterCount: 2 };
+    story.list = jest.fn().mockReturnValue([fakeStory]);
+    const res = await request(app).get('/story/list');
+    expect(res.status).toBe(200);
+    expect(res.body.stories).toHaveLength(1);
+    expect(res.body.stories[0].id).toBe('123-test');
+  });
+
+  it('returns 500 when story.list throws', async () => {
+    story.list = jest.fn().mockImplementation(() => { throw new Error('disk error'); });
+    const res = await request(app).get('/story/list');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/Failed to list stories/i);
+  });
+});
+
+// ─── GET /story/:id ───────────────────────────────────────────────────────────
+
+describe('GET /story/:id', () => {
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app).get('/story/INVALID_ID!');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns the full story when story.get succeeds', async () => {
+    const fakeStory = { id: '123-test', title: 'Test', chapters: [] };
+    story.get = jest.fn().mockReturnValue(fakeStory);
+    const res = await request(app).get('/story/123-test');
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe('123-test');
+    expect(story.get).toHaveBeenCalledWith('123-test');
+  });
+
+  it('returns 404 when story.get throws "Story not found"', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: 123-test'); });
+    const res = await request(app).get('/story/123-test');
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── POST /story/:id/chapter/:num/tts-prebake ────────────────────────────────
+
+describe('POST /story/:id/chapter/:num/tts-prebake', () => {
+  let originalFetch;
+  beforeEach(() => { originalFetch = global.fetch; clearTtsCache(); });
+  afterEach(() => { global.fetch = originalFetch; clearTtsCache(); });
+
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app).post('/story/BAD_ID/chapter/1/tts-prebake').send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for a non-integer chapter number', async () => {
+    story.get = jest.fn().mockReturnValue({ id: 'abc-test', chapters: [] });
+    const res = await request(app).post('/story/abc-test/chapter/0/tts-prebake').send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when story.get throws Story not found', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: abc-test'); });
+    const res = await request(app).post('/story/abc-test/chapter/1/tts-prebake').send({});
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 when chapter does not exist in story', async () => {
+    story.get = jest.fn().mockReturnValue({ id: 'abc-test', chapters: [{ number: 2, content: 'text' }] });
+    const res = await request(app).post('/story/abc-test/chapter/1/tts-prebake').send({});
+    expect(res.status).toBe(404);
+  });
+
+  it('returns jobId and total immediately without waiting for synthesis', async () => {
+    story.get = jest.fn().mockReturnValue({
+      id: 'abc-test',
+      chapters: [{ number: 1, content: 'Hello world. This is a chapter.' }],
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(Buffer.from('RIFF').buffer),
+    });
+
+    const res = await request(app)
+      .post('/story/abc-test/chapter/1/tts-prebake')
+      .send({ speaking_rate: 15, pitch_std: 45, emotion_preset: 'neutral' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('jobId');
+    expect(res.body).toHaveProperty('total');
+    expect(typeof res.body.jobId).toBe('string');
+    expect(typeof res.body.total).toBe('number');
+  });
+});
+
+// ─── GET /tts-prebake/:jobId ──────────────────────────────────────────────────
+
+describe('GET /tts-prebake/:jobId', () => {
+  it('returns a synthetic complete status for an unknown job ID', async () => {
+    const res = await request(app).get('/tts-prebake/nonexistent-job-id');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('complete');
+  });
+});
