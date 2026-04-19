@@ -4,6 +4,7 @@
 jest.mock('../openclaw/rag');
 jest.mock('../openclaw/feedback');
 jest.mock('../ingest');
+jest.mock('../story/story');
 
 const request = require('supertest');
 const path = require('path');
@@ -11,6 +12,7 @@ const fs = require('fs');
 const rag = require('../openclaw/rag');
 const feedback = require('../openclaw/feedback');
 const { ingest } = require('../ingest');
+const story = require('../story/story');
 
 // Import the app — must happen after jest.mock() calls
 let app;
@@ -387,5 +389,105 @@ describe('DELETE /pdf', () => {
 
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/already in progress/i);
+  });
+});
+
+// ─── POST /story/create ───────────────────────────────────────────────────────
+
+describe('POST /story/create', () => {
+  it('returns 201 with the created story on valid input', async () => {
+    story.create.mockResolvedValue({
+      id: '1234-brave-new-world',
+      title: 'Brave New World',
+      genre: 'dystopia',
+      tone: 'dark',
+      outline: 'Act 1: Utopia. Act 2: Cracks. Act 3: Collapse.',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const res = await request(app)
+      .post('/story/create')
+      .send({ title: 'Brave New World', genre: 'dystopia', tone: 'dark' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.title).toBe('Brave New World');
+    expect(res.body.genre).toBe('dystopia');
+    expect(res.body.tone).toBe('dark');
+    expect(res.body.outline).toMatch(/Utopia/);
+    expect(story.create).toHaveBeenCalledWith('Brave New World', 'dystopia', 'dark');
+  });
+
+  it('trims whitespace from title, genre, and tone before passing to story.create', async () => {
+    story.create.mockResolvedValue({
+      id: 'x',
+      title: 'Trimmed',
+      genre: 'fantasy',
+      tone: 'epic',
+      outline: 'outline',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await request(app)
+      .post('/story/create')
+      .send({ title: '  Trimmed  ', genre: '  fantasy  ', tone: '  epic  ' });
+
+    expect(story.create).toHaveBeenCalledWith('Trimmed', 'fantasy', 'epic');
+  });
+
+  it('returns 400 when title is missing', async () => {
+    const res = await request(app)
+      .post('/story/create')
+      .send({ genre: 'fantasy', tone: 'epic' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/title/i);
+  });
+
+  it('returns 400 when genre is missing', async () => {
+    const res = await request(app)
+      .post('/story/create')
+      .send({ title: 'My Story', tone: 'epic' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/genre/i);
+  });
+
+  it('returns 400 when tone is missing', async () => {
+    const res = await request(app)
+      .post('/story/create')
+      .send({ title: 'My Story', genre: 'fantasy' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/tone/i);
+  });
+
+  it('returns 400 when title is an empty string', async () => {
+    const res = await request(app)
+      .post('/story/create')
+      .send({ title: '', genre: 'fantasy', tone: 'epic' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/title/i);
+  });
+
+  it('returns 400 when genre is not a string', async () => {
+    const res = await request(app)
+      .post('/story/create')
+      .send({ title: 'My Story', genre: 42, tone: 'epic' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/genre/i);
+  });
+
+  it('returns 502 when story.create throws an error', async () => {
+    story.create.mockRejectedValue(new Error('AI offline'));
+
+    const res = await request(app)
+      .post('/story/create')
+      .send({ title: 'My Story', genre: 'fantasy', tone: 'epic' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/Story generation error/);
+    expect(res.body.error).toMatch(/AI offline/);
   });
 });

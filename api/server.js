@@ -8,16 +8,19 @@ const rag = require('../openclaw/rag');
 const feedback = require('../openclaw/feedback');
 const ai = require('../openclaw/ai');
 const { ingest } = require('../ingest');
+const story = require('../story/story');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const PDF_DIR = path.join(__dirname, '..', 'pdfs');
 const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
+const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 
 // Ensure required directories exist at startup
 fs.mkdirSync(PDF_DIR, { recursive: true });
 fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+fs.mkdirSync(STORIES_DIR, { recursive: true });
 
 // Multer storage: save to /pdfs with original filename
 const storage = multer.diskStorage({
@@ -264,6 +267,31 @@ app.delete('/pdf', async (req, res) => {
       return res.status(409).json({ error: e.message });
     }
     return res.status(500).json({ error: `Operation failed: ${e.message}` });
+  }
+});
+
+/**
+ * POST /story/create
+ * Body: { "title": "...", "genre": "...", "tone": "..." }
+ * Generates a story outline via AI and saves it to data/stories/.
+ */
+app.post('/story/create', async (req, res) => {
+  const { title, genre, tone } = req.body;
+
+  const titleErr = validateStringField(title, 'title');
+  if (titleErr) return res.status(400).json({ error: titleErr });
+
+  const genreErr = validateStringField(genre, 'genre');
+  if (genreErr) return res.status(400).json({ error: genreErr });
+
+  const toneErr = validateStringField(tone, 'tone');
+  if (toneErr) return res.status(400).json({ error: toneErr });
+
+  try {
+    const result = await story.create(title.trim(), genre.trim(), tone.trim());
+    return res.status(201).json(result);
+  } catch (e) {
+    return res.status(502).json({ error: `Story generation error: ${e.message}` });
   }
 });
 
