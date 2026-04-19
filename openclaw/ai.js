@@ -1,12 +1,30 @@
 'use strict';
 
+const fs = require('fs');
 const http = require('http');
 const https = require('https');
+const path = require('path');
 
 const DEFAULT_BASE_URL = process.env.AI_BASE_URL || 'http://localhost:11434';
 const DEFAULT_MODEL = process.env.AI_MODEL || 'llama3';
 const DEFAULT_API_KEY = process.env.AI_API_KEY || '';
 const DEFAULT_TIMEOUT_MS = 30000;
+
+const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
+
+/**
+ * Load runtime AI config from data/ai-config.json.
+ * Returns an empty object if the file is missing or unreadable.
+ *
+ * @returns {{ baseUrl?: string, model?: string, apiKey?: string }}
+ */
+function loadRuntimeConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Send a prompt to an Ollama-compatible AI backend and return the response text.
@@ -20,9 +38,10 @@ const DEFAULT_TIMEOUT_MS = 30000;
  * @returns {Promise<string>} The AI response text.
  */
 function ask(prompt, options = {}) {
-  const baseUrl = options.baseUrl || DEFAULT_BASE_URL;
-  const model = options.model || DEFAULT_MODEL;
-  const apiKey = options.apiKey || DEFAULT_API_KEY;
+  const runtimeConfig = loadRuntimeConfig();
+  const baseUrl = options.baseUrl || runtimeConfig.baseUrl || DEFAULT_BASE_URL;
+  const model = options.model || runtimeConfig.model || DEFAULT_MODEL;
+  const apiKey = options.apiKey || runtimeConfig.apiKey || DEFAULT_API_KEY;
   const timeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
 
   const body = JSON.stringify({
