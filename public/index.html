@@ -539,6 +539,75 @@
       color: #1e7e45;
       font-weight: 600;
     }
+
+    /* ── Global Zonos activity status bar ─────────────────────────────────── */
+
+    .zonos-status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #1a1a2e;
+      color: #e8eaf0;
+      font-size: 12px;
+      font-family: system-ui, sans-serif;
+      padding: 7px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 200;
+      transform: translateY(100%);
+      transition: transform 0.3s ease;
+      box-shadow: 0 -2px 10px rgba(0,0,0,.25);
+    }
+
+    .zonos-status-bar.visible {
+      transform: translateY(0);
+    }
+
+    .zonos-pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4a6cf7;
+      flex-shrink: 0;
+      animation: zonos-pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes zonos-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.35; transform: scale(0.65); }
+    }
+
+    .zonos-status-text {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .zonos-status-progress {
+      color: rgba(255,255,255,.55);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .zonos-mini-bar {
+      width: 90px;
+      height: 3px;
+      background: rgba(255,255,255,.15);
+      border-radius: 2px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .zonos-mini-fill {
+      height: 100%;
+      background: #4a6cf7;
+      border-radius: 2px;
+      transition: width 0.5s ease;
+      width: 0%;
+    }
   </style>
 </head>
 <body>
@@ -1834,6 +1903,9 @@
     // Cancel any in-progress prebake polls
     for (const intervalId of chapterPrebakeJobs.values()) { clearInterval(intervalId); }
     chapterPrebakeJobs.clear();
+    // Clear all chapters from the global Zonos tracker and hide the status bar.
+    _zonosPrebakeChapters.clear();
+    updateZonosBar();
     storyState.id = null;
     storyState.title = null;
     storyState.genre = null;
@@ -2119,6 +2191,43 @@
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // ── Global Zonos activity tracker ────────────────────────────────────────
+  // Keyed by chapter number; value is { done, total } from the latest poll.
+  const _zonosPrebakeChapters = new Map();
+
+  /**
+   * Recompute the global Zonos status bar from the current state of all active
+   * prebake chapters.  Call this whenever any chapter's progress changes.
+   */
+  function updateZonosBar() {
+    const bar      = document.getElementById('zonos-status-bar');
+    const textEl   = document.getElementById('zonos-status-text');
+    const progEl   = document.getElementById('zonos-status-progress');
+    const fillEl   = document.getElementById('zonos-mini-fill');
+    if (!bar) return;
+
+    let totalChunks = 0;
+    let doneChunks  = 0;
+    for (const { done, total } of _zonosPrebakeChapters.values()) {
+      totalChunks += total;
+      doneChunks  += done;
+    }
+
+    if (totalChunks === 0) {
+      bar.classList.remove('visible');
+      return;
+    }
+
+    const pct = totalChunks > 0 ? Math.round((doneChunks / totalChunks) * 100) : 0;
+    const chapCount = _zonosPrebakeChapters.size;
+    textEl.textContent = chapCount === 1
+      ? '🎙 Zonos is preparing audio…'
+      : `🎙 Zonos is preparing audio for ${chapCount} chapters…`;
+    progEl.textContent = `${doneChunks} / ${totalChunks} chunks`;
+    fillEl.style.width = `${pct}%`;
+    bar.classList.add('visible');
+  }
+
   // ── TTS prebake (background audio pre-synthesis) ──────────────────────────
 
   /**
@@ -2161,6 +2270,10 @@
       const { jobId, total } = data;
       if (!jobId) return;
 
+      // Register this chapter in the global activity tracker.
+      _zonosPrebakeChapters.set(chapterNumber, { done: 0, total });
+      updateZonosBar();
+
       wrapEl.style.display = '';
       labelEl.textContent = `🎙 Preparing audio… 0 / ${total}`;
       fillEl.style.width = '0%';
@@ -2175,9 +2288,16 @@
           fillEl.style.width = `${pct}%`;
           labelEl.textContent = `🎙 Preparing audio… ${status.done} / ${status.total}`;
 
+          // Update global tracker.
+          _zonosPrebakeChapters.set(chapterNumber, { done: status.done, total: status.total });
+          updateZonosBar();
+
           if (status.status === 'complete') {
             stopPolling();
             fillEl.style.width = '100%';
+            // Unregister from the global tracker once this chapter is done.
+            _zonosPrebakeChapters.delete(chapterNumber);
+            updateZonosBar();
             if (status.errors >= status.total) {
               // All chunks failed — hide bar silently (Zonos likely unavailable)
               wrapEl.style.display = 'none';
@@ -2189,6 +2309,8 @@
           }
         } catch {
           stopPolling();
+          _zonosPrebakeChapters.delete(chapterNumber);
+          updateZonosBar();
           wrapEl.style.display = 'none';
         }
       }, 2000);
@@ -2278,6 +2400,8 @@
       stopTTS();
       for (const [, intervalId] of chapterPrebakeJobs) { clearInterval(intervalId); }
       chapterPrebakeJobs.clear();
+      _zonosPrebakeChapters.clear();
+      updateZonosBar();
 
       // Reset story state
       storyState.id = data.id;
@@ -2337,5 +2461,13 @@
   loadPDFs();
   loadStoryList();
 </script>
+
+<!-- ── Global Zonos activity status bar ──────────────────────────────────── -->
+<div id="zonos-status-bar" class="zonos-status-bar" role="status" aria-live="polite" aria-atomic="true">
+  <span class="zonos-pulse" aria-hidden="true"></span>
+  <span id="zonos-status-text" class="zonos-status-text">🎙 Zonos is preparing audio…</span>
+  <span id="zonos-status-progress" class="zonos-status-progress"></span>
+  <div class="zonos-mini-bar" aria-hidden="true"><div id="zonos-mini-fill" class="zonos-mini-fill"></div></div>
+</div>
 </body>
 </html>

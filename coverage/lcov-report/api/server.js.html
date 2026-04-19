@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">79.9% </span>
+                <span class="strong">79.95% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>334/418</span>
+                <span class='fraction'>335/419</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">81.65% </span>
+                <span class="strong">81.7% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>316/387</span>
+                <span class='fraction'>317/388</span>
             </div>
         
             
@@ -968,7 +968,12 @@
 <a name='L903'></a><a href='#L903'>903</a>
 <a name='L904'></a><a href='#L904'>904</a>
 <a name='L905'></a><a href='#L905'>905</a>
-<a name='L906'></a><a href='#L906'>906</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L906'></a><a href='#L906'>906</a>
+<a name='L907'></a><a href='#L907'>907</a>
+<a name='L908'></a><a href='#L908'>908</a>
+<a name='L909'></a><a href='#L909'>909</a>
+<a name='L910'></a><a href='#L910'>910</a>
+<a name='L911'></a><a href='#L911'>911</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -987,6 +992,12 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1778,7 +1789,6 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1893,6 +1903,12 @@ const PDF_DIR = path.join(__dirname, '..', 'pdfs');
 const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
 const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 const TTS_CACHE_DIR = path.join(__dirname, '..', 'data', 'tts-cache');
+&nbsp;
+// Regex to validate that a TTS cache key is a SHA-256 hex digest (64 lowercase hex chars).
+const SHA256_RE = /^[0-9a-f]{64}$/;
+&nbsp;
+// Story ID validation regex — must stay in sync with the route-level guard.
+const STORY_ID_RE = /^[a-z0-9-]+$/;
 &nbsp;
 // Ensure required directories exist at startup
 fs.mkdirSync(PDF_DIR, { recursive: true });
@@ -2426,10 +2442,10 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
     job.status = 'complete';
 &nbsp;
     // Persist cache keys for this story so they can be removed when the story is deleted.
-    <span class="missing-if-branch" title="else path not taken" >E</span>if (storyId &amp;&amp; /^[a-z0-9-]+$/.test(storyId) &amp;&amp; generatedKeys.length &gt; 0) {
+    <span class="missing-if-branch" title="else path not taken" >E</span>if (storyId &amp;&amp; STORY_ID_RE.test(storyId) &amp;&amp; generatedKeys.length &gt; 0) {
       try {
         const keysPath = path.join(TTS_CACHE_DIR, `${storyId}.cachekeys`);
-        fs.appendFileSync(keysPath, generatedKeys.join('\n') + '\n', 'utf8');
+        await fs.promises.appendFile(keysPath, generatedKeys.join('\n') + '\n', 'utf8');
       } catch (e) {
 <span class="cstat-no" title="statement not covered" >        console.warn('[TTS prebake] Failed to write cache keys:', e.message);</span>
       }
@@ -2567,7 +2583,7 @@ app.get('/story/list', (_req, res) =&gt; {
  */
 app.get('/story/:id', (req, res) =&gt; {
   const { id } = req.params;
-  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+  if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
   try {
@@ -2614,7 +2630,7 @@ app.post('/story/:id/chapter', async (req, res) =&gt; {
   const { id } = req.params;
   const { chapterNumber, customPrompt } = req.body;
 &nbsp;
-  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+  if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
 &nbsp;
@@ -2643,7 +2659,7 @@ app.delete('/story/:id/chapter/:chapterNumber', <span class="fstat-no" title="fu
   const { id, chapterNumber: chapterStr } = <span class="cstat-no" title="statement not covered" >req.params;</span>
   const chapterNumber = <span class="cstat-no" title="statement not covered" >parseInt(chapterStr, 10);</span>
 &nbsp;
-<span class="cstat-no" title="statement not covered" >  if (!id || !/^[a-z0-9-]+$/.test(id)) {</span>
+<span class="cstat-no" title="statement not covered" >  if (!id || !STORY_ID_RE.test(id)) {</span>
 <span class="cstat-no" title="statement not covered" >    return res.status(400).json({ error: 'Invalid story ID format.' });</span>
   }
 &nbsp;
@@ -2669,17 +2685,16 @@ app.delete('/story/:id/chapter/:chapterNumber', <span class="fstat-no" title="fu
  */
 app.delete('/story/:id', (req, res) =&gt; {
   const { id } = req.params;
-  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+  if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
   try {
     // Remove TTS cache audio files recorded for this story during prebaking.
-    // id is validated above to match /^[a-z0-9-]+$/, so it is safe to use in a path.
+    // id is validated above via STORY_ID_RE, so it is safe to use in a path.
     const keysPath = path.join(TTS_CACHE_DIR, `${id}.cachekeys`);
     if (fs.existsSync(keysPath)) {
       const keys = fs.readFileSync(keysPath, 'utf8').split('\n').filter(Boolean);
-      // Validate each key is a SHA-256 hex digest (64 lowercase hex chars) before use.
-      const SHA256_RE = /^[0-9a-f]{64}$/;
+      // SHA256_RE ensures each key is a safe 64-char hex digest before path use.
       for (const key of keys) {
         <span class="missing-if-branch" title="if path not taken" >I</span>if (!SHA256_RE.test(key)) <span class="cstat-no" title="statement not covered" >continue;</span>
         const wavPath = path.join(TTS_CACHE_DIR, `${key}.wav`);
@@ -2709,7 +2724,7 @@ app.post('/story/:id/chapter/:num/tts-prebake', (req, res) =&gt; {
   const { id, num } = req.params;
   const chapterNum = parseInt(num, 10);
 &nbsp;
-  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+  if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
   if (!Number.isInteger(chapterNum) || chapterNum &lt; 1) {
@@ -2785,7 +2800,7 @@ module.exports = app;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T23:48:40.490Z
+                at 2026-04-19T23:57:17.888Z
             </div>
         <script src="../prettify.js"></script>
         <script>

@@ -19,6 +19,12 @@ const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
 const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 const TTS_CACHE_DIR = path.join(__dirname, '..', 'data', 'tts-cache');
 
+// Regex to validate that a TTS cache key is a SHA-256 hex digest (64 lowercase hex chars).
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+// Story ID validation regex — must stay in sync with the route-level guard.
+const STORY_ID_RE = /^[a-z0-9-]+$/;
+
 // Ensure required directories exist at startup
 fs.mkdirSync(PDF_DIR, { recursive: true });
 fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
@@ -551,10 +557,10 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
     job.status = 'complete';
 
     // Persist cache keys for this story so they can be removed when the story is deleted.
-    if (storyId && /^[a-z0-9-]+$/.test(storyId) && generatedKeys.length > 0) {
+    if (storyId && STORY_ID_RE.test(storyId) && generatedKeys.length > 0) {
       try {
         const keysPath = path.join(TTS_CACHE_DIR, `${storyId}.cachekeys`);
-        fs.appendFileSync(keysPath, generatedKeys.join('\n') + '\n', 'utf8');
+        await fs.promises.appendFile(keysPath, generatedKeys.join('\n') + '\n', 'utf8');
       } catch (e) {
         console.warn('[TTS prebake] Failed to write cache keys:', e.message);
       }
@@ -692,7 +698,7 @@ app.get('/story/list', (_req, res) => {
  */
 app.get('/story/:id', (req, res) => {
   const { id } = req.params;
-  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+  if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
   try {
@@ -739,7 +745,7 @@ app.post('/story/:id/chapter', async (req, res) => {
   const { id } = req.params;
   const { chapterNumber, customPrompt } = req.body;
 
-  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+  if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
 
@@ -768,7 +774,7 @@ app.delete('/story/:id/chapter/:chapterNumber', async (req, res) => {
   const { id, chapterNumber: chapterStr } = req.params;
   const chapterNumber = parseInt(chapterStr, 10);
 
-  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+  if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
 
@@ -794,17 +800,16 @@ app.delete('/story/:id/chapter/:chapterNumber', async (req, res) => {
  */
 app.delete('/story/:id', (req, res) => {
   const { id } = req.params;
-  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+  if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
   try {
     // Remove TTS cache audio files recorded for this story during prebaking.
-    // id is validated above to match /^[a-z0-9-]+$/, so it is safe to use in a path.
+    // id is validated above via STORY_ID_RE, so it is safe to use in a path.
     const keysPath = path.join(TTS_CACHE_DIR, `${id}.cachekeys`);
     if (fs.existsSync(keysPath)) {
       const keys = fs.readFileSync(keysPath, 'utf8').split('\n').filter(Boolean);
-      // Validate each key is a SHA-256 hex digest (64 lowercase hex chars) before use.
-      const SHA256_RE = /^[0-9a-f]{64}$/;
+      // SHA256_RE ensures each key is a safe 64-char hex digest before path use.
       for (const key of keys) {
         if (!SHA256_RE.test(key)) continue;
         const wavPath = path.join(TTS_CACHE_DIR, `${key}.wav`);
@@ -834,7 +839,7 @@ app.post('/story/:id/chapter/:num/tts-prebake', (req, res) => {
   const { id, num } = req.params;
   const chapterNum = parseInt(num, 10);
 
-  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+  if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
   }
   if (!Number.isInteger(chapterNum) || chapterNum < 1) {
