@@ -739,6 +739,88 @@ describe('GET /tts/voices', () => {
   });
 });
 
+// ─── POST /tts/voice ─────────────────────────────────────────────────────────
+
+describe('POST /tts/voice', () => {
+  let originalFetch;
+
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('returns 400 when no file is provided', async () => {
+    const res = await request(app).post('/tts/voice').field('name', 'myVoice');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/audio file/i);
+  });
+
+  it('returns 400 when name is missing', async () => {
+    const res = await request(app)
+      .post('/tts/voice')
+      .attach('file', Buffer.from('audio data'), { filename: 'clip.wav', contentType: 'audio/wav' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/valid.*name/i);
+  });
+
+  it('returns 400 when name contains invalid characters', async () => {
+    const res = await request(app)
+      .post('/tts/voice')
+      .field('name', 'bad name!')
+      .attach('file', Buffer.from('audio data'), { filename: 'clip.wav', contentType: 'audio/wav' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/valid.*name/i);
+  });
+
+  it('forwards the upload to Zonos and returns the response on success', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ message: "Voice 'myVoice' saved.", voice_id: 'myVoice' }),
+    });
+
+    const res = await request(app)
+      .post('/tts/voice')
+      .field('name', 'myVoice')
+      .attach('file', Buffer.from('audio data'), { filename: 'clip.wav', contentType: 'audio/wav' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.voice_id).toBe('myVoice');
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/voices/upload?name=myVoice'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('returns 502 with error message when Zonos returns a non-OK status', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: () => Promise.resolve('embedding failed'),
+    });
+
+    const res = await request(app)
+      .post('/tts/voice')
+      .field('name', 'myVoice')
+      .attach('file', Buffer.from('audio data'), { filename: 'clip.wav', contentType: 'audio/wav' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/TTS service error/i);
+    expect(res.body.error).toMatch(/embedding failed/);
+  });
+
+  it('returns 502 when the Zonos sidecar is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const res = await request(app)
+      .post('/tts/voice')
+      .field('name', 'myVoice')
+      .attach('file', Buffer.from('audio data'), { filename: 'clip.wav', contentType: 'audio/wav' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/TTS service unreachable/i);
+    expect(res.body.error).toMatch(/ECONNREFUSED/);
+  });
+});
+
 // ─── DELETE /tts/voice/:id ───────────────────────────────────────────────────
 
 describe('DELETE /tts/voice/:id', () => {
