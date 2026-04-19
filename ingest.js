@@ -63,8 +63,7 @@ function splitIntoChunks(text) {
  */
 async function ingest() {
   if (!fs.existsSync(PDF_DIR)) {
-    console.error(`PDF directory not found: ${PDF_DIR}`);
-    process.exit(1);
+    fs.mkdirSync(PDF_DIR, { recursive: true });
   }
 
   const files = fs.readdirSync(PDF_DIR).filter((f) => f.toLowerCase().endsWith('.pdf'));
@@ -106,7 +105,11 @@ async function ingest() {
   console.log(`\nWrote ${docs.length} document chunk(s) to ${OUTPUT_PATH}`);
 }
 
-ingest().catch((err) => {
-  console.error('Ingestion failed:', err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  ingest().catch((err) => {
+    console.error('Ingestion failed:', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { ingest };
