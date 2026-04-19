@@ -288,7 +288,7 @@ function ttsFetchError(e) {
   }
   const detail = e.cause?.message || e.message;
   const base = `TTS service unreachable: ${detail}`;
-  if (detail.includes('ECONNREFUSED') || e.message.includes('ECONNREFUSED')) {
+  if (detail.includes('ECONNREFUSED')) {
     return `${base}. Is the Zonos container running? See zonos/README.md for setup instructions.`;
   }
   return base;
