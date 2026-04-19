@@ -1,0 +1,12 @@
+{
+  "name": "pincerx",
+  "version": "1.0.0",
+  "description": "PincerX API layer powered by OpenClaw core engine",
+  "main": "api/server.js",
+  "scripts": {
+    "start": "node api/server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
