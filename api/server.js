@@ -272,7 +272,8 @@ app.delete('/pdf', async (req, res) => {
 
 /**
  * POST /tts
- * Body: { "text": "chapter text to synthesize" }
+ * Body: { "text": "chapter text to synthesize", "voice_id": "myVoice",
+ *         "speaking_rate": 15.0, "pitch_std": 45.0, "emotion_preset": "neutral" }
  * Proxies the request to the Zonos TTS sidecar and streams back a WAV file.
  * Falls back to a 502 with a JSON error body if the sidecar is unreachable so
  * the browser can fall back to the Web Speech API gracefully.
@@ -281,18 +282,26 @@ const TTS_MAX_CHARS = 50_000;  // ~8 000 words – more than enough for one chap
 const TTS_TIMEOUT_MS = 180_000; // 3 min: Zonos on GPU generates ~real-time
 
 app.post('/tts', async (req, res) => {
-  const { text } = req.body;
+  const { text, voice_id, speaking_rate, pitch_std, emotion_preset } = req.body;
   const err = validateStringField(text, 'text');
   if (err) return res.status(400).json({ error: err });
 
   const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
   const trimmed = text.trim().slice(0, TTS_MAX_CHARS);
 
+  const zonosBody = { text: trimmed };
+  const voiceId = typeof voice_id === 'string' ? voice_id.trim() : '';
+  const emotionPreset = typeof emotion_preset === 'string' ? emotion_preset.trim() : '';
+  if (voiceId) zonosBody.voice_id = voiceId;
+  if (typeof speaking_rate === 'number') zonosBody.speaking_rate = speaking_rate;
+  if (typeof pitch_std === 'number') zonosBody.pitch_std = pitch_std;
+  if (emotionPreset) zonosBody.emotion_preset = emotionPreset;
+
   try {
     const response = await fetch(`${zonosUrl}/synthesize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: trimmed }),
+      body: JSON.stringify(zonosBody),
       signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
     });
 
@@ -305,6 +314,94 @@ app.post('/tts', async (req, res) => {
     res.set('Content-Type', 'audio/wav');
     res.set('Content-Length', String(audioBuffer.byteLength));
     return res.send(Buffer.from(audioBuffer));
+  } catch (e) {
+    return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
+  }
+});
+
+/**
+ * GET /tts/voices
+ * Returns available voice IDs and emotion presets from the Zonos sidecar.
+ */
+app.get('/tts/voices', async (_req, res) => {
+  const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
+  try {
+    const response = await fetch(`${zonosUrl}/voices`, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) {
+      return res.status(502).json({ error: `TTS service error: HTTP ${response.status}` });
+    }
+    return res.json(await response.json());
+  } catch (e) {
+    return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
+  }
+});
+
+/**
+ * POST /tts/voice
+ * Multipart form-data: field "file" (audio), field "name" (voice ID, alphanumeric/underscore/dash).
+ * Forwards the audio to the Zonos sidecar which computes and stores a speaker embedding.
+ */
+const voiceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+});
+
+app.post('/tts/voice', (req, res) => {
+  voiceUpload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'An audio file must be provided in the "file" field.' });
+
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    if (!name || !/^[A-Za-z0-9_-]+$/.test(name)) {
+      return res.status(400).json({ error: 'A valid "name" (alphanumeric, underscores, dashes) must be provided.' });
+    }
+
+    const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
+
+    try {
+      const formData = new FormData();
+      formData.append(
+        'file',
+        new Blob([req.file.buffer], { type: req.file.mimetype }),
+        req.file.originalname,
+      );
+
+      const response = await fetch(
+        `${zonosUrl}/voices/upload?name=${encodeURIComponent(name)}`,
+        { method: 'POST', body: formData, signal: AbortSignal.timeout(30_000) },
+      );
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => response.statusText);
+        return res.status(502).json({ error: `TTS service error: ${detail}` });
+      }
+      return res.json(await response.json());
+    } catch (e) {
+      return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
+    }
+  });
+});
+
+/**
+ * DELETE /tts/voice/:id
+ * Removes a saved voice embedding from the Zonos sidecar.
+ */
+app.delete('/tts/voice/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid voice ID format.' });
+  }
+  const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
+  try {
+    const response = await fetch(`${zonosUrl}/voices/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText);
+      return res.status(response.status === 404 ? 404 : 502).json({ error: `TTS service error: ${detail}` });
+    }
+    return res.json(await response.json());
   } catch (e) {
     return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
   }

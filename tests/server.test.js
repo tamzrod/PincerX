@@ -643,6 +643,41 @@ describe('POST /tts', () => {
     expect(sentBody.text.length).toBeLessThanOrEqual(50_000);
   });
 
+  it('forwards voice_id, speaking_rate, pitch_std, emotion_preset to Zonos', async () => {
+    const fakeWav = Buffer.from('RIFF');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    await request(app).post('/tts').send({
+      text: 'Hello world',
+      voice_id: 'myVoice',
+      speaking_rate: 12.5,
+      pitch_std: 60,
+      emotion_preset: 'calm',
+    });
+
+    const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sentBody.voice_id).toBe('myVoice');
+    expect(sentBody.speaking_rate).toBe(12.5);
+    expect(sentBody.pitch_std).toBe(60);
+    expect(sentBody.emotion_preset).toBe('calm');
+  });
+
+  it('omits voice_id from the Zonos request when not provided', async () => {
+    const fakeWav = Buffer.from('RIFF');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    await request(app).post('/tts').send({ text: 'Hello world' });
+
+    const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sentBody).not.toHaveProperty('voice_id');
+  });
+
   it('returns 502 with error message when Zonos returns a non-OK status', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: false,
@@ -666,5 +701,94 @@ describe('POST /tts', () => {
     expect(res.status).toBe(502);
     expect(res.body.error).toMatch(/TTS service unreachable/i);
     expect(res.body.error).toMatch(/ECONNREFUSED/);
+  });
+});
+
+// ─── GET /tts/voices ─────────────────────────────────────────────────────────
+
+describe('GET /tts/voices', () => {
+  let originalFetch;
+
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('returns voices and emotion_presets from Zonos', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ voices: ['alice', 'bob'], emotion_presets: ['neutral', 'happy'] }),
+    });
+
+    const res = await request(app).get('/tts/voices');
+
+    expect(res.status).toBe(200);
+    expect(res.body.voices).toEqual(['alice', 'bob']);
+    expect(res.body.emotion_presets).toEqual(['neutral', 'happy']);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/voices'),
+      expect.any(Object),
+    );
+  });
+
+  it('returns 502 when Zonos is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const res = await request(app).get('/tts/voices');
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/TTS service unreachable/i);
+  });
+});
+
+// ─── DELETE /tts/voice/:id ───────────────────────────────────────────────────
+
+describe('DELETE /tts/voice/:id', () => {
+  let originalFetch;
+
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('returns 400 for invalid voice ID characters', async () => {
+    const res = await request(app).delete('/tts/voice/bad%20name');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid voice id/i);
+  });
+
+  it('forwards DELETE to Zonos and returns the response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ message: "Voice 'alice' deleted." }),
+    });
+
+    const res = await request(app).delete('/tts/voice/alice');
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/alice/);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/voices/alice'),
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('returns 404 when Zonos reports voice not found', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: () => Promise.resolve('Voice not found'),
+      json: () => Promise.resolve({ detail: 'Voice not found' }),
+    });
+
+    const res = await request(app).delete('/tts/voice/nonexistent');
+
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 502 when Zonos is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const res = await request(app).delete('/tts/voice/alice');
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/TTS service unreachable/i);
   });
 });
