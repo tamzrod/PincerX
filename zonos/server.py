@@ -187,8 +187,14 @@ async def upload_voice(
     # Convert to mono and move to inference device
     wav_mono = wav.mean(0, keepdim=True).to(_DEVICE)
 
-    with torch.inference_mode():
-        speaker = _model.make_speaker_embedding(wav_mono, sr)
+    try:
+        with torch.inference_mode():
+            speaker = _model.make_speaker_embedding(wav_mono, sr)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Failed to extract speaker embedding: {exc}",
+        ) from exc
 
     torch.save(speaker.cpu(), _VOICES_DIR / f"{name}.pt")
     return {"message": f"Voice '{name}' saved.", "voice_id": name}
