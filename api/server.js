@@ -33,6 +33,7 @@ const upload = multer({
 });
 
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 /**
  * Validate that a request field is a non-empty string.
@@ -47,6 +48,20 @@ function validateStringField(value, fieldName) {
   }
   return null;
 }
+
+/**
+ * GET /pdfs
+ * Returns a list of PDF filenames currently stored in /pdfs.
+ */
+app.get('/pdfs', async (_req, res) => {
+  try {
+    const entries = await fs.promises.readdir(PDF_DIR);
+    const files = entries.filter((f) => f.toLowerCase().endsWith('.pdf'));
+    return res.json({ files });
+  } catch (e) {
+    return res.status(500).json({ error: `Could not list PDFs: ${e.message}` });
+  }
+});
 
 /**
  * POST /ask

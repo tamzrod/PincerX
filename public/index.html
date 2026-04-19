@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PincerX Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+      background: #f4f5f7;
+      color: #222;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 14px 24px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+      padding: 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 760px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+
+    h2 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      color: #1a1a2e;
+    }
+
+    h3 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: #444;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 4px;
+    }
+
+    input[type="text"], textarea, input[type="file"] {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 5px;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .15s;
+    }
+
+    input[type="text"]:focus, textarea:focus {
+      border-color: #4a6cf7;
+    }
+
+    textarea { resize: vertical; min-height: 90px; }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 5px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      transition: opacity .15s;
+    }
+
+    button:disabled { opacity: .55; cursor: not-allowed; }
+
+    .btn-primary {
+      background: #4a6cf7;
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) { background: #3a5ce5; }
+
+    .btn-danger {
+      background: #e84040;
+      color: #fff;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .btn-danger:hover:not(:disabled) { background: #c73030; }
+
+    .row { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+    .row button { flex-shrink: 0; }
+
+    .section + .section { margin-top: 24px; border-top: 1px solid #eee; padding-top: 20px; }
+
+    #pdf-list { margin-top: 14px; }
+
+    .pdf-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 10px;
+      border-radius: 5px;
+      background: #f8f9fc;
+      border: 1px solid #e8eaf0;
+      margin-bottom: 6px;
+      font-size: 13px;
+      word-break: break-all;
+    }
+
+    .pdf-item span { flex: 1; margin-right: 8px; }
+
+    .msg {
+      margin-top: 10px;
+      padding: 8px 12px;
+      border-radius: 5px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .msg.visible { display: block; }
+    .msg.error { background: #fff0f0; color: #c0392b; border: 1px solid #f5c6c6; }
+    .msg.success { background: #f0fff4; color: #1e7e45; border: 1px solid #b7eac7; }
+    .msg.loading { background: #f0f4ff; color: #3355cc; border: 1px solid #c5d2f8; }
+
+    .result-box {
+      margin-top: 12px;
+      padding: 12px;
+      background: #f8f9fc;
+      border: 1px solid #e0e3ef;
+      border-radius: 6px;
+      display: none;
+    }
+
+    .result-box.visible { display: block; }
+
+    .result-box pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .result-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    .answer-text { margin-bottom: 10px; }
+
+    .sources-list {
+      font-size: 12px;
+      color: #555;
+    }
+
+    .sources-list li { margin-left: 16px; margin-top: 2px; }
+
+    .analyze-field { margin-bottom: 8px; }
+    .analyze-field .field-name { font-weight: 600; color: #333; }
+
+    .spinner {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(255,255,255,.5);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+      margin-right: 5px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>PincerX Dashboard</header>
+
+<div class="layout">
+
+  <!-- LEFT: PDF Management -->
+  <aside class="panel">
+    <h2>📄 PDF Management</h2>
+
+    <div class="section">
+      <h3>Upload PDF</h3>
+      <label for="pdf-file">Select a .pdf file</label>
+      <input type="file" id="pdf-file" accept=".pdf" />
+      <div class="row">
+        <button class="btn-primary" id="upload-btn" onclick="uploadPDF()">Upload</button>
+      </div>
+      <div class="msg" id="upload-msg"></div>
+    </div>
+
+    <div class="section">
+      <h3>Uploaded PDFs</h3>
+      <button class="btn-primary" onclick="loadPDFs()" style="font-size:12px;padding:5px 12px;">↻ Refresh</button>
+      <div id="pdf-list"><em style="color:#aaa;font-size:13px;">Loading…</em></div>
+      <div class="msg" id="delete-msg"></div>
+    </div>
+  </aside>
+
+  <!-- RIGHT: Interaction -->
+  <main class="panel">
+    <h2>🔍 Interaction</h2>
+
+    <!-- Ask -->
+    <div class="section">
+      <h3>Ask a Question</h3>
+      <label for="ask-input">Question</label>
+      <div class="row">
+        <input type="text" id="ask-input" placeholder="e.g. What does section 3 say?" />
+        <button class="btn-primary" id="ask-btn" onclick="askQuestion()">Ask</button>
+      </div>
+      <div class="msg" id="ask-msg"></div>
+      <div class="result-box" id="ask-result">
+        <div class="result-label">Answer</div>
+        <div class="answer-text" id="ask-answer"></div>
+        <div id="ask-sources-wrap" style="display:none">
+          <div class="result-label" style="margin-top:8px">Sources</div>
+          <ul class="sources-list" id="ask-sources"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analyze -->
+    <div class="section">
+      <h3>Analyze Text</h3>
+      <label for="analyze-input">Text to analyze</label>
+      <textarea id="analyze-input" placeholder="Paste or type text here…"></textarea>
+      <div class="row">
+        <button class="btn-primary" id="analyze-btn" onclick="analyzeText()">Analyze</button>
+      </div>
+      <div class="msg" id="analyze-msg"></div>
+      <div class="result-box" id="analyze-result">
+        <div class="result-label">Analysis</div>
+        <div id="analyze-fields"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  // ── helpers ──────────────────────────────────────────────────────────────
+
+  function showMsg(id, text, type) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = 'msg visible ' + type;
+  }
+
+  function clearMsg(id) {
+    const el = document.getElementById(id);
+    el.className = 'msg';
+    el.textContent = '';
+  }
+
+  function setLoading(btnId, loading, label = 'Submit') {
+    const btn = document.getElementById(btnId);
+    if (loading) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Loading…';
+    } else {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  }
+
+  async function apiFetch(url, options) {
+    const res = await fetch(url, options);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  // ── PDF list ─────────────────────────────────────────────────────────────
+
+  async function loadPDFs() {
+    const listEl = document.getElementById('pdf-list');
+    listEl.innerHTML = '<em style="color:#aaa;font-size:13px;">Loading…</em>';
+    clearMsg('delete-msg');
+    try {
+      const data = await apiFetch('/pdfs');
+      if (!data.files || data.files.length === 0) {
+        listEl.innerHTML = '<em style="color:#aaa;font-size:13px;">No PDFs uploaded yet.</em>';
+        return;
+      }
+      listEl.innerHTML = '';
+      data.files.forEach((name) => {
+        const item = document.createElement('div');
+        item.className = 'pdf-item';
+        const span = document.createElement('span');
+        span.textContent = name;
+        const btn = document.createElement('button');
+        btn.className = 'btn-danger';
+        btn.textContent = 'Delete';
+        btn.onclick = () => deletePDF(name, btn);
+        item.appendChild(span);
+        item.appendChild(btn);
+        listEl.appendChild(item);
+      });
+    } catch (e) {
+      listEl.innerHTML = '';
+      showMsg('delete-msg', 'Failed to load PDFs: ' + e.message, 'error');
+    }
+  }
+
+  // ── Upload ────────────────────────────────────────────────────────────────
+
+  async function uploadPDF() {
+    clearMsg('upload-msg');
+    const fileInput = document.getElementById('pdf-file');
+    if (!fileInput.files || fileInput.files.length === 0) {
+      showMsg('upload-msg', 'Please select a PDF file first.', 'error');
+      return;
+    }
+    const file = fileInput.files[0];
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      showMsg('upload-msg', 'Only .pdf files are allowed.', 'error');
+      return;
+    }
+
+    setLoading('upload-btn', true, 'Upload');
+    showMsg('upload-msg', 'Uploading and rebuilding knowledge base…', 'loading');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const data = await apiFetch('/upload', { method: 'POST', body: formData });
+      showMsg('upload-msg', data.message || 'Uploaded successfully.', 'success');
+      fileInput.value = '';
+      loadPDFs();
+    } catch (e) {
+      showMsg('upload-msg', e.message, 'error');
+    } finally {
+      setLoading('upload-btn', false, 'Upload');
+    }
+  }
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+
+  async function deletePDF(filename, btn) {
+    clearMsg('delete-msg');
+    btn.disabled = true;
+    btn.textContent = '…';
+    showMsg('delete-msg', `Deleting "${filename}"…`, 'loading');
+
+    try {
+      const data = await apiFetch('/pdf', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename }),
+      });
+      showMsg('delete-msg', data.message || 'Deleted.', 'success');
+      loadPDFs();
+    } catch (e) {
+      showMsg('delete-msg', e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Delete';
+    }
+  }
+
+  // ── Ask ───────────────────────────────────────────────────────────────────
+
+  async function askQuestion() {
+    clearMsg('ask-msg');
+    const query = document.getElementById('ask-input').value.trim();
+    if (!query) {
+      showMsg('ask-msg', 'Please enter a question.', 'error');
+      return;
+    }
+
+    setLoading('ask-btn', true, 'Ask');
+    document.getElementById('ask-result').classList.remove('visible');
+
+    try {
+      const data = await apiFetch('/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+
+      const answerEl = document.getElementById('ask-answer');
+      answerEl.textContent = data.answer || JSON.stringify(data);
+
+      const sourcesWrap = document.getElementById('ask-sources-wrap');
+      const sourcesList = document.getElementById('ask-sources');
+      sourcesList.innerHTML = '';
+      if (Array.isArray(data.sources) && data.sources.length > 0) {
+        data.sources.forEach((s) => {
+          const li = document.createElement('li');
+          li.textContent = typeof s === 'string' ? s : JSON.stringify(s);
+          sourcesList.appendChild(li);
+        });
+        sourcesWrap.style.display = '';
+      } else {
+        sourcesWrap.style.display = 'none';
+      }
+
+      document.getElementById('ask-result').classList.add('visible');
+    } catch (e) {
+      showMsg('ask-msg', e.message, 'error');
+    } finally {
+      setLoading('ask-btn', false, 'Ask');
+    }
+  }
+
+  // ── Analyze ───────────────────────────────────────────────────────────────
+
+  async function analyzeText() {
+    clearMsg('analyze-msg');
+    const text = document.getElementById('analyze-input').value.trim();
+    if (!text) {
+      showMsg('analyze-msg', 'Please enter some text to analyze.', 'error');
+      return;
+    }
+
+    setLoading('analyze-btn', true, 'Analyze');
+    document.getElementById('analyze-result').classList.remove('visible');
+
+    try {
+      const data = await apiFetch('/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      const fieldsEl = document.getElementById('analyze-fields');
+      fieldsEl.innerHTML = '';
+
+      const knownFields = ['sentiment', 'topic', 'suggestions'];
+      knownFields.forEach((key) => {
+        if (data[key] !== undefined) {
+          const div = document.createElement('div');
+          div.className = 'analyze-field';
+          const label = document.createElement('span');
+          label.className = 'field-name';
+          label.textContent = key.charAt(0).toUpperCase() + key.slice(1) + ':';
+          const pre = document.createElement('pre');
+          pre.textContent = Array.isArray(data[key])
+            ? data[key].map((v) => `• ${v}`).join('\n')
+            : String(data[key]);
+          div.appendChild(label);
+          div.appendChild(document.createTextNode(' '));
+          div.appendChild(pre);
+          fieldsEl.appendChild(div);
+        }
+      });
+
+      // Render any extra fields not in the known list
+      Object.keys(data).forEach((key) => {
+        if (!knownFields.includes(key)) {
+          const div = document.createElement('div');
+          div.className = 'analyze-field';
+          const label = document.createElement('span');
+          label.className = 'field-name';
+          label.textContent = key + ':';
+          const pre = document.createElement('pre');
+          pre.textContent = typeof data[key] === 'object' ? JSON.stringify(data[key], null, 2) : String(data[key]);
+          div.appendChild(label);
+          div.appendChild(document.createTextNode(' '));
+          div.appendChild(pre);
+          fieldsEl.appendChild(div);
+        }
+      });
+
+      document.getElementById('analyze-result').classList.add('visible');
+    } catch (e) {
+      showMsg('analyze-msg', e.message, 'error');
+    } finally {
+      setLoading('analyze-btn', false, 'Analyze');
+    }
+  }
+
+  // Enter key shortcut for ask input
+  document.getElementById('ask-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') askQuestion();
+  });
+
+  // Load PDF list on page load
+  loadPDFs();
+</script>
+</body>
+</html>
