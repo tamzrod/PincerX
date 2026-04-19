@@ -58,51 +58,66 @@ function splitIntoChunks(text) {
   return chunks.filter((c) => c.length > 0);
 }
 
+let ingestionInProgress = false;
+
 /**
  * Ingest all PDFs from PDF_DIR and write docs.json to OUTPUT_PATH.
+ * Throws if ingestion is already running to prevent concurrent writes.
  */
 async function ingest() {
-  if (!fs.existsSync(PDF_DIR)) {
-    fs.mkdirSync(PDF_DIR, { recursive: true });
+  if (ingestionInProgress) {
+    const err = new Error('Ingestion is already in progress.');
+    err.code = 'INGESTION_IN_PROGRESS';
+    throw err;
   }
 
-  const files = fs.readdirSync(PDF_DIR).filter((f) => f.toLowerCase().endsWith('.pdf'));
+  ingestionInProgress = true;
 
-  if (files.length === 0) {
-    console.warn('No PDF files found in', PDF_DIR);
-  }
-
-  const docs = [];
-  let idCounter = 1;
-
-  for (const file of files) {
-    const filePath = path.join(PDF_DIR, file);
-    const title = path.basename(file, path.extname(file));
-
-    console.log(`Processing: ${file}`);
-
-    const buffer = fs.readFileSync(filePath);
-    const parser = new PDFParse({ data: buffer });
-    const parsed = await parser.getText();
-
-    const cleaned = cleanText(parsed.text);
-    const chunks = splitIntoChunks(cleaned);
-
-    for (const chunk of chunks) {
-      docs.push({
-        id: String(idCounter++),
-        title,
-        content: chunk,
-      });
+  try {
+    if (!fs.existsSync(PDF_DIR)) {
+      fs.mkdirSync(PDF_DIR, { recursive: true });
     }
 
-    console.log(`  → ${chunks.length} chunk(s)`);
+    const files = fs.readdirSync(PDF_DIR).filter((f) => f.toLowerCase().endsWith('.pdf'));
+
+    if (files.length === 0) {
+      console.warn('No PDF files found in', PDF_DIR);
+    }
+
+    const docs = [];
+    let idCounter = 1;
+
+    for (const file of files) {
+      const filePath = path.join(PDF_DIR, file);
+      const title = path.basename(file, path.extname(file));
+
+      console.log(`Processing: ${file}`);
+
+      const buffer = fs.readFileSync(filePath);
+      const parser = new PDFParse({ data: buffer });
+      const parsed = await parser.getText();
+
+      const cleaned = cleanText(parsed.text);
+      const chunks = splitIntoChunks(cleaned);
+
+      for (const chunk of chunks) {
+        docs.push({
+          id: String(idCounter++),
+          title,
+          content: chunk,
+        });
+      }
+
+      console.log(`  → ${chunks.length} chunk(s)`);
+    }
+
+    fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
+    fs.writeFileSync(OUTPUT_PATH, JSON.stringify(docs, null, 2), 'utf8');
+
+    console.log(`\nWrote ${docs.length} document chunk(s) to ${OUTPUT_PATH}`);
+  } finally {
+    ingestionInProgress = false;
   }
-
-  fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
-  fs.writeFileSync(OUTPUT_PATH, JSON.stringify(docs, null, 2), 'utf8');
-
-  console.log(`\nWrote ${docs.length} document chunk(s) to ${OUTPUT_PATH}`);
 }
 
 if (require.main === module) {

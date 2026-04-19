@@ -204,6 +204,19 @@ describe('POST /upload', () => {
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/ingest error/);
   });
+
+  it('returns 409 when ingestion is already in progress', async () => {
+    const err = new Error('Ingestion is already in progress.');
+    err.code = 'INGESTION_IN_PROGRESS';
+    ingest.mockRejectedValue(err);
+
+    const res = await request(app)
+      .post('/upload')
+      .attach('file', Buffer.from('%PDF-1.4 fake'), 'test-upload.pdf');
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/already in progress/i);
+  });
 });
 
 // ─── DELETE /pdf ──────────────────────────────────────────────────────────────
@@ -274,5 +287,19 @@ describe('DELETE /pdf', () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/ingest boom/);
+  });
+
+  it('returns 409 when ingestion is already in progress', async () => {
+    fs.writeFileSync(testPdf, '%PDF-1.4 fake');
+    const err = new Error('Ingestion is already in progress.');
+    err.code = 'INGESTION_IN_PROGRESS';
+    ingest.mockRejectedValue(err);
+
+    const res = await request(app)
+      .delete('/pdf')
+      .send({ filename: testFilename });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/already in progress/i);
   });
 });
