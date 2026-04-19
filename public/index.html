@@ -393,8 +393,9 @@
     <div class="field-group">
       <label for="cfg-model">Model</label>
       <div style="display:flex;gap:8px;align-items:center">
-        <input type="text" id="cfg-model" placeholder="llama3, llama3.2, gpt-4o…" list="cfg-model-list" style="flex:1" />
-        <datalist id="cfg-model-list"></datalist>
+        <select id="cfg-model" style="flex:1">
+          <option value="">— click Detect to load available models —</option>
+        </select>
         <button class="btn-secondary" id="cfg-detect-btn" type="button" onclick="detectModels()" style="white-space:nowrap;flex-shrink:0">Detect</button>
       </div>
     </div>
@@ -796,7 +797,24 @@
       document.getElementById('cfg-scheme').value = scheme;
       document.getElementById('cfg-host').value = host;
       document.getElementById('cfg-port').value = port;
-      document.getElementById('cfg-model').value = cfg.model || '';
+
+      // Seed the model dropdown with the currently configured model so it is
+      // visible before the user clicks Detect.
+      const modelSelect = document.getElementById('cfg-model');
+      modelSelect.innerHTML = '';
+      if (cfg.model) {
+        const opt = document.createElement('option');
+        opt.value = cfg.model;
+        opt.textContent = cfg.model;
+        modelSelect.appendChild(opt);
+        modelSelect.value = cfg.model;
+      } else {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '— click Detect to load available models —';
+        modelSelect.appendChild(opt);
+      }
+
       document.getElementById('cfg-apikey').value = '';
       document.getElementById('cfg-apikey').placeholder = cfg.hasApiKey ? '(key stored — enter new key to replace)' : 'sk-… or leave blank';
     } catch (e) {
@@ -832,22 +850,22 @@
     try {
       const data = await apiFetch('/models?baseUrl=' + encodeURIComponent(baseUrl));
       const models = data.models || [];
-      const datalist = document.getElementById('cfg-model-list');
-      datalist.innerHTML = '';
-      models.forEach((name) => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        datalist.appendChild(opt);
-      });
 
       if (models.length === 0) {
         showMsg('cfg-msg', 'No models found on that server.', 'error');
       } else {
-        const currentModel = document.getElementById('cfg-model').value.trim();
-        if (!currentModel || !models.includes(currentModel)) {
-          document.getElementById('cfg-model').value = models[0];
-        }
-        showMsg('cfg-msg', `${models.length} model${models.length === 1 ? '' : 's'} detected. Click the Model field to choose.`, 'success');
+        const modelSelect = document.getElementById('cfg-model');
+        const currentModel = modelSelect.value;
+        modelSelect.innerHTML = '';
+        models.forEach((name) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          modelSelect.appendChild(opt);
+        });
+        // Keep the previously selected model if it is still available; otherwise default to the first.
+        modelSelect.value = models.includes(currentModel) ? currentModel : models[0];
+        showMsg('cfg-msg', `${models.length} model${models.length === 1 ? '' : 's'} detected.`, 'success');
       }
     } catch (e) {
       showMsg('cfg-msg', 'Could not detect models: ' + e.message, 'error');
