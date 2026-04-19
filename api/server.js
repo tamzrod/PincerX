@@ -116,6 +116,47 @@ app.post('/config', (req, res) => {
 });
 
 /**
+ * GET /models?baseUrl=http://192.168.1.10:11434
+ * Proxies a request to the Ollama-compatible backend's /api/tags endpoint
+ * and returns the list of available model names.
+ */
+app.get('/models', async (req, res) => {
+  let { baseUrl } = req.query;
+  if (!baseUrl) {
+    // Fall back to the currently configured baseUrl
+    try {
+      const stored = fs.existsSync(CONFIG_PATH)
+        ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
+        : {};
+      baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
+    } catch {
+      baseUrl = process.env.AI_BASE_URL || 'http://localhost:11434';
+    }
+  }
+
+  let tagsUrl;
+  try {
+    tagsUrl = new URL('/api/tags', baseUrl).toString();
+  } catch {
+    return res.status(400).json({ error: 'Invalid baseUrl.' });
+  }
+
+  try {
+    const response = await fetch(tagsUrl, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) {
+      return res.status(502).json({ error: `Backend returned HTTP ${response.status}` });
+    }
+    const data = await response.json();
+    const models = Array.isArray(data.models)
+      ? data.models.map((m) => (typeof m === 'string' ? m : m.name)).filter(Boolean)
+      : [];
+    return res.json({ models });
+  } catch (e) {
+    return res.status(502).json({ error: `Could not reach AI backend: ${e.message}` });
+  }
+});
+
+/**
  * GET /pdfs
  * Returns a list of PDF filenames currently stored in /pdfs.
  */
