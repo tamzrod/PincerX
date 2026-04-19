@@ -271,6 +271,30 @@ app.delete('/pdf', async (req, res) => {
 });
 
 /**
+ * Build an informative error message for a failed fetch to the Zonos sidecar.
+ *
+ * Node's native fetch surfaces the real network reason in e.cause rather than
+ * e.message (which is just "fetch failed"), so we prefer that when available.
+ * Common cases are given actionable guidance:
+ *   - ECONNREFUSED → Zonos container is not running.
+ *   - TimeoutError  → model is still loading; try again shortly.
+ *
+ * @param {Error} e - The caught error from a failed fetch call.
+ * @returns {string} A human-readable error string.
+ */
+function ttsFetchError(e) {
+  if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+    return 'TTS service unreachable: request timed out — the Zonos model may still be loading. Wait a moment and try again.';
+  }
+  const detail = e.cause?.message || e.message;
+  const base = `TTS service unreachable: ${detail}`;
+  if (detail.includes('ECONNREFUSED')) {
+    return `${base}. Is the Zonos container running? See zonos/README.md for setup instructions.`;
+  }
+  return base;
+}
+
+/**
  * POST /tts
  * Body: { "text": "chapter text to synthesize", "voice_id": "myVoice",
  *         "speaking_rate": 15.0, "pitch_std": 45.0, "emotion_preset": "neutral" }
@@ -315,7 +339,7 @@ app.post('/tts', async (req, res) => {
     res.set('Content-Length', String(audioBuffer.byteLength));
     return res.send(Buffer.from(audioBuffer));
   } catch (e) {
-    return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
+    return res.status(502).json({ error: ttsFetchError(e) });
   }
 });
 
@@ -332,7 +356,7 @@ app.get('/tts/voices', async (_req, res) => {
     }
     return res.json(await response.json());
   } catch (e) {
-    return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
+    return res.status(502).json({ error: ttsFetchError(e) });
   }
 });
 
@@ -377,7 +401,7 @@ app.post('/tts/voice', (req, res) => {
       }
       return res.json(await response.json());
     } catch (e) {
-      return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
+      return res.status(502).json({ error: ttsFetchError(e) });
     }
   });
 });
@@ -403,7 +427,7 @@ app.delete('/tts/voice/:id', async (req, res) => {
     }
     return res.json(await response.json());
   } catch (e) {
-    return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
+    return res.status(502).json({ error: ttsFetchError(e) });
   }
 });
 
