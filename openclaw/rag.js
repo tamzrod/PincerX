@@ -6,6 +6,8 @@ const ai = require('./ai');
 
 const DOCS_PATH = path.join(__dirname, '..', 'data', 'docs.json');
 const MAX_CONTEXT_CHARS = 2000;
+const FALLBACK_CHUNK_COUNT = 5;
+const INTENT_PHRASES = ['summarize', 'overview', 'what do you know', 'what you know'];
 
 /**
  * Load all documents from the local JSON store.
@@ -15,6 +17,18 @@ const MAX_CONTEXT_CHARS = 2000;
 function loadDocs() {
   const raw = fs.readFileSync(DOCS_PATH, 'utf8');
   return JSON.parse(raw);
+}
+
+/**
+ * Detect whether a query expresses a broad intent (summarize, overview, etc.)
+ * that should bypass strict keyword filtering.
+ *
+ * @param {string} query
+ * @returns {boolean}
+ */
+function isIntentQuery(query) {
+  const lower = query.toLowerCase();
+  return INTENT_PHRASES.some((phrase) => lower.includes(phrase));
 }
 
 /**
@@ -59,13 +73,15 @@ function retrieve(query, topK = 3) {
  * @returns {Promise<{answer: string, sources: Array<{id: string, title: string}>}>}
  */
 async function ask(query, aiOptions = {}) {
-  const relevantDocs = retrieve(query);
+  let relevantDocs = retrieve(query);
 
-  if (relevantDocs.length === 0) {
-    return {
-      answer: 'No relevant information was found in the knowledge base for your query.',
-      sources: [],
-    };
+  if (relevantDocs.length === 0 || isIntentQuery(query)) {
+    const fallback = loadDocs().slice(0, FALLBACK_CHUNK_COUNT);
+    // For intent queries with existing matches, merge to preserve relevance while widening context.
+    // For zero-match queries, use fallback entirely.
+    const seen = new Set(relevantDocs.map((d) => d.id));
+    const extra = fallback.filter((d) => !seen.has(d.id));
+    relevantDocs = [...relevantDocs, ...extra].slice(0, FALLBACK_CHUNK_COUNT);
   }
 
   let context = relevantDocs
@@ -97,4 +113,4 @@ async function ask(query, aiOptions = {}) {
   };
 }
 
-module.exports = { ask, retrieve };
+module.exports = { ask, retrieve, isIntentQuery };

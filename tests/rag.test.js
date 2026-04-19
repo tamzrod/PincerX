@@ -50,6 +50,74 @@ describe('OpenClaw rag.js — retrieve()', () => {
   });
 });
 
+describe('OpenClaw rag.js — isIntentQuery()', () => {
+  it('returns true for "summarize" queries', () => {
+    expect(rag.isIntentQuery('Please summarize what you know')).toBe(true);
+  });
+
+  it('returns true for "overview" queries', () => {
+    expect(rag.isIntentQuery('Give me an overview')).toBe(true);
+  });
+
+  it('returns true for "what do you know" queries', () => {
+    expect(rag.isIntentQuery('What do you know about this?')).toBe(true);
+  });
+
+  it('returns true for "what you know" queries', () => {
+    expect(rag.isIntentQuery('Tell me what you know')).toBe(true);
+  });
+
+  it('returns false for normal keyword queries', () => {
+    expect(rag.isIntentQuery('machine learning artificial intelligence')).toBe(false);
+  });
+
+  it('is case-insensitive', () => {
+    expect(rag.isIntentQuery('SUMMARIZE everything')).toBe(true);
+  });
+});
+
+describe('OpenClaw rag.js — ask() fallback / intent', () => {
+  it('calls ai.ask with fallback docs for a "summarize" intent query', async () => {
+    ai.ask.mockResolvedValue('Here is a summary of the knowledge base.');
+
+    const result = await rag.ask('summarize what you know');
+
+    expect(ai.ask).toHaveBeenCalledTimes(1);
+    const promptArg = ai.ask.mock.calls[0][0];
+    expect(promptArg).toContain('Context:');
+    expect(result.answer).toBe('Here is a summary of the knowledge base.');
+    expect(result.sources.length).toBeGreaterThan(0);
+  });
+
+  it('calls ai.ask with fallback docs for an "overview" intent query', async () => {
+    ai.ask.mockResolvedValue('Overview of the documents.');
+
+    const result = await rag.ask('give me an overview');
+
+    expect(ai.ask).toHaveBeenCalledTimes(1);
+    expect(result.sources.length).toBeGreaterThan(0);
+  });
+
+  it('fallback sources contain id and title', async () => {
+    ai.ask.mockResolvedValue('Summary here.');
+
+    const result = await rag.ask('summarize what you know');
+
+    result.sources.forEach((s) => {
+      expect(s).toHaveProperty('id');
+      expect(s).toHaveProperty('title');
+    });
+  });
+
+  it('does not exceed FALLBACK_CHUNK_COUNT sources in fallback mode', async () => {
+    ai.ask.mockResolvedValue('answer');
+
+    const result = await rag.ask('zzzzxxx completely unknown topic');
+
+    expect(result.sources.length).toBeLessThanOrEqual(5);
+  });
+});
+
 describe('OpenClaw rag.js — ask()', () => {
   it('calls ai.ask with grounded prompt and returns answer + sources', async () => {
     ai.ask.mockResolvedValue('Machine learning lets systems learn from data.');
@@ -76,12 +144,15 @@ describe('OpenClaw rag.js — ask()', () => {
     });
   });
 
-  it('returns a no-result message without calling ai.ask when no docs match', async () => {
+  it('calls ai.ask with fallback docs when no docs match the query', async () => {
+    ai.ask.mockResolvedValue('Here is what I know based on the available documents.');
+
     const result = await rag.ask('zzzzxxx completely unknown topic');
 
-    expect(ai.ask).not.toHaveBeenCalled();
-    expect(result.answer).toMatch(/no relevant information/i);
-    expect(result.sources).toEqual([]);
+    expect(ai.ask).toHaveBeenCalledTimes(1);
+    expect(result.answer).toBe('Here is what I know based on the available documents.');
+    expect(Array.isArray(result.sources)).toBe(true);
+    expect(result.sources.length).toBeGreaterThan(0);
   });
 
   it('passes aiOptions through to ai.ask', async () => {
