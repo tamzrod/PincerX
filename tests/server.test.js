@@ -252,6 +252,8 @@ describe('POST /upload', () => {
 
   afterEach(() => {
     if (fs.existsSync(testPdf)) fs.unlinkSync(testPdf);
+    const testTxt = path.join(PDF_DIR, 'notes.txt');
+    if (fs.existsSync(testTxt)) fs.unlinkSync(testTxt);
   });
 
   it('returns 200 and triggers ingest when a valid PDF is uploaded', async () => {
@@ -266,18 +268,30 @@ describe('POST /upload', () => {
     expect(ingest).toHaveBeenCalledTimes(1);
   });
 
+  it('returns 200 and triggers ingest when a .txt file is uploaded', async () => {
+    ingest.mockResolvedValue();
+
+    const res = await request(app)
+      .post('/upload')
+      .attach('file', Buffer.from('hello world'), 'notes.txt');
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/notes\.txt/);
+    expect(ingest).toHaveBeenCalledTimes(1);
+  });
+
   it('returns 400 when no file is provided', async () => {
     const res = await request(app).post('/upload').send();
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 when uploaded file is not a PDF', async () => {
+  it('returns 400 when uploaded file type is not supported', async () => {
     const res = await request(app)
       .post('/upload')
-      .attach('file', Buffer.from('hello'), 'test.txt');
+      .attach('file', Buffer.from('data'), 'file.xyz');
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/PDF/i);
+    expect(res.body.error).toMatch(/unsupported file type/i);
   });
 
   it('returns 500 when ingestion fails', async () => {
@@ -345,13 +359,13 @@ describe('DELETE /pdf', () => {
     expect(res.body.error).toMatch(/filename/i);
   });
 
-  it('returns 400 when filename is not a PDF', async () => {
+  it('returns 400 when filename has an unsupported extension', async () => {
     const res = await request(app)
       .delete('/pdf')
-      .send({ filename: 'secret.txt' });
+      .send({ filename: 'secret.xyz' });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/\.pdf/i);
+    expect(res.body.error).toMatch(/supported extension/i);
   });
 
   it('returns 400 when filename contains path traversal', async () => {

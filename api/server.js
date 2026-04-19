@@ -7,7 +7,7 @@ const multer = require('multer');
 const rag = require('../openclaw/rag');
 const feedback = require('../openclaw/feedback');
 const ai = require('../openclaw/ai');
-const { ingest } = require('../ingest');
+const { ingest, SUPPORTED_EXTENSIONS } = require('../ingest');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,8 +28,8 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (_req, file, cb) => {
-    if (path.extname(file.originalname).toLowerCase() !== '.pdf') {
-      return cb(new Error('Only PDF files are allowed.'));
+    if (!SUPPORTED_EXTENSIONS.has(path.extname(file.originalname).toLowerCase())) {
+      return cb(new Error(`Unsupported file type. Allowed: ${[...SUPPORTED_EXTENSIONS].join(', ')}`));
     }
     cb(null, true);
   },
@@ -161,15 +161,15 @@ app.get('/models', async (req, res) => {
 
 /**
  * GET /pdfs
- * Returns a list of PDF filenames currently stored in /pdfs.
+ * Returns a list of supported filenames currently stored in /pdfs.
  */
 app.get('/pdfs', async (_req, res) => {
   try {
     const entries = await fs.promises.readdir(PDF_DIR);
-    const files = entries.filter((f) => f.toLowerCase().endsWith('.pdf'));
+    const files = entries.filter((f) => SUPPORTED_EXTENSIONS.has(path.extname(f).toLowerCase()));
     return res.json({ files });
   } catch (e) {
-    return res.status(500).json({ error: `Could not list PDFs: ${e.message}` });
+    return res.status(500).json({ error: `Could not list files: ${e.message}` });
   }
 });
 
@@ -238,7 +238,7 @@ app.post('/upload', (req, res) => {
 /**
  * DELETE /pdf
  * Body: { "filename": "example.pdf" }
- * Deletes the specified PDF from /pdfs and rebuilds the knowledge base.
+ * Deletes the specified file from /pdfs and rebuilds the knowledge base.
  */
 app.delete('/pdf', async (req, res) => {
   const { filename } = req.body;
@@ -246,8 +246,8 @@ app.delete('/pdf', async (req, res) => {
   if (err) return res.status(400).json({ error: err });
 
   // Prevent path traversal: only allow plain filenames with no directory separators
-  if (path.basename(filename) !== filename || !filename.toLowerCase().endsWith('.pdf')) {
-    return res.status(400).json({ error: 'Invalid filename. Must be a plain .pdf filename.' });
+  if (path.basename(filename) !== filename || !SUPPORTED_EXTENSIONS.has(path.extname(filename).toLowerCase())) {
+    return res.status(400).json({ error: `Invalid filename. Must be a plain filename with a supported extension (${[...SUPPORTED_EXTENSIONS].join(', ')}).` });
   }
 
   const filePath = path.join(PDF_DIR, filename);

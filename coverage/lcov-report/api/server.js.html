@@ -382,17 +382,17 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">4x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -576,17 +576,17 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">4x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -664,7 +664,7 @@ const multer = require('multer');
 const rag = require('../openclaw/rag');
 const feedback = require('../openclaw/feedback');
 const ai = require('../openclaw/ai');
-const { ingest } = require('../ingest');
+const { ingest, SUPPORTED_EXTENSIONS } = require('../ingest');
 &nbsp;
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -685,8 +685,8 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (_req, file, cb) =&gt; {
-    if (path.extname(file.originalname).toLowerCase() !== '.pdf') {
-      return cb(new Error('Only PDF files are allowed.'));
+    if (!SUPPORTED_EXTENSIONS.has(path.extname(file.originalname).toLowerCase())) {
+      return cb(new Error(`Unsupported file type. Allowed: ${[...SUPPORTED_EXTENSIONS].join(', ')}`));
     }
     cb(null, true);
   },
@@ -818,15 +818,15 @@ app.get('/models', <span class="fstat-no" title="function not covered" >as</span
 &nbsp;
 /**
  * GET /pdfs
- * Returns a list of PDF filenames currently stored in /pdfs.
+ * Returns a list of supported filenames currently stored in /pdfs.
  */
 app.get('/pdfs', <span class="fstat-no" title="function not covered" >as</span>ync (_req, res) =&gt; {
 <span class="cstat-no" title="statement not covered" >  try {</span>
     const entries = <span class="cstat-no" title="statement not covered" >await fs.promises.readdir(PDF_DIR);</span>
-    const files = <span class="cstat-no" title="statement not covered" >entries.filter(<span class="fstat-no" title="function not covered" >(f</span>) =&gt; <span class="cstat-no" title="statement not covered" >f.toLowerCase().endsWith('.pdf'))</span>;</span>
+    const files = <span class="cstat-no" title="statement not covered" >entries.filter(<span class="fstat-no" title="function not covered" >(f</span>) =&gt; <span class="cstat-no" title="statement not covered" >SUPPORTED_EXTENSIONS.has(path.extname(f).toLowerCase()))</span>;</span>
 <span class="cstat-no" title="statement not covered" >    return res.json({ files });</span>
   } catch (e) {
-<span class="cstat-no" title="statement not covered" >    return res.status(500).json({ error: `Could not list PDFs: ${e.message}` });</span>
+<span class="cstat-no" title="statement not covered" >    return res.status(500).json({ error: `Could not list files: ${e.message}` });</span>
   }
 });
 &nbsp;
@@ -895,7 +895,7 @@ app.post('/upload', (req, res) =&gt; {
 /**
  * DELETE /pdf
  * Body: { "filename": "example.pdf" }
- * Deletes the specified PDF from /pdfs and rebuilds the knowledge base.
+ * Deletes the specified file from /pdfs and rebuilds the knowledge base.
  */
 app.delete('/pdf', async (req, res) =&gt; {
   const { filename } = req.body;
@@ -903,8 +903,8 @@ app.delete('/pdf', async (req, res) =&gt; {
   if (err) return res.status(400).json({ error: err });
 &nbsp;
   // Prevent path traversal: only allow plain filenames with no directory separators
-  if (path.basename(filename) !== filename || !filename.toLowerCase().endsWith('.pdf')) {
-    return res.status(400).json({ error: 'Invalid filename. Must be a plain .pdf filename.' });
+  if (path.basename(filename) !== filename || !SUPPORTED_EXTENSIONS.has(path.extname(filename).toLowerCase())) {
+    return res.status(400).json({ error: `Invalid filename. Must be a plain filename with a supported extension (${[...SUPPORTED_EXTENSIONS].join(', ')}).` });
   }
 &nbsp;
   const filePath = path.join(PDF_DIR, filename);
@@ -958,7 +958,7 @@ module.exports = app;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T07:21:44.923Z
+                at 2026-04-19T07:24:58.140Z
             </div>
         <script src="../prettify.js"></script>
         <script>
