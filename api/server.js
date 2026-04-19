@@ -6,6 +6,7 @@ const path = require('path');
 const multer = require('multer');
 const rag = require('../openclaw/rag');
 const feedback = require('../openclaw/feedback');
+const ai = require('../openclaw/ai');
 const { ingest } = require('../ingest');
 
 const app = express();
@@ -267,8 +268,28 @@ app.delete('/pdf', async (req, res) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, () => {
+  app.listen(PORT, async () => {
     console.log(`PincerX API running on http://localhost:${PORT}`);
+
+    // Validate configured AI model against available models at startup.
+    try {
+      let stored = {};
+      try {
+        if (fs.existsSync(CONFIG_PATH)) {
+          stored = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        }
+      } catch { /* ignore corrupt config */ }
+
+      const baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
+      const configuredModel = stored.model || process.env.AI_MODEL || 'llama3';
+      const models = await ai.listModels({ baseUrl });
+
+      if (models.length > 0 && !models.includes(configuredModel)) {
+        console.warn(`[AI] Configured model "${configuredModel}" not found in available models list. Available: ${models.join(', ')}`);
+      }
+    } catch (e) {
+      console.error('[AI] Could not validate model on startup:', e.message);
+    }
   });
 }
 

@@ -8,6 +8,9 @@ let ai;
 
 beforeEach(() => {
   jest.resetModules();
+  // Suppress startup log noise in tests
+  jest.spyOn(console, 'log').mockImplementation(() => {});
+  jest.spyOn(console, 'error').mockImplementation(() => {});
   ai = require('../openclaw/ai');
 });
 
@@ -124,7 +127,9 @@ describe('OpenClaw ai.js', () => {
 
     it('rejects on network error', async () => {
       mockHttpRequestError('ECONNREFUSED');
-      await expect(ai.ask('prompt')).rejects.toThrow('AI request failed: ECONNREFUSED');
+      await expect(ai.ask('prompt')).rejects.toThrow(
+        'AI request failed (http://localhost:11434, model=llama3): ECONNREFUSED'
+      );
     });
   });
 
@@ -151,7 +156,9 @@ describe('OpenClaw ai.js', () => {
 
       jest.advanceTimersByTime(5000);
 
-      await expect(promise).rejects.toThrow('AI request failed: AI request timed out');
+      await expect(promise).rejects.toThrow(
+        'AI request failed (http://localhost:11434, model=llama3): AI request timed out'
+      );
       expect(mockReq.destroy).toHaveBeenCalledTimes(1);
     });
 
@@ -205,5 +212,151 @@ describe('OpenClaw ai.js', () => {
       // unhandled and cause the test to fail – so reaching here is the assertion.
       expect(mockReq.destroy).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('normalizeBaseUrl()', () => {
+  let normalizeBaseUrl;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    ({ normalizeBaseUrl } = require('../openclaw/ai'));
+  });
+
+  it('returns a valid URL unchanged', () => {
+    expect(normalizeBaseUrl('http://localhost:11434')).toBe('http://localhost:11434');
+  });
+
+  it('removes trailing slashes', () => {
+    expect(normalizeBaseUrl('http://localhost:11434/')).toBe('http://localhost:11434');
+    expect(normalizeBaseUrl('http://localhost:11434///')).toBe('http://localhost:11434');
+  });
+
+  it('adds http:// prefix when no protocol is given', () => {
+    expect(normalizeBaseUrl('localhost:11434')).toBe('http://localhost:11434');
+  });
+
+  it('accepts https:// URLs', () => {
+    expect(normalizeBaseUrl('https://api.example.com/')).toBe('https://api.example.com');
+  });
+
+  it('throws for an empty string', () => {
+    expect(() => normalizeBaseUrl('')).toThrow('Invalid AI_BASE_URL configuration');
+  });
+
+  it('throws for a bare "http" without a hostname', () => {
+    expect(() => normalizeBaseUrl('http')).toThrow('Invalid AI_BASE_URL configuration');
+  });
+
+  it('throws for a bare "https" without a hostname', () => {
+    expect(() => normalizeBaseUrl('https')).toThrow('Invalid AI_BASE_URL configuration');
+  });
+
+  it('throws for undefined', () => {
+    expect(() => normalizeBaseUrl(undefined)).toThrow('Invalid AI_BASE_URL configuration');
+  });
+
+  it('throws for null', () => {
+    expect(() => normalizeBaseUrl(null)).toThrow('Invalid AI_BASE_URL configuration');
+  });
+
+  it('throws when the URL contains a duplicated protocol (http://http://...)', () => {
+    expect(() => normalizeBaseUrl('http://http://localhost')).toThrow(
+      'Invalid AI_BASE_URL configuration'
+    );
+  });
+});
+
+describe('listModels()', () => {
+  /** Helper: mock http.request to respond with a given body on the first GET. */
+  function mockGetRequest(responseBody) {
+    const mockRes = Object.assign(new EventEmitter(), { statusCode: 200 });
+    const mockReq = Object.assign(new EventEmitter(), {
+      write: jest.fn(),
+      end: jest.fn(() => {
+        setImmediate(() => {
+          mockRes.emit('data', JSON.stringify(responseBody));
+          mockRes.emit('end');
+        });
+      }),
+    });
+
+    jest.spyOn(http, 'request').mockImplementation((_opts, cb) => {
+      cb(mockRes);
+      return mockReq;
+    });
+
+    return { mockReq, mockRes };
+  }
+
+  /** Helper: mock a network error on http.request. */
+  function mockGetError(errorMessage) {
+    const mockReq = Object.assign(new EventEmitter(), {
+      write: jest.fn(),
+      end: jest.fn(() => {
+        setImmediate(() => mockReq.emit('error', new Error(errorMessage)));
+      }),
+    });
+    jest.spyOn(http, 'request').mockImplementation(() => mockReq);
+    return mockReq;
+  }
+
+  it('returns model names from a successful /api/tags response', async () => {
+    mockGetRequest({ models: [{ name: 'llama3' }, { name: 'mistral' }] });
+    const models = await ai.listModels();
+    expect(models).toEqual(['llama3', 'mistral']);
+  });
+
+  it('returns an empty array when the models field is absent', async () => {
+    mockGetRequest({ something: 'else' });
+    const models = await ai.listModels();
+    expect(models).toEqual([]);
+  });
+
+  it('filters out model entries with no name', async () => {
+    mockGetRequest({ models: [{ name: 'llama3' }, {}, { name: '' }] });
+    const models = await ai.listModels();
+    expect(models).toEqual(['llama3']);
+  });
+
+  it('rejects when the network request fails', async () => {
+    mockGetError('ECONNREFUSED');
+    await expect(ai.listModels()).rejects.toThrow('Failed to list models: ECONNREFUSED');
+  });
+
+  it('rejects when the response body is not valid JSON', async () => {
+    const mockRes = Object.assign(new EventEmitter(), { statusCode: 200 });
+    const mockReq = Object.assign(new EventEmitter(), {
+      write: jest.fn(),
+      end: jest.fn(() => {
+        setImmediate(() => {
+          mockRes.emit('data', 'not-json!');
+          mockRes.emit('end');
+        });
+      }),
+    });
+    jest.spyOn(http, 'request').mockImplementation((_opts, cb) => {
+      cb(mockRes);
+      return mockReq;
+    });
+    await expect(ai.listModels()).rejects.toThrow('Failed to parse model list');
+  });
+
+  it('uses a custom baseUrl when provided in options', async () => {
+    mockGetRequest({ models: [{ name: 'gemma' }] });
+    const models = await ai.listModels({ baseUrl: 'http://myhost:9000' });
+    expect(models).toEqual(['gemma']);
+    expect(http.request).toHaveBeenCalledWith(
+      expect.objectContaining({ hostname: 'myhost', port: '9000', path: '/api/tags', method: 'GET' }),
+      expect.any(Function)
+    );
+  });
+
+  it('throws when baseUrl is invalid', async () => {
+    await expect(ai.listModels({ baseUrl: 'http' })).rejects.toThrow(
+      'Invalid AI_BASE_URL configuration'
+    );
   });
 });
