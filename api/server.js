@@ -343,23 +343,28 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
 }
 
 /**
- * Regex matching an emotion tag of the form [emotion:preset] at the start of a
- * chunk (possibly preceded by whitespace), used for tag extraction.  Note: this
- * is intentionally anchored with ^ so it only matches a leading tag; the global
+ * Regex matching an emotion tag at the start of a chunk (possibly preceded by
+ * whitespace), used for tag extraction.  Handles both the canonical square-bracket
+ * form ([emotion:preset]) and the quoted form ("emotion:preset") that some LLMs
+ * emit.  The anchored ^ means this only matches a leading tag; the global
  * replacement in stripEmotionTags() uses the unanchored form.  Unknown presets
  * extracted here are passed through to Zonos, which falls back to "neutral".
  */
-const EMOTION_TAG_RE = /^\[emotion:([a-z]+)\]\s*/;
+const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 
 /**
- * Strip all [emotion:X] tags from *text*, returning clean prose suitable for
- * display or for sending directly to Zonos.
+ * Strip all emotion tags from *text*, returning clean prose suitable for
+ * display or for sending directly to Zonos.  Handles the canonical
+ * [emotion:X] square-bracket format as well as the "emotion:X" quoted format
+ * that some models produce when they misread the example in the prompt.
  *
  * @param {string} text
  * @returns {string}
  */
 function stripEmotionTags(text) {
-  return text.replace(/\[emotion:[a-z]+\]\s*/g, '');
+  return text
+    .replace(/\[emotion:[a-z]+\]\s*/g, '')
+    .replace(/"emotion:[a-z]+"\s*/g, '');
 }
 
 /**
@@ -423,7 +428,7 @@ function splitIntoTTSChunksWithEmotion(text, fallbackEmotion = 'neutral') {
   let currentEmotion = fallbackEmotion;
   return rawChunks.map((chunk) => {
     const match = chunk.match(EMOTION_TAG_RE);
-    if (match) currentEmotion = match[1];
+    if (match) currentEmotion = match[1] || match[2]; // group 1 = bracket format, group 2 = quoted format (alternation ensures only one captures)
     return { text: stripEmotionTags(chunk), emotion: currentEmotion };
   });
 }

@@ -561,6 +561,15 @@
     </div>
 
     <div class="field-group">
+      <label for="voice-type">Voice Type <span style="color:#aaa;font-weight:400">(used when Zonos is offline)</span></label>
+      <select id="voice-type" style="width:100%">
+        <option value="narrator">Narrator</option>
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+      </select>
+    </div>
+
+    <div class="field-group">
       <label for="voice-emotion">Emotion Preset</label>
       <select id="voice-emotion" style="width:100%">
         <option value="neutral">Neutral</option>
@@ -1184,20 +1193,24 @@
 
   // ── Emotion-tag helpers ───────────────────────────────────────────────────
 
-  // Matches an [emotion:X] tag at the start of a chunk string (with optional
-  // leading whitespace) for tag extraction.  Note: this is intentionally
-  // anchored with ^ so it only extracts a leading tag; the global replacement
-  // in stripEmotionTags() uses the unanchored form to remove tags anywhere.
-  const EMOTION_TAG_RE = /^\[emotion:([a-z]+)\]\s*/;
+  // Matches an emotion tag at the start of a chunk string (with optional
+  // leading whitespace) for tag extraction.  Handles the canonical square-bracket
+  // form ([emotion:preset]) and the quoted form ("emotion:preset") that some LLMs
+  // emit.  The anchored ^ means this only extracts a leading tag; the global
+  // replacement in stripEmotionTags() uses the unanchored forms.
+  const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 
   /**
-   * Remove all [emotion:X] tags from *text* so they are never shown to readers.
+   * Remove all emotion tags from *text* so they are never shown to readers.
+   * Handles both [emotion:X] (square-bracket) and "emotion:X" (quoted) formats.
    *
    * @param {string} text
    * @returns {string}
    */
   function stripEmotionTags(text) {
-    return text.replace(/\[emotion:[a-z]+\]\s*/g, '');
+    return text
+      .replace(/\[emotion:[a-z]+\]\s*/g, '')
+      .replace(/"emotion:[a-z]+"\s*/g, '');
   }
 
   /**
@@ -1217,7 +1230,7 @@
     let currentEmotion = fallbackEmotion || voicePrefs.emotion_preset || 'neutral';
     return rawChunks.map((chunk) => {
       const match = chunk.match(EMOTION_TAG_RE);
-      if (match) currentEmotion = match[1];
+      if (match) currentEmotion = match[1] || match[2]; // group 1 = bracket format, group 2 = quoted format (alternation ensures only one captures)
       return { text: stripEmotionTags(chunk), emotion: currentEmotion };
     });
   }
@@ -1230,6 +1243,7 @@
   // Persisted voice preferences (apply to all TTS calls).
   const voicePrefs = {
     voice_id: '',
+    voice_type: 'narrator',
     emotion_preset: 'neutral',
     speaking_rate: TTS_DEFAULT_RATE,
     pitch_std: 45,
@@ -1241,6 +1255,7 @@
     document.getElementById('voice-overlay').classList.add('open');
 
     // Restore current prefs into the controls
+    document.getElementById('voice-type').value = voicePrefs.voice_type;
     document.getElementById('voice-emotion').value = voicePrefs.emotion_preset;
     document.getElementById('voice-rate').value = voicePrefs.speaking_rate;
     document.getElementById('voice-rate-val').textContent = voicePrefs.speaking_rate;
@@ -1256,6 +1271,7 @@
   function stopTestTTS() {
     if (testTTSController) { testTTSController.abort(); testTTSController = null; }
     if (testTTSAudio) { testTTSAudio.pause(); testTTSAudio = null; }
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
   }
 
   function closeVoiceSettings() {
@@ -1316,6 +1332,7 @@
 
   function saveVoiceSettings() {
     voicePrefs.voice_id = document.getElementById('voice-select').value;
+    voicePrefs.voice_type = document.getElementById('voice-type').value;
     voicePrefs.emotion_preset = document.getElementById('voice-emotion').value;
     voicePrefs.speaking_rate = Number(document.getElementById('voice-rate').value);
     voicePrefs.pitch_std = Number(document.getElementById('voice-pitch').value);
@@ -1507,12 +1524,111 @@
       URL.revokeObjectURL(activeTTSObjectURL);
       activeTTSObjectURL = null;
     }
+    stopBrowserTTS();
     if (activeTTSButton) {
       activeTTSButton.textContent = '🔊 Read';
       activeTTSButton.classList.remove('speaking', 'loading');
       activeTTSButton.disabled = false;
       activeTTSButton = null;
     }
+  }
+
+  // ── Browser Web Speech API fallback ──────────────────────────────────────
+
+  // Tracks the active browser utterance (used when Zonos is unavailable).
+  let activeBrowserUtterance = null;
+
+  /**
+   * Pick the best matching SpeechSynthesisVoice for the requested voice type.
+   * Prefers English voices.  Falls back gracefully if no match is found.
+   *
+   * @param {'male'|'female'|'narrator'} type
+   * @returns {SpeechSynthesisVoice|null}
+   */
+  function pickBrowserVoice(type) {
+    if (!window.speechSynthesis) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return null;
+
+    const enVoices = voices.filter((v) => v.lang.startsWith('en'));
+    const pool = enVoices.length ? enVoices : voices;
+
+    const nameLower = (v) => v.name.toLowerCase();
+
+    if (type === 'male') {
+      return (
+        pool.find((v) => nameLower(v).includes('male') && !nameLower(v).includes('female')) ||
+        pool.find((v) => /\b(david|mark|daniel|james|fred|alex|thomas)\b/i.test(v.name)) ||
+        pool[0]
+      );
+    }
+    if (type === 'female') {
+      return (
+        pool.find((v) => nameLower(v).includes('female')) ||
+        pool.find((v) => /\b(samantha|victoria|karen|moira|fiona|kate|susan|lisa|zira)\b/i.test(v.name)) ||
+        pool[0]
+      );
+    }
+    // narrator: prefer deep/clear voices; default to a UK or neutral-sounding voice
+    return (
+      pool.find((v) => /uk english male|rishi|daniel|reed/i.test(v.name)) ||
+      pool.find((v) => !nameLower(v).includes('compact') && v.lang.startsWith('en')) ||
+      pool[0]
+    );
+  }
+
+  /**
+   * Convert a Zonos-style speaking rate (tokens/s, typical range 5–30) to the
+   * Web Speech API rate multiplier (clamped to 0.5–2.0).  The Zonos default of
+   * 15 maps to a neutral rate of 1.0.
+   *
+   * @param {number} zonosRate
+   * @returns {number}
+   */
+  function zonosRateToSpeechRate(zonosRate) {
+    return Math.max(0.5, Math.min(2, zonosRate / 15));
+  }
+
+  /**
+   * Read *chunks* aloud using the browser's built-in speech synthesis.
+   * This is the fallback when the Zonos TTS sidecar is unavailable.
+   *
+   * @param {Array<{text: string}>} chunks
+   * @param {HTMLButtonElement} btn - The "Read" button to update.
+   */
+  function speakWithBrowserTTS(chunks, btn) {
+    if (!window.speechSynthesis || !chunks.length) { stopTTS(); return; }
+
+    btn.textContent = '⏹ Stop';
+    btn.classList.remove('loading');
+    btn.classList.add('speaking');
+
+    const voice = pickBrowserVoice(voicePrefs.voice_type || 'narrator');
+
+    let index = 0;
+    function speakNext() {
+      if (isTTSCancelled(btn) || index >= chunks.length) {
+        if (!isTTSCancelled(btn)) stopTTS();
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(chunks[index].text);
+      if (voice) utterance.voice = voice;
+      utterance.lang = voice ? voice.lang : 'en-US';
+      utterance.rate = zonosRateToSpeechRate(voicePrefs.speaking_rate || 15);
+      activeBrowserUtterance = utterance;
+      utterance.onend = () => { index++; speakNext(); };
+      utterance.onerror = () => { if (!isTTSCancelled(btn)) stopTTS(); };
+      window.speechSynthesis.speak(utterance);
+    }
+    speakNext();
+  }
+
+  /**
+   * Cancel any in-progress browser speech synthesis utterance.
+   */
+  function stopBrowserTTS() {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    activeBrowserUtterance = null;
   }
 
   // Splits chapter text into sentence-boundary chunks of at most TTS_CHUNK_MAX_CHARS

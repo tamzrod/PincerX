@@ -30,9 +30,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">70.51% </span>
+                <span class="strong">69.91% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>165/234</span>
+                <span class='fraction'>165/236</span>
             </div>
         
             
@@ -933,7 +933,12 @@
 <a name='L868'></a><a href='#L868'>868</a>
 <a name='L869'></a><a href='#L869'>869</a>
 <a name='L870'></a><a href='#L870'>870</a>
-<a name='L871'></a><a href='#L871'>871</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L871'></a><a href='#L871'>871</a>
+<a name='L872'></a><a href='#L872'>872</a>
+<a name='L873'></a><a href='#L873'>873</a>
+<a name='L874'></a><a href='#L874'>874</a>
+<a name='L875'></a><a href='#L875'>875</a>
+<a name='L876'></a><a href='#L876'>876</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -1284,17 +1289,22 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -2148,23 +2158,28 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
 }
 &nbsp;
 /**
- * Regex matching an emotion tag of the form [emotion:preset] at the start of a
- * chunk (possibly preceded by whitespace), used for tag extraction.  Note: this
- * is intentionally anchored with ^ so it only matches a leading tag; the global
+ * Regex matching an emotion tag at the start of a chunk (possibly preceded by
+ * whitespace), used for tag extraction.  Handles both the canonical square-bracket
+ * form ([emotion:preset]) and the quoted form ("emotion:preset") that some LLMs
+ * emit.  The anchored ^ means this only matches a leading tag; the global
  * replacement in stripEmotionTags() uses the unanchored form.  Unknown presets
  * extracted here are passed through to Zonos, which falls back to "neutral".
  */
-const EMOTION_TAG_RE = /^\[emotion:([a-z]+)\]\s*/;
+const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 &nbsp;
 /**
- * Strip all [emotion:X] tags from *text*, returning clean prose suitable for
- * display or for sending directly to Zonos.
+ * Strip all emotion tags from *text*, returning clean prose suitable for
+ * display or for sending directly to Zonos.  Handles the canonical
+ * [emotion:X] square-bracket format as well as the "emotion:X" quoted format
+ * that some models produce when they misread the example in the prompt.
  *
  * @param {string} text
  * @returns {string}
  */
 function stripEmotionTags(text) {
-  return text.replace(/\[emotion:[a-z]+\]\s*/g, '');
+  return text
+    .replace(/\[emotion:[a-z]+\]\s*/g, '')
+    .replace(/"emotion:[a-z]+"\s*/g, '');
 }
 &nbsp;
 /**
@@ -2228,7 +2243,7 @@ function splitIntoTTSChunksWithEmotion(text, fallbackEmotion = <span class="bran
   let currentEmotion = fallbackEmotion;
   return rawChunks.map((chunk) =&gt; {
     const match = chunk.match(EMOTION_TAG_RE);
-    <span class="missing-if-branch" title="if path not taken" >I</span>if (match) <span class="cstat-no" title="statement not covered" >currentEmotion = match[1];</span>
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (match) <span class="cstat-no" title="statement not covered" >currentEmotion = match[1] || match[2]; </span>// group 1 = bracket format, group 2 = quoted format (alternation ensures only one captures)
     return { text: stripEmotionTags(chunk), emotion: currentEmotion };
   });
 }
@@ -2680,7 +2695,7 @@ module.exports = app;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T15:06:43.909Z
+                at 2026-04-19T23:25:42.973Z
             </div>
         <script src="../prettify.js"></script>
         <script>
