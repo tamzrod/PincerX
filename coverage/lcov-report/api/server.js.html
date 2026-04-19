@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">72.03% </span>
+                <span class="strong">78.54% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>188/261</span>
+                <span class='fraction'>205/261</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">61.93% </span>
+                <span class="strong">70.32% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>96/155</span>
+                <span class='fraction'>109/155</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">59.25% </span>
+                <span class="strong">66.66% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>16/27</span>
+                <span class='fraction'>18/27</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">72.42% </span>
+                <span class="strong">79.01% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>176/243</span>
+                <span class='fraction'>192/243</span>
             </div>
         
             
@@ -930,37 +930,37 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1447,38 +1447,38 @@ const voiceUpload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
 });
 &nbsp;
-app.post('/tts/voice', <span class="fstat-no" title="function not covered" >(r</span>eq, res) =&gt; {
-<span class="cstat-no" title="statement not covered" >  voiceUpload.single('file')(req, res, <span class="fstat-no" title="function not covered" >as</span>ync (err) =&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    if (err) <span class="cstat-no" title="statement not covered" >return res.status(400).json({ error: err.message });</span></span>
-<span class="cstat-no" title="statement not covered" >    if (!req.file) <span class="cstat-no" title="statement not covered" >return res.status(400).json({ error: 'An audio file must be provided in the "file" field.' });</span></span>
+app.post('/tts/voice', (req, res) =&gt; {
+  voiceUpload.single('file')(req, res, async (err) =&gt; {
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (err) <span class="cstat-no" title="statement not covered" >return res.status(400).json({ error: err.message });</span>
+    if (!req.file) return res.status(400).json({ error: 'An audio file must be provided in the "file" field.' });
 &nbsp;
-    const name = <span class="cstat-no" title="statement not covered" >typeof req.body.name === 'string' ? req.body.name.trim() : '';</span>
-<span class="cstat-no" title="statement not covered" >    if (!name || !/^[A-Za-z0-9_-]+$/.test(name)) {</span>
-<span class="cstat-no" title="statement not covered" >      return res.status(400).json({ error: 'A valid "name" (alphanumeric, underscores, dashes) must be provided.' });</span>
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    if (!name || !/^[A-Za-z0-9_-]+$/.test(name)) {
+      return res.status(400).json({ error: 'A valid "name" (alphanumeric, underscores, dashes) must be provided.' });
     }
 &nbsp;
-    const zonosUrl = <span class="cstat-no" title="statement not covered" >process.env.ZONOS_URL || 'http://localhost:8000';</span>
+    const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    try {</span>
-      const formData = <span class="cstat-no" title="statement not covered" >new FormData();</span>
-<span class="cstat-no" title="statement not covered" >      formData.append(</span>
+    try {
+      const formData = new FormData();
+      formData.append(
         'file',
         new Blob([req.file.buffer], { type: req.file.mimetype }),
         req.file.originalname,
       );
 &nbsp;
-      const response = <span class="cstat-no" title="statement not covered" >await fetch(</span>
+      const response = await fetch(
         `${zonosUrl}/voices/upload?name=${encodeURIComponent(name)}`,
         { method: 'POST', body: formData, signal: AbortSignal.timeout(30_000) },
       );
 &nbsp;
-<span class="cstat-no" title="statement not covered" >      if (!response.ok) {</span>
-        const detail = <span class="cstat-no" title="statement not covered" >await response.text().catch(<span class="fstat-no" title="function not covered" >()</span> =&gt; <span class="cstat-no" title="statement not covered" >response.statusText)</span>;</span>
-<span class="cstat-no" title="statement not covered" >        return res.status(502).json({ error: `TTS service error: ${detail}` });</span>
+      if (!response.ok) {
+        const detail = await response.text().catch(<span class="fstat-no" title="function not covered" >()</span> =&gt; <span class="cstat-no" title="statement not covered" >response.statusText)</span>;
+        return res.status(502).json({ error: `TTS service error: ${detail}` });
       }
-<span class="cstat-no" title="statement not covered" >      return res.json(await response.json());</span>
+      return res.json(await response.json());
     } catch (e) {
-<span class="cstat-no" title="statement not covered" >      return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });</span>
+      return res.status(502).json({ error: `TTS service unreachable: ${e.message}` });
     }
   });
 });
@@ -1624,7 +1624,7 @@ module.exports = app;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T12:02:36.344Z
+                at 2026-04-19T12:12:30.615Z
             </div>
         <script src="../prettify.js"></script>
         <script>
