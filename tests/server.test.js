@@ -410,7 +410,7 @@ describe('POST /story/:id/chapter', () => {
     expect(res.body.storyId).toBe('1234-my-story');
     expect(res.body.chapterNumber).toBe(1);
     expect(res.body.content).toMatch(/sun rose/);
-    expect(story.generateChapter).toHaveBeenCalledWith('1234-my-story', 1);
+    expect(story.generateChapter).toHaveBeenCalledWith('1234-my-story', 1, {}, '');
   });
 
   it('returns 400 when story ID contains invalid characters', async () => {

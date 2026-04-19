@@ -249,6 +249,46 @@
 
     .reading-chapter p:first-of-type { text-indent: 0; }
 
+    .chapter-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 6px;
+      margin-bottom: 14px;
+    }
+
+    .chapter-header h2 {
+      border-bottom: none;
+      padding-bottom: 0;
+      margin-bottom: 0;
+    }
+
+    .chapter-actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .btn-warning {
+      background: #f0a500;
+      color: #fff;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .btn-warning:hover:not(:disabled) { background: #d4900a; }
+
+    .reading-panel {
+      overflow-y: auto;
+      max-height: calc(100vh - 110px);
+    }
+
+    .reading-view {
+      max-width: 100%;
+      margin: 0;
+    }
+
     /* ── Settings modal ───────────────────────────────────────────────────── */
 
     .modal-overlay {
@@ -484,9 +524,10 @@
 
 <!-- ── Page 2: Story Writer ─────────────────────────────────────────────── -->
 <div class="page" id="page-story" role="tabpanel" aria-labelledby="tab-story">
-  <div class="layout" style="grid-template-columns: 1fr;">
+  <div class="layout">
 
-    <div class="panel">
+    <!-- LEFT: Controls -->
+    <aside class="panel">
       <h2>✍️ Story Writer</h2>
 
       <div class="section">
@@ -499,6 +540,7 @@
         <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
         <div class="row">
           <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
+          <button class="btn-danger" id="reset-story-btn" onclick="resetStory()" style="display:none">Reset</button>
         </div>
         <div class="msg" id="story-msg"></div>
       </div>
@@ -515,20 +557,22 @@
       <div class="section" id="chapter-section" style="display:none">
         <h3>Generate Chapters</h3>
         <p style="color:#666;font-size:13px;margin-bottom:10px;">Generate chapters one at a time. Each chapter builds on the outline and all previously generated chapters.</p>
+        <label for="chapter-custom-prompt">Custom instructions (optional)</label>
+        <textarea id="chapter-custom-prompt" placeholder="e.g. Focus on the protagonist's inner conflict, add a plot twist…" style="min-height:70px;margin-bottom:8px;"></textarea>
         <div class="row">
           <button class="btn-primary" id="chapter-btn" onclick="generateNextChapter()">Generate Chapter 1</button>
         </div>
         <div class="msg" id="chapter-msg"></div>
       </div>
+    </aside>
 
-      <div class="section" id="reading-section" style="display:none">
-        <h3>📖 Reading View</h3>
-        <div class="reading-view" id="reading-view">
-          <div class="reading-story-title" id="reading-title"></div>
-          <div class="reading-meta" id="reading-meta"></div>
-        </div>
+    <!-- RIGHT: Reading view -->
+    <main class="panel reading-panel" id="reading-panel" style="display:none" aria-label="Reading view">
+      <div class="reading-view" id="reading-view">
+        <div class="reading-story-title" id="reading-title"></div>
+        <div class="reading-meta" id="reading-meta"></div>
       </div>
-    </div>
+    </main>
 
   </div>
 </div>
@@ -924,6 +968,32 @@
   // Tracks the active story state for chapter generation.
   const storyState = { id: null, title: null, genre: null, tone: null, nextChapter: 1 };
 
+  function resetStory() {
+    storyState.id = null;
+    storyState.title = null;
+    storyState.genre = null;
+    storyState.tone = null;
+    storyState.nextChapter = 1;
+
+    document.getElementById('story-title').value = '';
+    document.getElementById('story-genre').value = '';
+    document.getElementById('story-tone').value = '';
+    document.getElementById('chapter-custom-prompt').value = '';
+
+    document.getElementById('story-result').classList.remove('visible');
+    document.getElementById('story-placeholder').style.display = '';
+    document.getElementById('chapter-section').style.display = 'none';
+    document.getElementById('reading-panel').style.display = 'none';
+    document.getElementById('reset-story-btn').style.display = 'none';
+    clearMsg('story-msg');
+    clearMsg('chapter-msg');
+
+    // Remove all chapter nodes from reading view
+    document.querySelectorAll('.reading-chapter').forEach((el) => el.remove());
+    document.getElementById('reading-title').textContent = '';
+    document.getElementById('reading-meta').textContent = '';
+  }
+
   async function generateStory() {
     clearMsg('story-msg');
     const title = document.getElementById('story-title').value.trim();
@@ -956,12 +1026,12 @@
       storyState.tone = data.tone;
       storyState.nextChapter = 1;
 
-      // Reveal chapter section; reset reading view
+      // Reveal chapter section + reset button; clear reading view
       document.getElementById('chapter-section').style.display = '';
       document.getElementById('chapter-btn').textContent = 'Generate Chapter 1';
+      document.getElementById('reset-story-btn').style.display = '';
       clearMsg('chapter-msg');
-      const readingSection = document.getElementById('reading-section');
-      readingSection.style.display = 'none';
+      document.getElementById('reading-panel').style.display = 'none';
       document.getElementById('reading-title').textContent = data.title || '';
       document.getElementById('reading-meta').textContent =
         [data.genre, data.tone].filter(Boolean).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' · ');
@@ -978,15 +1048,19 @@
     if (!storyState.id) return;
     clearMsg('chapter-msg');
     const chapterNumber = storyState.nextChapter;
+    const customPrompt = document.getElementById('chapter-custom-prompt').value.trim();
 
     setLoading('chapter-btn', true, `Generate Chapter ${chapterNumber}`);
     showMsg('chapter-msg', `Generating Chapter ${chapterNumber}…`, 'loading');
 
     try {
+      const body = { chapterNumber };
+      if (customPrompt) body.customPrompt = customPrompt;
+
       const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chapterNumber }),
+        body: JSON.stringify(body),
       });
 
       appendChapterToReading(chapterNumber, data.content || '');
@@ -1000,14 +1074,111 @@
     }
   }
 
+  async function regenerateChapter(chapterNumber, sectionEl) {
+    if (!storyState.id) return;
+    clearMsg('chapter-msg');
+    const customPrompt = document.getElementById('chapter-custom-prompt').value.trim();
+
+    // Disable action buttons in this chapter while regenerating
+    sectionEl.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    showMsg('chapter-msg', `Regenerating Chapter ${chapterNumber}…`, 'loading');
+
+    try {
+      const body = { chapterNumber };
+      if (customPrompt) body.customPrompt = customPrompt;
+
+      const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      // Replace content in-place (keep the section element, replace paragraphs)
+      sectionEl.querySelectorAll('p').forEach((p) => p.remove());
+      const paragraphs = (data.content || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+      paragraphs.forEach((text) => {
+        const p = document.createElement('p');
+        p.textContent = text;
+        sectionEl.appendChild(p);
+      });
+
+      clearMsg('chapter-msg');
+    } catch (e) {
+      showMsg('chapter-msg', e.message, 'error');
+    } finally {
+      sectionEl.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    }
+  }
+
+  async function deleteChapterUI(chapterNumber, sectionEl) {
+    if (!storyState.id) return;
+    clearMsg('chapter-msg');
+
+    sectionEl.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    showMsg('chapter-msg', `Deleting Chapter ${chapterNumber}…`, 'loading');
+
+    try {
+      await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter/${chapterNumber}`, {
+        method: 'DELETE',
+      });
+
+      sectionEl.remove();
+
+      // If the deleted chapter was beyond the current nextChapter counter,
+      // no adjustment needed. If it was at or before, update so the next
+      // generate button stays sensible.
+      if (chapterNumber < storyState.nextChapter) {
+        storyState.nextChapter = Math.max(1, storyState.nextChapter - 1);
+        document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
+      }
+
+      // Hide reading panel if no chapters remain
+      if (!document.querySelector('.reading-chapter')) {
+        document.getElementById('reading-panel').style.display = 'none';
+      }
+
+      clearMsg('chapter-msg');
+    } catch (e) {
+      showMsg('chapter-msg', e.message, 'error');
+      sectionEl.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    }
+  }
+
   function appendChapterToReading(chapterNumber, content) {
     const readingView = document.getElementById('reading-view');
+
+    // Remove existing section for this chapter number if present (regeneration)
+    const existing = readingView.querySelector(`[data-chapter="${chapterNumber}"]`);
+    if (existing) existing.remove();
+
     const section = document.createElement('div');
     section.className = 'reading-chapter';
+    section.dataset.chapter = chapterNumber;
+
+    const header = document.createElement('div');
+    header.className = 'chapter-header';
 
     const heading = document.createElement('h2');
     heading.textContent = `Chapter ${chapterNumber}`;
-    section.appendChild(heading);
+    header.appendChild(heading);
+
+    const actions = document.createElement('div');
+    actions.className = 'chapter-actions';
+
+    const regenBtn = document.createElement('button');
+    regenBtn.className = 'btn-warning';
+    regenBtn.textContent = '↻ Regenerate';
+    regenBtn.onclick = () => regenerateChapter(chapterNumber, section);
+    actions.appendChild(regenBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-danger';
+    delBtn.textContent = '🗑 Delete';
+    delBtn.onclick = () => deleteChapterUI(chapterNumber, section);
+    actions.appendChild(delBtn);
+
+    header.appendChild(actions);
+    section.appendChild(header);
 
     // Split on blank lines to create paragraphs
     const paragraphs = content.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
@@ -1017,8 +1188,19 @@
       section.appendChild(p);
     });
 
-    readingView.appendChild(section);
-    document.getElementById('reading-section').style.display = '';
+    // Insert in chapter-number order
+    const siblings = readingView.querySelectorAll('.reading-chapter');
+    let inserted = false;
+    for (const sibling of siblings) {
+      if (Number(sibling.dataset.chapter) > chapterNumber) {
+        readingView.insertBefore(section, sibling);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) readingView.appendChild(section);
+
+    document.getElementById('reading-panel').style.display = '';
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
