@@ -8,7 +8,7 @@ const path = require('path');
 const DEFAULT_BASE_URL = process.env.AI_BASE_URL || 'http://localhost:11434';
 const DEFAULT_MODEL = process.env.AI_MODEL || 'llama3';
 const DEFAULT_API_KEY = process.env.AI_API_KEY || '';
-const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_TIMEOUT_MS = process.env.AI_TIMEOUT_MS ? parseInt(process.env.AI_TIMEOUT_MS, 10) : 120000;
 
 const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
 
