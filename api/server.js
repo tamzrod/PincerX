@@ -297,12 +297,12 @@ app.post('/story/create', async (req, res) => {
 
 /**
  * POST /story/:id/chapter
- * Body: { "chapterNumber": 1 }
+ * Body: { "chapterNumber": 1, "customPrompt": "..." }
  * Generates a chapter for an existing story and saves it to data/stories/.
  */
 app.post('/story/:id/chapter', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber } = req.body;
+  const { chapterNumber, customPrompt } = req.body;
 
   if (!id || !/^[a-z0-9-]+$/.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
@@ -312,14 +312,43 @@ app.post('/story/:id/chapter', async (req, res) => {
     return res.status(400).json({ error: 'Request body must include a positive integer "chapterNumber".' });
   }
 
+  const prompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
+
   try {
-    const result = await story.generateChapter(id, chapterNumber);
+    const result = await story.generateChapter(id, chapterNumber, {}, prompt);
     return res.status(201).json(result);
   } catch (e) {
     if (e.message.startsWith('Story not found')) {
       return res.status(404).json({ error: e.message });
     }
     return res.status(502).json({ error: `Chapter generation error: ${e.message}` });
+  }
+});
+
+/**
+ * DELETE /story/:id/chapter/:chapterNumber
+ * Deletes a specific chapter from an existing story.
+ */
+app.delete('/story/:id/chapter/:chapterNumber', async (req, res) => {
+  const { id, chapterNumber: chapterStr } = req.params;
+  const chapterNumber = parseInt(chapterStr, 10);
+
+  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
+    return res.status(400).json({ error: 'Invalid chapter number.' });
+  }
+
+  try {
+    const result = await story.deleteChapter(id, chapterNumber);
+    return res.json(result);
+  } catch (e) {
+    if (e.message.startsWith('Story not found') || e.message.startsWith('Chapter')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: `Delete chapter error: ${e.message}` });
   }
 });
 
