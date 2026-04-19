@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1776577672510" clover="3.2.0">
-  <project timestamp="1776577672510" name="All files">
-    <metrics statements="166" coveredstatements="156" conditionals="68" coveredconditionals="60" methods="38" coveredmethods="35" elements="272" coveredelements="251" complexity="0" loc="166" ncloc="166" packages="2" files="4" classes="4"/>
+<coverage generated="1776579103166" clover="3.2.0">
+  <project timestamp="1776579103166" name="All files">
+    <metrics statements="174" coveredstatements="163" conditionals="82" coveredconditionals="69" methods="38" coveredmethods="35" elements="294" coveredelements="267" complexity="0" loc="174" ncloc="174" packages="2" files="4" classes="4"/>
     <package name="api">
       <metrics statements="77" coveredstatements="70" conditionals="30" coveredconditionals="29" methods="12" coveredmethods="9"/>
       <file name="server.js" path="/home/runner/work/PincerX/PincerX/api/server.js">
@@ -86,44 +86,52 @@
       </file>
     </package>
     <package name="openclaw">
-      <metrics statements="89" coveredstatements="86" conditionals="38" coveredconditionals="31" methods="26" coveredmethods="26"/>
+      <metrics statements="97" coveredstatements="93" conditionals="52" coveredconditionals="40" methods="26" coveredmethods="26"/>
       <file name="ai.js" path="/home/runner/work/PincerX/PincerX/openclaw/ai.js">
-        <metrics statements="35" coveredstatements="35" conditionals="17" coveredconditionals="14" methods="10" coveredmethods="10"/>
+        <metrics statements="43" coveredstatements="42" conditionals="31" coveredconditionals="23" methods="10" coveredmethods="10"/>
         <line num="3" count="14" type="stmt"/>
-        <line num="5" count="14" type="stmt"/>
-        <line num="6" count="14" type="stmt"/>
-        <line num="7" count="14" type="stmt"/>
-        <line num="20" count="10" type="cond" truecount="2" falsecount="0"/>
-        <line num="21" count="10" type="cond" truecount="2" falsecount="0"/>
+        <line num="4" count="14" type="stmt"/>
+        <line num="6" count="14" type="cond" truecount="2" falsecount="0"/>
+        <line num="7" count="14" type="cond" truecount="2" falsecount="0"/>
+        <line num="8" count="14" type="cond" truecount="2" falsecount="0"/>
+        <line num="9" count="14" type="stmt"/>
         <line num="22" count="10" type="cond" truecount="2" falsecount="0"/>
-        <line num="24" count="10" type="stmt"/>
-        <line num="30" count="10" type="stmt"/>
-        <line num="31" count="10" type="stmt"/>
+        <line num="23" count="10" type="cond" truecount="2" falsecount="0"/>
+        <line num="24" count="10" type="cond" truecount="1" falsecount="1"/>
+        <line num="25" count="10" type="cond" truecount="2" falsecount="0"/>
+        <line num="27" count="10" type="stmt"/>
         <line num="33" count="10" type="stmt"/>
+        <line num="34" count="10" type="stmt"/>
+        <line num="35" count="10" type="stmt"/>
+        <line num="36" count="10" type="cond" truecount="1" falsecount="1"/>
+        <line num="38" count="10" type="stmt"/>
+        <line num="42" count="10" type="cond" truecount="1" falsecount="1"/>
+        <line num="43" count="0" type="stmt"/>
         <line num="46" count="10" type="stmt"/>
-        <line num="50" count="10" type="cond" truecount="1" falsecount="1"/>
-        <line num="51" count="10" type="stmt"/>
-        <line num="52" count="10" type="stmt"/>
-        <line num="53" count="10" type="stmt"/>
-        <line num="57" count="10" type="stmt"/>
-        <line num="58" count="8" type="stmt"/>
-        <line num="59" count="8" type="stmt"/>
-        <line num="60" count="8" type="stmt"/>
-        <line num="61" count="8" type="stmt"/>
-        <line num="62" count="8" type="stmt"/>
-        <line num="63" count="8" type="stmt"/>
-        <line num="64" count="7" type="cond" truecount="2" falsecount="0"/>
-        <line num="65" count="1" type="stmt"/>
-        <line num="67" count="6" type="cond" truecount="2" falsecount="0"/>
-        <line num="69" count="1" type="stmt"/>
-        <line num="75" count="10" type="stmt"/>
-        <line num="76" count="2" type="stmt"/>
-        <line num="83" count="10" type="stmt"/>
-        <line num="84" count="1" type="cond" truecount="1" falsecount="1"/>
-        <line num="85" count="1" type="stmt"/>
-        <line num="89" count="10" type="stmt"/>
-        <line num="90" count="10" type="stmt"/>
-        <line num="94" count="14" type="stmt"/>
+        <line num="56" count="10" type="stmt"/>
+        <line num="60" count="10" type="cond" truecount="1" falsecount="1"/>
+        <line num="61" count="10" type="stmt"/>
+        <line num="62" count="10" type="stmt"/>
+        <line num="63" count="10" type="stmt"/>
+        <line num="67" count="10" type="stmt"/>
+        <line num="68" count="8" type="stmt"/>
+        <line num="69" count="8" type="stmt"/>
+        <line num="70" count="8" type="stmt"/>
+        <line num="71" count="8" type="stmt"/>
+        <line num="72" count="8" type="stmt"/>
+        <line num="73" count="8" type="stmt"/>
+        <line num="74" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="75" count="1" type="stmt"/>
+        <line num="77" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="79" count="1" type="stmt"/>
+        <line num="85" count="10" type="stmt"/>
+        <line num="86" count="2" type="stmt"/>
+        <line num="93" count="10" type="stmt"/>
+        <line num="94" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="95" count="1" type="stmt"/>
+        <line num="99" count="10" type="stmt"/>
+        <line num="100" count="10" type="stmt"/>
+        <line num="104" count="14" type="stmt"/>
       </file>
       <file name="feedback.js" path="/home/runner/work/PincerX/PincerX/openclaw/feedback.js">
         <metrics statements="20" coveredstatements="20" conditionals="11" coveredconditionals="10" methods="5" coveredmethods="5"/>

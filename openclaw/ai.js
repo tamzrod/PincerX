@@ -1,9 +1,11 @@
 'use strict';
 
 const http = require('http');
+const https = require('https');
 
-const DEFAULT_BASE_URL = 'http://localhost:11434';
-const DEFAULT_MODEL = 'llama3';
+const DEFAULT_BASE_URL = process.env.AI_BASE_URL || 'http://localhost:11434';
+const DEFAULT_MODEL = process.env.AI_MODEL || 'llama3';
+const DEFAULT_API_KEY = process.env.AI_API_KEY || '';
 const DEFAULT_TIMEOUT_MS = 30000;
 
 /**
@@ -11,14 +13,16 @@ const DEFAULT_TIMEOUT_MS = 30000;
  *
  * @param {string} prompt - The prompt to send.
  * @param {object} [options]
- * @param {string} [options.baseUrl]    - Base URL of the Ollama API.
- * @param {string} [options.model]      - Model name to use.
+ * @param {string} [options.baseUrl]    - Base URL of the AI API (defaults to AI_BASE_URL env var or http://localhost:11434).
+ * @param {string} [options.model]      - Model name to use (defaults to AI_MODEL env var or llama3).
+ * @param {string} [options.apiKey]     - API key sent as Bearer token (defaults to AI_API_KEY env var).
  * @param {number} [options.timeoutMs]  - Request timeout in milliseconds (default: 30 000).
  * @returns {Promise<string>} The AI response text.
  */
 function ask(prompt, options = {}) {
   const baseUrl = options.baseUrl || DEFAULT_BASE_URL;
   const model = options.model || DEFAULT_MODEL;
+  const apiKey = options.apiKey || DEFAULT_API_KEY;
   const timeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
 
   const body = JSON.stringify({
@@ -29,16 +33,23 @@ function ask(prompt, options = {}) {
 
   return new Promise((resolve, reject) => {
     const url = new URL('/api/generate', baseUrl);
+    const isHttps = url.protocol === 'https:';
+    const transport = isHttps ? https : http;
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+    };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
 
     const reqOptions = {
       hostname: url.hostname,
-      port: url.port || 80,
+      port: url.port || (isHttps ? 443 : 80),
       path: url.pathname,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
+      headers,
     };
 
     // Settled flag + helper prevent double-resolve/reject and ensure the timer
@@ -54,7 +65,7 @@ function ask(prompt, options = {}) {
       }
     }
 
-    const req = http.request(reqOptions, (res) => {
+    const req = transport.request(reqOptions, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {

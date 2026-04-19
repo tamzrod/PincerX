@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">97.77% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>37/37</span>
+                <span class='fraction'>44/45</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">82.35% </span>
+                <span class="strong">74.19% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>14/17</span>
+                <span class='fraction'>23/31</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">97.67% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>35/35</span>
+                <span class='fraction'>42/43</span>
             </div>
         
             
@@ -157,13 +157,25 @@
 <a name='L92'></a><a href='#L92'>92</a>
 <a name='L93'></a><a href='#L93'>93</a>
 <a name='L94'></a><a href='#L94'>94</a>
-<a name='L95'></a><a href='#L95'>95</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">14x</span>
 <span class="cline-any cline-yes">14x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">14x</span>
 <span class="cline-any cline-yes">14x</span>
 <span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">14x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -179,20 +191,28 @@
 <span class="cline-any cline-yes">10x</span>
 <span class="cline-any cline-yes">10x</span>
 <span class="cline-any cline-yes">10x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">10x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">10x</span>
 <span class="cline-any cline-yes">10x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">10x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -254,9 +274,11 @@
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">'use strict';
 &nbsp;
 const http = require('http');
+const https = require('https');
 &nbsp;
-const DEFAULT_BASE_URL = 'http://localhost:11434';
-const DEFAULT_MODEL = 'llama3';
+const DEFAULT_BASE_URL = process.env.AI_BASE_URL || 'http://localhost:11434';
+const DEFAULT_MODEL = process.env.AI_MODEL || 'llama3';
+const DEFAULT_API_KEY = process.env.AI_API_KEY || '';
 const DEFAULT_TIMEOUT_MS = 30000;
 &nbsp;
 /**
@@ -272,6 +294,7 @@ const DEFAULT_TIMEOUT_MS = 30000;
 function ask(prompt, options = {}) {
   const baseUrl = options.baseUrl || DEFAULT_BASE_URL;
   const model = options.model || DEFAULT_MODEL;
+  const apiKey = options.apiKey !== undefined ? <span class="branch-0 cbranch-no" title="branch not covered" >options.apiKey </span>: DEFAULT_API_KEY;
   const timeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
 &nbsp;
   const body = JSON.stringify({
@@ -282,16 +305,23 @@ function ask(prompt, options = {}) {
 &nbsp;
   return new Promise((resolve, reject) =&gt; {
     const url = new URL('/api/generate', baseUrl);
+    const isHttps = url.protocol === 'https:';
+    const transport = isHttps ? <span class="branch-0 cbranch-no" title="branch not covered" >https </span>: http;
+&nbsp;
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+    };
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (apiKey) {
+<span class="cstat-no" title="statement not covered" >      headers['Authorization'] = `Bearer ${apiKey}`;</span>
+    }
 &nbsp;
     const reqOptions = {
       hostname: url.hostname,
-      port: url.port || <span class="branch-1 cbranch-no" title="branch not covered" >80,</span>
+      port: url.port || (<span class="branch-1 cbranch-no" title="branch not covered" >isHttps ? 443 : 80)</span>,
       path: url.pathname,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
+      headers,
     };
 &nbsp;
     // Settled flag + helper prevent double-resolve/reject and ensure the timer
@@ -307,7 +337,7 @@ function ask(prompt, options = {}) {
       }
     }
 &nbsp;
-    const req = http.request(reqOptions, (res) =&gt; {
+    const req = transport.request(reqOptions, (res) =&gt; {
       let data = '';
       res.on('data', (chunk) =&gt; { data += chunk; });
       res.on('end', () =&gt; {
@@ -352,7 +382,7 @@ module.exports = { ask };
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T05:47:52.500Z
+                at 2026-04-19T06:11:43.156Z
             </div>
         <script src="../prettify.js"></script>
         <script>
