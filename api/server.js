@@ -14,8 +14,9 @@ const PORT = process.env.PORT || 3000;
 const PDF_DIR = path.join(__dirname, '..', 'pdfs');
 const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
 
-// Ensure the pdfs directory exists at startup
+// Ensure required directories exist at startup
 fs.mkdirSync(PDF_DIR, { recursive: true });
+fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
 
 // Multer storage: save to /pdfs with original filename
 const storage = multer.diskStorage({
@@ -108,10 +109,52 @@ app.post('/config', (req, res) => {
   }
 
   try {
+    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
     return res.json({ message: 'Configuration saved.' });
   } catch (e) {
     return res.status(500).json({ error: `Could not save config: ${e.message}` });
+  }
+});
+
+/**
+ * GET /models?baseUrl=http://192.168.1.10:11434
+ * Proxies a request to the Ollama-compatible backend's /api/tags endpoint
+ * and returns the list of available model names.
+ */
+app.get('/models', async (req, res) => {
+  let { baseUrl } = req.query;
+  if (!baseUrl) {
+    // Fall back to the currently configured baseUrl
+    try {
+      const stored = fs.existsSync(CONFIG_PATH)
+        ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
+        : {};
+      baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
+    } catch {
+      baseUrl = process.env.AI_BASE_URL || 'http://localhost:11434';
+    }
+  }
+
+  let tagsUrl;
+  try {
+    tagsUrl = new URL('/api/tags', baseUrl).toString();
+  } catch {
+    return res.status(400).json({ error: 'Invalid baseUrl.' });
+  }
+
+  try {
+    const response = await fetch(tagsUrl, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) {
+      return res.status(502).json({ error: `Backend returned HTTP ${response.status}` });
+    }
+    const data = await response.json();
+    const models = Array.isArray(data.models)
+      ? data.models.map((m) => (typeof m === 'string' ? m : m.name)).filter(Boolean)
+      : [];
+    return res.json({ models });
+  } catch (e) {
+    return res.status(502).json({ error: `Could not reach AI backend: ${e.message}` });
   }
 });
 

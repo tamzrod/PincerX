@@ -10,8 +10,8 @@ services:
       AI_MODEL: ${AI_MODEL:-llama3.2}
       AI_API_KEY: ${AI_API_KEY:-}
     volumes:
-      - ../data:/data
-      - ../pdfs:/pdfs
+      - ../data:/app/data
+      - ../pdfs:/app/pdfs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

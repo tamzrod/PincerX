@@ -303,7 +303,11 @@
 
     <div class="field-group">
       <label for="cfg-model">Model</label>
-      <input type="text" id="cfg-model" placeholder="llama3, llama3.2, gpt-4o…" />
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="cfg-model" placeholder="llama3, llama3.2, gpt-4o…" list="cfg-model-list" style="flex:1" />
+        <datalist id="cfg-model-list"></datalist>
+        <button class="btn-secondary" id="cfg-detect-btn" type="button" onclick="detectModels()" style="white-space:nowrap;flex-shrink:0">Detect</button>
+      </div>
     </div>
 
     <div class="field-group">
@@ -649,6 +653,51 @@
 
   function handleOverlayClick(e) {
     if (e.target === document.getElementById('settings-overlay')) closeSettings();
+  }
+
+  async function detectModels() {
+    clearMsg('cfg-msg');
+    const scheme = document.getElementById('cfg-scheme').value;
+    const host = document.getElementById('cfg-host').value.trim();
+    const port = document.getElementById('cfg-port').value.trim();
+
+    if (!host || !port) {
+      showMsg('cfg-msg', 'Enter the host and port first, then click Detect.', 'error');
+      return;
+    }
+
+    const baseUrl = `${scheme}://${host}:${port}`;
+    const btn = document.getElementById('cfg-detect-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    showMsg('cfg-msg', 'Detecting models…', 'loading');
+
+    try {
+      const data = await apiFetch('/models?baseUrl=' + encodeURIComponent(baseUrl));
+      const models = data.models || [];
+      const datalist = document.getElementById('cfg-model-list');
+      datalist.innerHTML = '';
+      models.forEach((name) => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        datalist.appendChild(opt);
+      });
+
+      if (models.length === 0) {
+        showMsg('cfg-msg', 'No models found on that server.', 'error');
+      } else {
+        const currentModel = document.getElementById('cfg-model').value.trim();
+        if (!currentModel || !models.includes(currentModel)) {
+          document.getElementById('cfg-model').value = models[0];
+        }
+        showMsg('cfg-msg', `${models.length} model${models.length === 1 ? '' : 's'} detected. Click the Model field to choose.`, 'success');
+      }
+    } catch (e) {
+      showMsg('cfg-msg', 'Could not detect models: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Detect';
+    }
   }
 
   async function saveSettings() {
