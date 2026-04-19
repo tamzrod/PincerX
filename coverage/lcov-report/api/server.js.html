@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">79.1% </span>
+                <span class="strong">79.38% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>299/378</span>
+                <span class='fraction'>308/388</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">70.85% </span>
+                <span class="strong">71.17% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>158/223</span>
+                <span class='fraction'>163/229</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">76.19% </span>
+                <span class="strong">76.74% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>32/42</span>
+                <span class='fraction'>33/43</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">80.39% </span>
+                <span class="strong">80.66% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>283/352</span>
+                <span class='fraction'>292/362</span>
             </div>
         
             
@@ -866,7 +866,27 @@
 <a name='L801'></a><a href='#L801'>801</a>
 <a name='L802'></a><a href='#L802'>802</a>
 <a name='L803'></a><a href='#L803'>803</a>
-<a name='L804'></a><a href='#L804'>804</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L804'></a><a href='#L804'>804</a>
+<a name='L805'></a><a href='#L805'>805</a>
+<a name='L806'></a><a href='#L806'>806</a>
+<a name='L807'></a><a href='#L807'>807</a>
+<a name='L808'></a><a href='#L808'>808</a>
+<a name='L809'></a><a href='#L809'>809</a>
+<a name='L810'></a><a href='#L810'>810</a>
+<a name='L811'></a><a href='#L811'>811</a>
+<a name='L812'></a><a href='#L812'>812</a>
+<a name='L813'></a><a href='#L813'>813</a>
+<a name='L814'></a><a href='#L814'>814</a>
+<a name='L815'></a><a href='#L815'>815</a>
+<a name='L816'></a><a href='#L816'>816</a>
+<a name='L817'></a><a href='#L817'>817</a>
+<a name='L818'></a><a href='#L818'>818</a>
+<a name='L819'></a><a href='#L819'>819</a>
+<a name='L820'></a><a href='#L820'>820</a>
+<a name='L821'></a><a href='#L821'>821</a>
+<a name='L822'></a><a href='#L822'>822</a>
+<a name='L823'></a><a href='#L823'>823</a>
+<a name='L824'></a><a href='#L824'>824</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -1584,6 +1604,26 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -2393,6 +2433,26 @@ app.delete('/story/:id/chapter/:chapterNumber', <span class="fstat-no" title="fu
 });
 &nbsp;
 /**
+ * DELETE /story/:id
+ * Permanently deletes an entire story and all its chapters from disk.
+ */
+app.delete('/story/:id', (req, res) =&gt; {
+  const { id } = req.params;
+  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    const result = story.deleteStory(id);
+    return res.json(result);
+  } catch (e) {
+    <span class="missing-if-branch" title="else path not taken" >E</span>if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+<span class="cstat-no" title="statement not covered" >    return res.status(500).json({ error: `Delete story error: ${e.message}` });</span>
+  }
+});
+&nbsp;
+/**
  * POST /story/:id/chapter/:num/tts-prebake
  * Body: { "voice_id": "", "speaking_rate": 15, "pitch_std": 45, "emotion_preset": "neutral" }
  * Starts a background job that synthesizes every sentence chunk of the chapter
@@ -2479,7 +2539,7 @@ module.exports = app;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T14:24:55.866Z
+                at 2026-04-19T14:39:52.719Z
             </div>
         <script src="../prettify.js"></script>
         <script>

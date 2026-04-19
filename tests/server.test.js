@@ -1013,6 +1013,29 @@ describe('GET /story/:id', () => {
   });
 });
 
+// ─── DELETE /story/:id ────────────────────────────────────────────────────────
+
+describe('DELETE /story/:id', () => {
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app).delete('/story/INVALID!!');
+    expect(res.status).toBe(400);
+  });
+
+  it('deletes the story and returns the story ID', async () => {
+    story.deleteStory = jest.fn().mockReturnValue({ storyId: 'abc-test' });
+    const res = await request(app).delete('/story/abc-test');
+    expect(res.status).toBe(200);
+    expect(res.body.storyId).toBe('abc-test');
+    expect(story.deleteStory).toHaveBeenCalledWith('abc-test');
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    story.deleteStory = jest.fn().mockImplementation(() => { throw new Error('Story not found: abc-test'); });
+    const res = await request(app).delete('/story/abc-test');
+    expect(res.status).toBe(404);
+  });
+});
+
 // ─── POST /story/:id/chapter/:num/tts-prebake ────────────────────────────────
 
 describe('POST /story/:id/chapter/:num/tts-prebake', () => {

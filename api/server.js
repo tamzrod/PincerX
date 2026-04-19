@@ -722,6 +722,26 @@ app.delete('/story/:id/chapter/:chapterNumber', async (req, res) => {
 });
 
 /**
+ * DELETE /story/:id
+ * Permanently deletes an entire story and all its chapters from disk.
+ */
+app.delete('/story/:id', (req, res) => {
+  const { id } = req.params;
+  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    const result = story.deleteStory(id);
+    return res.json(result);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: `Delete story error: ${e.message}` });
+  }
+});
+
+/**
  * POST /story/:id/chapter/:num/tts-prebake
  * Body: { "voice_id": "", "speaking_rate": 15, "pitch_std": 45, "emotion_preset": "neutral" }
  * Starts a background job that synthesizes every sentence chunk of the chapter
