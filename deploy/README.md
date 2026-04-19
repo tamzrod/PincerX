@@ -34,7 +34,7 @@ docker build --platform linux/arm64 -t pincerx .
 | Variable      | Description                          | Example                          |
 |---------------|--------------------------------------|----------------------------------|
 | `AI_BASE_URL` | Base URL of the LLM API              | `http://host.docker.internal:11434` |
-| `AI_MODEL`    | Model name to use                    | `llama3`, `gpt-4o`               |
+| `AI_MODEL`    | Model name to use                    | `llama3.2`, `gpt-4o`             |
 | `AI_API_KEY`  | API key (leave empty for local Ollama) | `sk-...`                       |
 
 Copy the example file and edit it before starting any compose stack:
@@ -71,10 +71,10 @@ docker compose -f deploy/docker-compose.stack.yml --env-file deploy/.env up -d
 After the stack is running, pull the model you want to use:
 
 ```bash
-docker compose -f deploy/docker-compose.stack.yml exec ollama ollama pull llama3
+docker compose -f deploy/docker-compose.stack.yml exec ollama ollama pull llama3.2
 ```
 
-Replace `llama3` with any model supported by Ollama (e.g. `mistral`, `phi3`).
+Replace `llama3.2` with any model supported by Ollama (e.g. `llama3.1`, `mistral`, `phi3`).
 
 ---
 
