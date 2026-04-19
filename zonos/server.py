@@ -23,7 +23,13 @@ import pathlib
 import re
 
 import torch
+import torch._dynamo
 import torchaudio
+
+# torch.compile (dynamo) and FX symbolic tracing are mutually exclusive.
+# Zonos applies torch.compile internally; disabling dynamo before model loading
+# prevents the "FX tracing of a dynamo-optimized function" RuntimeError.
+torch._dynamo.config.disable = True
 from fastapi import FastAPI, HTTPException, Path, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field

@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">30.52% </span>
+                <span class="strong">28.71% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>29/95</span>
+                <span class='fraction'>29/101</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">19.14% </span>
+                <span class="strong">18.36% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>9/47</span>
+                <span class='fraction'>9/49</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">17.64% </span>
+                <span class="strong">16.66% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>3/17</span>
+                <span class='fraction'>3/18</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">32.95% </span>
+                <span class="strong">30.85% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>29/88</span>
+                <span class='fraction'>29/94</span>
             </div>
         
             
@@ -312,7 +312,25 @@
 <a name='L247'></a><a href='#L247'>247</a>
 <a name='L248'></a><a href='#L248'>248</a>
 <a name='L249'></a><a href='#L249'>249</a>
-<a name='L250'></a><a href='#L250'>250</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L250'></a><a href='#L250'>250</a>
+<a name='L251'></a><a href='#L251'>251</a>
+<a name='L252'></a><a href='#L252'>252</a>
+<a name='L253'></a><a href='#L253'>253</a>
+<a name='L254'></a><a href='#L254'>254</a>
+<a name='L255'></a><a href='#L255'>255</a>
+<a name='L256'></a><a href='#L256'>256</a>
+<a name='L257'></a><a href='#L257'>257</a>
+<a name='L258'></a><a href='#L258'>258</a>
+<a name='L259'></a><a href='#L259'>259</a>
+<a name='L260'></a><a href='#L260'>260</a>
+<a name='L261'></a><a href='#L261'>261</a>
+<a name='L262'></a><a href='#L262'>262</a>
+<a name='L263'></a><a href='#L263'>263</a>
+<a name='L264'></a><a href='#L264'>264</a>
+<a name='L265'></a><a href='#L265'>265</a>
+<a name='L266'></a><a href='#L266'>266</a>
+<a name='L267'></a><a href='#L267'>267</a>
+<a name='L268'></a><a href='#L268'>268</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
@@ -516,6 +534,24 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -769,7 +805,25 @@ async function <span class="fstat-no" title="function not covered" >deleteChapte
 <span class="cstat-no" title="statement not covered" >  return { storyId, chapterNumber };</span>
 }
 &nbsp;
-module.exports = { create, generateChapter, deleteChapter, list, get };
+/**
+ * Delete an entire story (its JSON file) from disk.
+ *
+ * @param {string} storyId - The story ID.
+ * @returns {{ storyId: string }}
+ */
+function <span class="fstat-no" title="function not covered" >deleteStory(</span>storyId) {
+  const filename = <span class="cstat-no" title="statement not covered" >`${storyId}.json`;</span>
+  const filepath = <span class="cstat-no" title="statement not covered" >path.join(STORIES_DIR, filename);</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >  if (!fs.existsSync(filepath)) {</span>
+<span class="cstat-no" title="statement not covered" >    throw new Error(`Story not found: ${storyId}`);</span>
+  }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >  fs.unlinkSync(filepath);</span>
+<span class="cstat-no" title="statement not covered" >  return { storyId };</span>
+}
+&nbsp;
+module.exports = { create, generateChapter, deleteChapter, deleteStory, list, get };
 &nbsp;
 /**
  * Return summary metadata for every saved story, newest first.
@@ -817,7 +871,7 @@ function <span class="fstat-no" title="function not covered" >get(</span>storyId
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T14:24:55.866Z
+                at 2026-04-19T14:41:28.368Z
             </div>
         <script src="../prettify.js"></script>
         <script>

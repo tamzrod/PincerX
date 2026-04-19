@@ -206,7 +206,25 @@ async function deleteChapter(storyId, chapterNumber) {
   return { storyId, chapterNumber };
 }
 
-module.exports = { create, generateChapter, deleteChapter, list, get };
+/**
+ * Delete an entire story (its JSON file) from disk.
+ *
+ * @param {string} storyId - The story ID.
+ * @returns {{ storyId: string }}
+ */
+function deleteStory(storyId) {
+  const filename = `${storyId}.json`;
+  const filepath = path.join(STORIES_DIR, filename);
+
+  if (!fs.existsSync(filepath)) {
+    throw new Error(`Story not found: ${storyId}`);
+  }
+
+  fs.unlinkSync(filepath);
+  return { storyId };
+}
+
+module.exports = { create, generateChapter, deleteChapter, deleteStory, list, get };
 
 /**
  * Return summary metadata for every saved story, newest first.

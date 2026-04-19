@@ -500,6 +500,12 @@
 
     .btn-small:hover { background: #f0f0f0; }
 
+    .btn-small-danger {
+      color: #c0392b;
+      border-color: #e8b4b0;
+    }
+    .btn-small-danger:hover { background: #fdf0ef; }
+
     /* ── TTS prebake progress bar ─────────────────────────────────────────── */
 
     .tts-prebake-wrap {
@@ -1978,8 +1984,13 @@
           if (status.status === 'complete') {
             stopPolling();
             fillEl.style.width = '100%';
-            labelEl.textContent = '🎙 Audio ready — click Read to play instantly';
-            setTimeout(() => { wrapEl.style.display = 'none'; }, 5000);
+            if (status.errors >= status.total) {
+              // All chunks failed — hide bar silently (Zonos likely unavailable)
+              wrapEl.style.display = 'none';
+            } else {
+              labelEl.textContent = '🎙 Audio ready — click Read to play instantly';
+              setTimeout(() => { wrapEl.style.display = 'none'; }, 5000);
+            }
           }
         } catch {
           stopPolling();
@@ -1994,6 +2005,23 @@
   }
 
   // ── Saved stories ─────────────────────────────────────────────────────────
+
+  async function deleteStoryCard(storyId, cardEl) {
+    if (!confirm('Delete this story and all its chapters? This cannot be undone.')) return;
+    try {
+      await apiFetch(`/story/${encodeURIComponent(storyId)}`, { method: 'DELETE' });
+      cardEl.remove();
+      // If this was the currently-loaded story, reset the writer
+      if (storyState.id === storyId) resetStory();
+      // Hide the saved stories section if no cards remain
+      const listEl = document.getElementById('saved-stories-list');
+      if (listEl && !listEl.children.length) {
+        document.getElementById('saved-stories-section').style.display = 'none';
+      }
+    } catch (e) {
+      showMsg('story-msg', `Failed to delete story: ${e.message}`, 'error');
+    }
+  }
 
   async function loadStoryList() {
     const sectionEl = document.getElementById('saved-stories-section');
@@ -2033,8 +2061,15 @@
         loadBtn.textContent = 'Load';
         loadBtn.onclick = () => loadStory(s.id);
 
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn-small btn-small-danger';
+        delBtn.textContent = '🗑';
+        delBtn.title = 'Delete story';
+        delBtn.onclick = () => deleteStoryCard(s.id, card);
+
         card.appendChild(info);
         card.appendChild(loadBtn);
+        card.appendChild(delBtn);
         listEl.appendChild(card);
       });
     } catch { /* silently skip if server is unreachable */ }
