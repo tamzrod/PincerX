@@ -1379,10 +1379,13 @@
   const TTS_RATE = 0.92;  // slightly slower than default for clarity
   const TTS_PITCH = 1.0;  // neutral pitch
 
-  let activeTTSButton = null;     // currently active TTS button
-  let activeTTSAudio = null;      // currently playing HTMLAudioElement
-  let activeTTSObjectURL = null;  // blob URL; revoked after playback to free memory
-  let activeTTSController = null; // AbortController for the in-flight /tts fetch
+  let activeTTSButton = null;        // currently active TTS button
+  let activeTTSAudio = null;         // currently playing HTMLAudioElement
+  let activeTTSObjectURL = null;     // blob URL; revoked after playback to free memory
+  let activeTTSController = null;    // AbortController for the current chunk /tts fetch
+  let activeTTSPrefetchCtrl = null;  // AbortController for the background prefetch fetch
+  let activeTTSPrefetched = null;    // pre-fetched Blob for the next chunk
+  let activeTTSQueue = [];           // remaining sentence chunks to synthesize
 
   // Returns true when the given button is no longer the active TTS target,
   // meaning the request was cancelled or superseded by another chapter.
@@ -1393,6 +1396,12 @@
       activeTTSController.abort();
       activeTTSController = null;
     }
+    if (activeTTSPrefetchCtrl) {
+      activeTTSPrefetchCtrl.abort();
+      activeTTSPrefetchCtrl = null;
+    }
+    activeTTSPrefetched = null;
+    activeTTSQueue = [];
     if (activeTTSAudio) {
       activeTTSAudio.pause();
       activeTTSAudio = null;
@@ -1412,6 +1421,147 @@
     }
   }
 
+  // Splits chapter text into sentence-boundary chunks of at most TTS_CHUNK_MAX_CHARS
+  // characters so the TTS service processes a small piece at a time, enabling
+  // playback to start quickly without waiting for the entire chapter.
+  const TTS_CHUNK_MAX_CHARS = 300;
+
+  function splitIntoChunks(text) {
+    // Split on blank lines (paragraph boundaries) and sentence-ending punctuation
+    // followed by whitespace and an uppercase letter or quote, which avoids false
+    // splits on common abbreviations like "Dr.", "Mr.", or "U.S.".
+    const sentences = text
+      .split(/\n\n+|(?<=[.!?…])\s+(?=[A-Z"'\u201C\u2018])/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!sentences.length) return [text];
+    const chunks = [];
+    let current = '';
+    for (const sentence of sentences) {
+      if (sentence.length > TTS_CHUNK_MAX_CHARS) {
+        // Sentence alone exceeds the limit – hard-split at word boundaries.
+        if (current) { chunks.push(current); current = ''; }
+        let remaining = sentence;
+        while (remaining.length > TTS_CHUNK_MAX_CHARS) {
+          const cut = remaining.lastIndexOf(' ', TTS_CHUNK_MAX_CHARS);
+          chunks.push(cut > 0 ? remaining.slice(0, cut) : remaining.slice(0, TTS_CHUNK_MAX_CHARS));
+          remaining = remaining.slice(cut > 0 ? cut + 1 : TTS_CHUNK_MAX_CHARS);
+        }
+        current = remaining;
+      } else if (current && current.length + 1 + sentence.length > TTS_CHUNK_MAX_CHARS) {
+        chunks.push(current);
+        current = sentence;
+      } else {
+        current = current ? `${current} ${sentence}` : sentence;
+      }
+    }
+    if (current) chunks.push(current);
+    return chunks.length ? chunks : [text];
+  }
+
+  // Fires off a background prefetch for the next chunk so it is ready as soon
+  // as the current chunk finishes playing, eliminating the gap between chunks.
+  function prefetchNextChunk(chunkText, btn) {
+    if (activeTTSPrefetchCtrl || activeTTSPrefetched) return; // already in-flight or ready
+    const ctrl = new AbortController();
+    activeTTSPrefetchCtrl = ctrl;
+    const body = { text: chunkText, speaking_rate: voicePrefs.speaking_rate,
+      pitch_std: voicePrefs.pitch_std, emotion_preset: voicePrefs.emotion_preset };
+    if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
+    fetch('/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal: ctrl.signal })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((blob) => {
+        if (blob && !isTTSCancelled(btn) && activeTTSPrefetchCtrl === ctrl) {
+          activeTTSPrefetched = blob;
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (activeTTSPrefetchCtrl === ctrl) activeTTSPrefetchCtrl = null; });
+  }
+
+  // Fetches and plays the next chunk in activeTTSQueue, then recurses.
+  async function playNextChunk(btn) {
+    if (isTTSCancelled(btn) || activeTTSQueue.length === 0) {
+      if (!isTTSCancelled(btn)) stopTTS();
+      return;
+    }
+
+    const chunk = activeTTSQueue.shift();
+
+    try {
+      let blob;
+      if (activeTTSPrefetched) {
+        // Consume the pre-fetched result for this chunk.
+        blob = activeTTSPrefetched;
+        activeTTSPrefetched = null;
+      } else {
+        // Nothing pre-fetched – fetch synchronously now.
+        activeTTSController = new AbortController();
+        const body = { text: chunk, speaking_rate: voicePrefs.speaking_rate,
+          pitch_std: voicePrefs.pitch_std, emotion_preset: voicePrefs.emotion_preset };
+        if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
+        const response = await fetch('/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: activeTTSController.signal,
+        });
+        activeTTSController = null;
+        if (isTTSCancelled(btn)) return;
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        blob = await response.blob();
+        if (isTTSCancelled(btn)) return;
+      }
+
+      // Start prefetching the next chunk while this one plays.
+      if (activeTTSQueue.length > 0) prefetchNextChunk(activeTTSQueue[0], btn);
+
+      const url = URL.createObjectURL(blob);
+      if (activeTTSObjectURL) URL.revokeObjectURL(activeTTSObjectURL);
+      activeTTSObjectURL = url;
+      activeTTSAudio = new Audio(url);
+
+      btn.textContent = '⏹ Stop';
+      btn.classList.remove('loading');
+      btn.classList.add('speaking');
+
+      activeTTSAudio.onended = () => {
+        if (activeTTSObjectURL === url) {
+          URL.revokeObjectURL(url);
+          activeTTSObjectURL = null;
+        }
+        activeTTSAudio = null;
+        if (!isTTSCancelled(btn)) playNextChunk(btn);
+      };
+      activeTTSAudio.onerror = () => stopTTS();
+      activeTTSAudio.play();
+    } catch (e) {
+      if (isTTSCancelled(btn)) return;
+      activeTTSController = null;
+      // Fall back to the browser Web Speech API for the remaining text.
+      if (window.speechSynthesis) {
+        const remaining = [chunk, ...activeTTSQueue].join(' ');
+        activeTTSQueue = [];
+        stopTTS();
+        const utterance = new SpeechSynthesisUtterance(remaining);
+        utterance.rate = TTS_RATE;
+        utterance.pitch = TTS_PITCH;
+        utterance.onend = () => stopTTS();
+        utterance.onerror = () => stopTTS();
+        activeTTSButton = btn;
+        btn.textContent = '⏹ Stop';
+        btn.classList.add('speaking');
+        window.speechSynthesis.speak(utterance);
+      } else {
+        console.warn('[TTS] Zonos unavailable and browser TTS not supported:', e.message);
+      }
+    }
+  }
+
   async function readChapterAloud(chapterNumber, btn) {
     // If this button is already active (loading or speaking), cancel it.
     if (btn === activeTTSButton) { stopTTS(); return; }
@@ -1428,68 +1578,14 @@
 
     if (!text) return;
 
-    // Show loading state.  The button stays clickable so the user can cancel.
     activeTTSButton = btn;
     btn.textContent = '⏳ Loading…';
     btn.classList.add('loading');
-    activeTTSController = new AbortController();
 
-    try {
-      const ttsBody = { text };
-      if (voicePrefs.voice_id) ttsBody.voice_id = voicePrefs.voice_id;
-      ttsBody.speaking_rate = voicePrefs.speaking_rate;
-      ttsBody.pitch_std = voicePrefs.pitch_std;
-      ttsBody.emotion_preset = voicePrefs.emotion_preset;
-
-      const response = await fetch('/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ttsBody),
-        signal: activeTTSController.signal,
-      });
-      activeTTSController = null;
-
-      // Bail out if the user cancelled while the request was in-flight.
-      if (isTTSCancelled(btn)) return;
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      if (isTTSCancelled(btn)) return;
-
-      activeTTSObjectURL = URL.createObjectURL(blob);
-      activeTTSAudio = new Audio(activeTTSObjectURL);
-      activeTTSAudio.onended = () => stopTTS();
-      activeTTSAudio.onerror = () => stopTTS();
-
-      btn.textContent = '⏹ Stop';
-      btn.classList.remove('loading');
-      btn.classList.add('speaking');
-      activeTTSAudio.play();
-    } catch (e) {
-      // Aborted or stopped by the user – nothing to do.
-      if (isTTSCancelled(btn)) return;
-      activeTTSController = null;
-      stopTTS();
-
-      // Fall back to the browser Web Speech API when Zonos is unreachable.
-      if (window.speechSynthesis) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = TTS_RATE;
-        utterance.pitch = TTS_PITCH;
-        utterance.onend = () => stopTTS();
-        utterance.onerror = () => stopTTS();
-        activeTTSButton = btn;
-        btn.textContent = '⏹ Stop';
-        btn.classList.add('speaking');
-        window.speechSynthesis.speak(utterance);
-      } else {
-        console.warn('[TTS] Zonos unavailable and browser TTS not supported:', e.message);
-      }
-    }
+    // Split the chapter into sentence-sized chunks so the first audio segment
+    // starts playing quickly instead of waiting for the whole chapter.
+    activeTTSQueue = splitIntoChunks(text);
+    await playNextChunk(btn);
   }
 
   // ── Story Writer ──────────────────────────────────────────────────────────
