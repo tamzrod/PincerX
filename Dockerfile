@@ -12,6 +12,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY api ./api
 COPY openclaw ./openclaw
 COPY public ./public
+COPY story ./story
 COPY ingest.js ./
 
 RUN mkdir -p /data /pdfs
