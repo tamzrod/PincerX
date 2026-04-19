@@ -12,6 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const PDF_DIR = path.join(__dirname, '..', 'pdfs');
+const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
 
 // Ensure the pdfs directory exists at startup
 fs.mkdirSync(PDF_DIR, { recursive: true });
@@ -48,6 +49,71 @@ function validateStringField(value, fieldName) {
   }
   return null;
 }
+
+/**
+ * GET /config
+ * Returns the current AI configuration (baseUrl, model, and whether an API key is stored).
+ */
+app.get('/config', (_req, res) => {
+  let stored = {};
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      stored = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    }
+  } catch (e) {
+    return res.status(500).json({ error: `Could not read config: ${e.message}` });
+  }
+  return res.json({
+    baseUrl: stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434',
+    model: stored.model || process.env.AI_MODEL || 'llama3',
+    hasApiKey: Boolean(stored.apiKey || process.env.AI_API_KEY),
+  });
+});
+
+/**
+ * POST /config
+ * Body: { "baseUrl": "http://192.168.1.10:11434", "model": "llama3.2", "apiKey": "sk-..." }
+ * Saves AI configuration to data/ai-config.json.
+ * Omit apiKey to keep the existing stored key; send an empty string to clear it.
+ */
+app.post('/config', (req, res) => {
+  const { baseUrl, model, apiKey } = req.body;
+
+  const urlErr = validateStringField(baseUrl, 'baseUrl');
+  if (urlErr) return res.status(400).json({ error: urlErr });
+
+  try {
+    // eslint-disable-next-line no-new
+    new URL(baseUrl);
+  } catch {
+    return res.status(400).json({ error: 'baseUrl must be a valid URL (e.g. http://192.168.1.10:11434).' });
+  }
+
+  let config = {};
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    }
+  } catch { /* start fresh if file is corrupt */ }
+
+  config.baseUrl = baseUrl.trim();
+
+  if (typeof model === 'string' && model.trim()) {
+    config.model = model.trim();
+  }
+
+  // Only update apiKey if the caller included it in the request body
+  if ('apiKey' in req.body) {
+    config.apiKey = typeof apiKey === 'string' ? apiKey : '';
+  }
+
+  try {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
+    return res.json({ message: 'Configuration saved.' });
+  } catch (e) {
+    return res.status(500).json({ error: `Could not save config: ${e.message}` });
+  }
+});
 
 /**
  * GET /pdfs

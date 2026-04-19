@@ -198,11 +198,127 @@
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Settings modal ───────────────────────────────────────────────────── */
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: #fff;
+      border-radius: 10px;
+      padding: 28px 28px 22px;
+      width: 420px;
+      max-width: calc(100vw - 32px);
+      box-shadow: 0 8px 32px rgba(0,0,0,.18);
+    }
+
+    .modal h2 {
+      font-size: 16px;
+      margin-bottom: 20px;
+      color: #1a1a2e;
+    }
+
+    .modal .field-group { margin-bottom: 14px; }
+
+    .modal .field-row {
+      display: grid;
+      grid-template-columns: 90px 1fr 90px;
+      gap: 8px;
+    }
+
+    .modal .field-row label { grid-column: 1 / -1; }
+
+    .modal select {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 5px;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      background: #fff;
+    }
+
+    .modal select:focus { border-color: #4a6cf7; }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 22px;
+    }
+
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #444;
+    }
+
+    .btn-secondary:hover:not(:disabled) { background: #e0e0e0; }
+
+    .settings-btn {
+      background: transparent;
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.35);
+      padding: 5px 12px;
+      font-size: 13px;
+      border-radius: 5px;
+      cursor: pointer;
+      float: right;
+      margin-top: 2px;
+    }
+
+    .settings-btn:hover { background: rgba(255,255,255,.12); }
   </style>
 </head>
 <body>
 
-<header>PincerX Dashboard</header>
+<header>PincerX Dashboard<button class="settings-btn" onclick="openSettings()">⚙ Settings</button></header>
+
+<!-- Settings modal -->
+<div class="modal-overlay" id="settings-overlay" onclick="handleOverlayClick(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <h2 id="settings-title">⚙ AI Configuration</h2>
+
+    <div class="field-group">
+      <div class="field-row">
+        <label>Scheme &amp; Host</label>
+        <select id="cfg-scheme">
+          <option value="http">http://</option>
+          <option value="https">https://</option>
+        </select>
+        <input type="text" id="cfg-host" placeholder="192.168.1.10 or localhost" style="flex:1" />
+        <input type="text" id="cfg-port" placeholder="Port" style="width:80px" />
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label for="cfg-model">Model</label>
+      <input type="text" id="cfg-model" placeholder="llama3, llama3.2, gpt-4o…" />
+    </div>
+
+    <div class="field-group">
+      <label for="cfg-apikey">API Key <span style="color:#aaa;font-weight:400">(leave blank for none / Ollama)</span></label>
+      <input type="password" id="cfg-apikey" placeholder="sk-… or leave blank" autocomplete="off" />
+    </div>
+
+    <div class="msg" id="cfg-msg"></div>
+
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeSettings()">Cancel</button>
+      <button class="btn-primary" id="cfg-save-btn" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
 
 <div class="layout">
 
@@ -499,6 +615,90 @@
       setLoading('analyze-btn', false, 'Analyze');
     }
   }
+
+  // ── Settings ──────────────────────────────────────────────────────────────
+
+  async function openSettings() {
+    clearMsg('cfg-msg');
+    document.getElementById('settings-overlay').classList.add('open');
+    try {
+      const cfg = await apiFetch('/config');
+      let scheme = 'http';
+      let host = 'localhost';
+      let port = '11434';
+      try {
+        const parsed = new URL(cfg.baseUrl);
+        scheme = parsed.protocol.replace(':', '');
+        host = parsed.hostname;
+        port = parsed.port || (scheme === 'https' ? '443' : '80');
+      } catch { /* keep defaults */ }
+      document.getElementById('cfg-scheme').value = scheme;
+      document.getElementById('cfg-host').value = host;
+      document.getElementById('cfg-port').value = port;
+      document.getElementById('cfg-model').value = cfg.model || '';
+      document.getElementById('cfg-apikey').value = '';
+      document.getElementById('cfg-apikey').placeholder = cfg.hasApiKey ? '(key stored — enter new key to replace)' : 'sk-… or leave blank';
+    } catch (e) {
+      showMsg('cfg-msg', 'Could not load current config: ' + e.message, 'error');
+    }
+  }
+
+  function closeSettings() {
+    document.getElementById('settings-overlay').classList.remove('open');
+  }
+
+  function handleOverlayClick(e) {
+    if (e.target === document.getElementById('settings-overlay')) closeSettings();
+  }
+
+  async function saveSettings() {
+    clearMsg('cfg-msg');
+    const scheme = document.getElementById('cfg-scheme').value;
+    const host = document.getElementById('cfg-host').value.trim();
+    const port = document.getElementById('cfg-port').value.trim();
+    const model = document.getElementById('cfg-model').value.trim();
+    const apiKey = document.getElementById('cfg-apikey').value;
+
+    if (!host) {
+      showMsg('cfg-msg', 'Host cannot be empty.', 'error');
+      return;
+    }
+    if (!port || isNaN(Number(port)) || Number(port) < 1 || Number(port) > 65535) {
+      showMsg('cfg-msg', 'Port must be a number between 1 and 65535.', 'error');
+      return;
+    }
+    if (!model) {
+      showMsg('cfg-msg', 'Model name cannot be empty.', 'error');
+      return;
+    }
+
+    const baseUrl = `${scheme}://${host}:${port}`;
+    const body = { baseUrl, model };
+    // Always include apiKey so the server knows the caller intends to update it
+    body.apiKey = apiKey;
+
+    const btn = document.getElementById('cfg-save-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try {
+      const data = await apiFetch('/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      showMsg('cfg-msg', data.message || 'Saved.', 'success');
+    } catch (e) {
+      showMsg('cfg-msg', e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save';
+    }
+  }
+
+  // Close modal on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSettings();
+  });
 
   // Enter key shortcut for ask input
   document.getElementById('ask-input').addEventListener('keydown', (e) => {

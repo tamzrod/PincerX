@@ -22,6 +22,92 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
+// ─── GET /config + POST /config ───────────────────────────────────────────────
+
+describe('GET /config', () => {
+  const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
+
+  afterEach(() => {
+    if (fs.existsSync(CONFIG_PATH)) fs.unlinkSync(CONFIG_PATH);
+  });
+
+  it('returns defaults when no config file exists', async () => {
+    if (fs.existsSync(CONFIG_PATH)) fs.unlinkSync(CONFIG_PATH);
+    const res = await request(app).get('/config');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('baseUrl');
+    expect(res.body).toHaveProperty('model');
+    expect(res.body).toHaveProperty('hasApiKey');
+  });
+
+  it('returns stored config values when file exists', async () => {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ baseUrl: 'http://10.0.0.1:11434', model: 'llama3.2', apiKey: 'secret' }), 'utf8');
+    const res = await request(app).get('/config');
+    expect(res.status).toBe(200);
+    expect(res.body.baseUrl).toBe('http://10.0.0.1:11434');
+    expect(res.body.model).toBe('llama3.2');
+    expect(res.body.hasApiKey).toBe(true);
+  });
+
+  it('does not expose the raw apiKey value in the response', async () => {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ baseUrl: 'http://localhost:11434', model: 'llama3', apiKey: 'supersecret' }), 'utf8');
+    const res = await request(app).get('/config');
+    expect(res.body.apiKey).toBeUndefined();
+  });
+});
+
+describe('POST /config', () => {
+  const CONFIG_PATH = path.join(__dirname, '..', 'data', 'ai-config.json');
+
+  afterEach(() => {
+    if (fs.existsSync(CONFIG_PATH)) fs.unlinkSync(CONFIG_PATH);
+  });
+
+  it('saves config and returns success message', async () => {
+    const res = await request(app)
+      .post('/config')
+      .send({ baseUrl: 'http://192.168.1.10:11434', model: 'llama3.2', apiKey: '' });
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/saved/i);
+    const stored = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    expect(stored.baseUrl).toBe('http://192.168.1.10:11434');
+    expect(stored.model).toBe('llama3.2');
+  });
+
+  it('returns 400 when baseUrl is missing', async () => {
+    const res = await request(app).post('/config').send({ model: 'llama3' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/baseUrl/i);
+  });
+
+  it('returns 400 when baseUrl is an empty string', async () => {
+    const res = await request(app).post('/config').send({ baseUrl: '', model: 'llama3' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when baseUrl is not a valid URL', async () => {
+    const res = await request(app).post('/config').send({ baseUrl: 'not-a-url', model: 'llama3' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/valid URL/i);
+  });
+
+  it('preserves existing apiKey when apiKey is not included in the request', async () => {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ baseUrl: 'http://localhost:11434', model: 'llama3', apiKey: 'existing-key' }), 'utf8');
+    const res = await request(app).post('/config').send({ baseUrl: 'http://localhost:11434', model: 'llama3.2' });
+    expect(res.status).toBe(200);
+    const stored = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    expect(stored.apiKey).toBe('existing-key');
+  });
+
+  it('clears the apiKey when an empty string is sent', async () => {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ baseUrl: 'http://localhost:11434', model: 'llama3', apiKey: 'existing-key' }), 'utf8');
+    const res = await request(app).post('/config').send({ baseUrl: 'http://localhost:11434', model: 'llama3', apiKey: '' });
+    expect(res.status).toBe(200);
+    const stored = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    expect(stored.apiKey).toBe('');
+  });
+});
+
 // ─── POST /ask ────────────────────────────────────────────────────────────────
 
 describe('POST /ask', () => {
