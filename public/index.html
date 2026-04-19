@@ -279,11 +279,50 @@
     }
 
     .settings-btn:hover { background: rgba(255,255,255,.12); }
+
+    /* ── Page tabs ────────────────────────────────────────────────────────── */
+
+    .tab-bar {
+      background: #1a1a2e;
+      display: flex;
+      gap: 4px;
+      padding: 0 24px;
+      border-bottom: 3px solid #0f0f20;
+    }
+
+    .tab-btn {
+      background: transparent;
+      color: rgba(255,255,255,.6);
+      border: none;
+      border-radius: 0;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -3px;
+      transition: color .15s, border-color .15s;
+    }
+
+    .tab-btn:hover { color: rgba(255,255,255,.9); }
+
+    .tab-btn.active {
+      color: #fff;
+      border-bottom-color: #4a6cf7;
+    }
+
+    .page { display: none; }
+    .page.active { display: block; }
   </style>
 </head>
 <body>
 
 <header>PincerX Dashboard<button class="settings-btn" onclick="openSettings()">⚙ Settings</button></header>
+
+<nav class="tab-bar" role="tablist" aria-label="Application pages">
+  <button class="tab-btn active" id="tab-docs" role="tab" aria-selected="true" aria-controls="page-docs" onclick="switchTab('docs')">📄 Document Management</button>
+  <button class="tab-btn" id="tab-story" role="tab" aria-selected="false" aria-controls="page-story" onclick="switchTab('story')">✍️ Story Writer</button>
+</nav>
 
 <!-- Settings modal -->
 <div class="modal-overlay" id="settings-overlay" onclick="handleOverlayClick(event)">
@@ -325,90 +364,122 @@
   </div>
 </div>
 
-<div class="layout">
+<!-- ── Page 1: Document Management ─────────────────────────────────────── -->
+<div class="page active" id="page-docs" role="tabpanel" aria-labelledby="tab-docs">
+  <div class="layout">
 
-  <!-- LEFT: PDF Management -->
-  <aside class="panel">
-    <h2>📄 PDF Management</h2>
+    <!-- LEFT: PDF Management -->
+    <aside class="panel">
+      <h2>📄 PDF Management</h2>
 
-    <div class="section">
-      <h3>Upload PDF</h3>
-      <label for="pdf-file">Select a .pdf file</label>
-      <input type="file" id="pdf-file" accept=".pdf" />
-      <div class="row">
-        <button class="btn-primary" id="upload-btn" onclick="uploadPDF()">Upload</button>
+      <div class="section">
+        <h3>Upload PDF</h3>
+        <label for="pdf-file">Select a .pdf file</label>
+        <input type="file" id="pdf-file" accept=".pdf" />
+        <div class="row">
+          <button class="btn-primary" id="upload-btn" onclick="uploadPDF()">Upload</button>
+        </div>
+        <div class="msg" id="upload-msg"></div>
       </div>
-      <div class="msg" id="upload-msg"></div>
-    </div>
 
-    <div class="section">
-      <h3>Uploaded PDFs</h3>
-      <button class="btn-primary" onclick="loadPDFs()" style="font-size:12px;padding:5px 12px;">↻ Refresh</button>
-      <div id="pdf-list"><em style="color:#aaa;font-size:13px;">Loading…</em></div>
-      <div class="msg" id="delete-msg"></div>
-    </div>
-  </aside>
-
-  <!-- RIGHT: Interaction -->
-  <main class="panel">
-    <h2>🔍 Interaction</h2>
-
-    <!-- Ask -->
-    <div class="section">
-      <h3>Ask a Question</h3>
-      <label for="ask-input">Question</label>
-      <div class="row">
-        <input type="text" id="ask-input" placeholder="e.g. What does section 3 say?" />
-        <button class="btn-primary" id="ask-btn" onclick="askQuestion()">Ask</button>
+      <div class="section">
+        <h3>Uploaded PDFs</h3>
+        <button class="btn-primary" onclick="loadPDFs()" style="font-size:12px;padding:5px 12px;">↻ Refresh</button>
+        <div id="pdf-list"><em style="color:#aaa;font-size:13px;">Loading…</em></div>
+        <div class="msg" id="delete-msg"></div>
       </div>
-      <div class="msg" id="ask-msg"></div>
-      <div class="result-box" id="ask-result">
-        <div class="result-label">Answer</div>
-        <div class="answer-text" id="ask-answer"></div>
-        <div id="ask-sources-wrap" style="display:none">
-          <div class="result-label" style="margin-top:8px">Sources</div>
-          <ul class="sources-list" id="ask-sources"></ul>
+    </aside>
+
+    <!-- RIGHT: Interaction -->
+    <main class="panel">
+      <h2>🔍 Interaction</h2>
+
+      <!-- Ask -->
+      <div class="section">
+        <h3>Ask a Question</h3>
+        <label for="ask-input">Question</label>
+        <div class="row">
+          <input type="text" id="ask-input" placeholder="e.g. What does section 3 say?" />
+          <button class="btn-primary" id="ask-btn" onclick="askQuestion()">Ask</button>
+        </div>
+        <div class="msg" id="ask-msg"></div>
+        <div class="result-box" id="ask-result">
+          <div class="result-label">Answer</div>
+          <div class="answer-text" id="ask-answer"></div>
+          <div id="ask-sources-wrap" style="display:none">
+            <div class="result-label" style="margin-top:8px">Sources</div>
+            <ul class="sources-list" id="ask-sources"></ul>
+          </div>
         </div>
       </div>
+
+      <!-- Analyze -->
+      <div class="section">
+        <h3>Analyze Text</h3>
+        <label for="analyze-input">Text to analyze</label>
+        <textarea id="analyze-input" placeholder="Paste or type text here…"></textarea>
+        <div class="row">
+          <button class="btn-primary" id="analyze-btn" onclick="analyzeText()">Analyze</button>
+        </div>
+        <div class="msg" id="analyze-msg"></div>
+        <div class="result-box" id="analyze-result">
+          <div class="result-label">Analysis</div>
+          <div id="analyze-fields"></div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+<!-- ── Page 2: Story Writer ─────────────────────────────────────────────── -->
+<div class="page" id="page-story" role="tabpanel" aria-labelledby="tab-story">
+  <div class="layout" style="grid-template-columns: 1fr;">
+
+    <div class="panel">
+      <h2>✍️ Story Writer</h2>
+
+      <div class="section">
+        <h3>Story Details</h3>
+        <label for="story-title">Title</label>
+        <input type="text" id="story-title" placeholder="e.g. The Last Horizon" class="story-field" />
+        <label for="story-genre">Genre</label>
+        <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" class="story-field" />
+        <label for="story-tone">Tone</label>
+        <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
+        <div class="row">
+          <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
+        </div>
+        <div class="msg" id="story-msg"></div>
+      </div>
+
+      <div class="section">
+        <h3>Story Outline</h3>
+        <div class="result-box" id="story-result">
+          <div class="result-label">Generated Outline</div>
+          <pre id="story-outline"></pre>
+        </div>
+        <p id="story-placeholder" style="color:#aaa;font-size:13px;">Fill in the details above and click <strong>Generate Outline</strong> to see the result here.</p>
+      </div>
     </div>
 
-    <!-- Analyze -->
-    <div class="section">
-      <h3>Analyze Text</h3>
-      <label for="analyze-input">Text to analyze</label>
-      <textarea id="analyze-input" placeholder="Paste or type text here…"></textarea>
-      <div class="row">
-        <button class="btn-primary" id="analyze-btn" onclick="analyzeText()">Analyze</button>
-      </div>
-      <div class="msg" id="analyze-msg"></div>
-      <div class="result-box" id="analyze-result">
-        <div class="result-label">Analysis</div>
-        <div id="analyze-fields"></div>
-      </div>
-    </div>
-
-    <!-- Story Writer -->
-    <div class="section">
-      <h3>✍️ Story Writer</h3>
-      <label for="story-title">Title</label>
-      <input type="text" id="story-title" placeholder="e.g. The Last Horizon" class="story-field" />
-      <label for="story-genre">Genre</label>
-      <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" class="story-field" />
-      <label for="story-tone">Tone</label>
-      <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
-      <div class="row">
-        <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
-      </div>
-      <div class="msg" id="story-msg"></div>
-      <div class="result-box" id="story-result">
-        <div class="result-label">Story Outline</div>
-        <pre id="story-outline"></pre>
-      </div>
-    </div>
-  </main>
+  </div>
 </div>
 
 <script>
+  // ── Tab navigation ────────────────────────────────────────────────────────
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      const active = btn.id === 'tab-' + name;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', String(active));
+    });
+    document.querySelectorAll('.page').forEach((page) => {
+      page.classList.toggle('active', page.id === 'page-' + name);
+    });
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
   function showMsg(id, text, type) {
@@ -788,6 +859,7 @@
       });
       document.getElementById('story-outline').textContent = data.outline || 'No outline was returned.';
       document.getElementById('story-result').classList.add('visible');
+      document.getElementById('story-placeholder').style.display = 'none';
       clearMsg('story-msg');
     } catch (e) {
       showMsg('story-msg', e.message, 'error');
