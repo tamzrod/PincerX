@@ -993,22 +993,24 @@
 
   // ── Text-to-speech ────────────────────────────────────────────────────────
 
-  let _ttsBtn = null; // currently active TTS button
+  const isTTSSupported = !!window.speechSynthesis;
+
+  let activeTTSButton = null; // currently active TTS button
 
   function stopTTS() {
     if (window.speechSynthesis && window.speechSynthesis.speaking) {
       window.speechSynthesis.cancel();
     }
-    if (_ttsBtn) {
-      _ttsBtn.textContent = '🔊 Read';
-      _ttsBtn.classList.remove('speaking');
-      _ttsBtn = null;
+    if (activeTTSButton) {
+      activeTTSButton.textContent = '🔊 Read';
+      activeTTSButton.classList.remove('speaking');
+      activeTTSButton = null;
     }
   }
 
   function readChapterAloud(chapterNumber, btn) {
     // If this button is already speaking, stop.
-    if (btn === _ttsBtn) { stopTTS(); return; }
+    if (btn === activeTTSButton) { stopTTS(); return; }
     // Stop any other chapter that is speaking.
     stopTTS();
 
@@ -1026,7 +1028,7 @@
     utterance.onend = () => stopTTS();
     utterance.onerror = () => stopTTS();
 
-    _ttsBtn = btn;
+    activeTTSButton = btn;
     btn.textContent = '⏹ Stop';
     btn.classList.add('speaking');
     window.speechSynthesis.speak(utterance);
@@ -1252,8 +1254,7 @@
     ttsBtn.textContent = '🔊 Read';
     ttsBtn.title = 'Read chapter aloud';
     ttsBtn.onclick = () => readChapterAloud(chapterNumber, ttsBtn);
-    // Hide if browser has no TTS support
-    if (!window.speechSynthesis) ttsBtn.style.display = 'none';
+    if (!isTTSSupported) ttsBtn.style.display = 'none';
     actions.appendChild(ttsBtn);
 
     const regenBtn = document.createElement('button');

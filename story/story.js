@@ -42,11 +42,15 @@ async function create(title, genre, tone, aiOptions = {}) {
   return story;
 }
 
+/** Minimum target word count included in the chapter generation prompt. */
+const CHAPTER_MIN_WORDS = 700;
+
 /**
- * Normalise text returned by the AI so that literal `\n` escape sequences
- * become real newlines and leading/trailing whitespace is removed.
+ * Normalise text returned by the AI so that literal `\n`/`\t` escape
+ * sequences become real whitespace characters and surrounding whitespace
+ * is removed.
  *
- * @param {string} text
+ * @param {string} text - Raw text, possibly containing literal escape sequences.
  * @returns {string}
  */
 function normalizeText(text) {
@@ -114,7 +118,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     'Respond with ONLY a valid JSON object containing exactly this field:',
     '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
     '',
-    'The chapter must be substantial: at least 700 words with vivid descriptions, meaningful dialogue, and strong pacing.',
+    'The chapter must be substantial: at least ' + CHAPTER_MIN_WORDS + ' words with vivid descriptions, meaningful dialogue, and strong pacing.',
     'Do not include any explanation or text outside the JSON object.',
     '',
     `Title: ${storyData.title}`,
