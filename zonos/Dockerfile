@@ -4,11 +4,13 @@ FROM pytorch/pytorch:2.5.1-cuda11.8-cudnn9-runtime
 
 WORKDIR /app
 
-# System libraries needed by torchaudio / libsndfile / phonemizer
+# System libraries needed by torchaudio / libsndfile / phonemizer.
+# build-essential (g++) is required by torch.inductor for JIT kernel compilation.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libsndfile1 \
     espeak-ng \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
