@@ -997,10 +997,17 @@
   // Primary engine: Zonos (served via POST /tts on the Node backend).
   // Fallback: browser Web Speech API, used when the Zonos sidecar is unreachable.
 
+  const TTS_RATE = 0.92;  // slightly slower than default for clarity
+  const TTS_PITCH = 1.0;  // neutral pitch
+
   let activeTTSButton = null;     // currently active TTS button
   let activeTTSAudio = null;      // currently playing HTMLAudioElement
   let activeTTSObjectURL = null;  // blob URL; revoked after playback to free memory
   let activeTTSController = null; // AbortController for the in-flight /tts fetch
+
+  // Returns true when the given button is no longer the active TTS target,
+  // meaning the request was cancelled or superseded by another chapter.
+  function isTTSCancelled(btn) { return activeTTSButton !== btn; }
 
   function stopTTS() {
     if (activeTTSController) {
@@ -1058,7 +1065,7 @@
       activeTTSController = null;
 
       // Bail out if the user cancelled while the request was in-flight.
-      if (activeTTSButton !== btn) return;
+      if (isTTSCancelled(btn)) return;
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
@@ -1066,7 +1073,7 @@
       }
 
       const blob = await response.blob();
-      if (activeTTSButton !== btn) return;
+      if (isTTSCancelled(btn)) return;
 
       activeTTSObjectURL = URL.createObjectURL(blob);
       activeTTSAudio = new Audio(activeTTSObjectURL);
@@ -1079,15 +1086,15 @@
       activeTTSAudio.play();
     } catch (e) {
       // Aborted or stopped by the user – nothing to do.
-      if (activeTTSButton !== btn) return;
+      if (isTTSCancelled(btn)) return;
       activeTTSController = null;
       stopTTS();
 
       // Fall back to the browser Web Speech API when Zonos is unreachable.
       if (window.speechSynthesis) {
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.92;
-        utterance.pitch = 1.0;
+        utterance.rate = TTS_RATE;
+        utterance.pitch = TTS_PITCH;
         utterance.onend = () => stopTTS();
         utterance.onerror = () => stopTTS();
         activeTTSButton = btn;

@@ -65,7 +65,7 @@ def _split_into_chunks(text: str) -> list[str]:
                     current = sentence
             if current:
                 chunks.append(current)
-    return chunks or [text[:_MAX_CHUNK_CHARS]]
+    return chunks or [text[:_MAX_CHUNK_CHARS]] if text.strip() else []
 
 
 # ── Request / response schemas ────────────────────────────────────────────────
