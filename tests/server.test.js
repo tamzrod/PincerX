@@ -206,7 +206,9 @@ describe('POST /upload', () => {
   });
 
   it('returns 409 when ingestion is already in progress', async () => {
-    ingest.mockRejectedValue(new Error('Ingestion is already in progress.'));
+    const err = new Error('Ingestion is already in progress.');
+    err.code = 'INGESTION_IN_PROGRESS';
+    ingest.mockRejectedValue(err);
 
     const res = await request(app)
       .post('/upload')
@@ -289,7 +291,9 @@ describe('DELETE /pdf', () => {
 
   it('returns 409 when ingestion is already in progress', async () => {
     fs.writeFileSync(testPdf, '%PDF-1.4 fake');
-    ingest.mockRejectedValue(new Error('Ingestion is already in progress.'));
+    const err = new Error('Ingestion is already in progress.');
+    err.code = 'INGESTION_IN_PROGRESS';
+    ingest.mockRejectedValue(err);
 
     const res = await request(app)
       .delete('/pdf')

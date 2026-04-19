@@ -66,7 +66,9 @@ let ingestionInProgress = false;
  */
 async function ingest() {
   if (ingestionInProgress) {
-    throw new Error('Ingestion is already in progress.');
+    const err = new Error('Ingestion is already in progress.');
+    err.code = 'INGESTION_IN_PROGRESS';
+    throw err;
   }
 
   ingestionInProgress = true;

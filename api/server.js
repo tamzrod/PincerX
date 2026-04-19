@@ -102,7 +102,7 @@ app.post('/upload', (req, res) => {
       await ingest();
       return res.json({ message: `Uploaded ${req.file.originalname} and rebuilt knowledge base.` });
     } catch (e) {
-      if (e.message === 'Ingestion is already in progress.') {
+      if (e.code === 'INGESTION_IN_PROGRESS') {
         return res.status(409).json({ error: e.message });
       }
       return res.status(500).json({ error: `Ingestion failed: ${e.message}` });
@@ -135,7 +135,7 @@ app.delete('/pdf', async (req, res) => {
     await ingest();
     return res.json({ message: `Deleted ${filename} and rebuilt knowledge base.` });
   } catch (e) {
-    if (e.message === 'Ingestion is already in progress.') {
+    if (e.code === 'INGESTION_IN_PROGRESS') {
       return res.status(409).json({ error: e.message });
     }
     return res.status(500).json({ error: `Operation failed: ${e.message}` });
