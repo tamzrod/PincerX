@@ -36,7 +36,8 @@ async function create(title, genre, tone, aiOptions = {}) {
   const story = { id, title, genre, tone, outline, createdAt };
 
   fs.mkdirSync(STORIES_DIR, { recursive: true });
-  fs.writeFileSync(path.join(STORIES_DIR, `${id}.json`), JSON.stringify(story, null, 2), 'utf8');
+  const filename = path.basename(`${id}.json`);
+  fs.writeFileSync(path.join(STORIES_DIR, filename), JSON.stringify(story, null, 2), 'utf8');
 
   return story;
 }

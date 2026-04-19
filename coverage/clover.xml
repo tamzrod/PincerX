@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1776584435566" clover="3.2.0">
-  <project timestamp="1776584435566" name="All files">
-    <metrics statements="321" coveredstatements="274" conditionals="180" coveredconditionals="133" methods="55" coveredmethods="50" elements="556" coveredelements="457" complexity="0" loc="321" ncloc="321" packages="3" files="5" classes="5"/>
+<coverage generated="1776584507199" clover="3.2.0">
+  <project timestamp="1776584507199" name="All files">
+    <metrics statements="322" coveredstatements="275" conditionals="180" coveredconditionals="133" methods="55" coveredmethods="50" elements="557" coveredelements="458" complexity="0" loc="322" ncloc="322" packages="3" files="5" classes="5"/>
     <package name="api">
       <metrics statements="153" coveredstatements="115" conditionals="85" coveredconditionals="55" methods="17" coveredmethods="12"/>
       <file name="server.js" path="/home/runner/work/PincerX/PincerX/api/server.js">
@@ -321,9 +321,9 @@
       </file>
     </package>
     <package name="story">
-      <metrics statements="21" coveredstatements="21" conditionals="7" coveredconditionals="7" methods="2" coveredmethods="2"/>
+      <metrics statements="22" coveredstatements="22" conditionals="7" coveredconditionals="7" methods="2" coveredmethods="2"/>
       <file name="story.js" path="/home/runner/work/PincerX/PincerX/story/story.js">
-        <metrics statements="21" coveredstatements="21" conditionals="7" coveredconditionals="7" methods="2" coveredmethods="2"/>
+        <metrics statements="22" coveredstatements="22" conditionals="7" coveredconditionals="7" methods="2" coveredmethods="2"/>
         <line num="3" count="2" type="stmt"/>
         <line num="4" count="2" type="stmt"/>
         <line num="5" count="2" type="stmt"/>
@@ -336,15 +336,16 @@
         <line num="36" count="9" type="stmt"/>
         <line num="38" count="9" type="stmt"/>
         <line num="39" count="9" type="stmt"/>
-        <line num="41" count="9" type="stmt"/>
-        <line num="52" count="9" type="stmt"/>
-        <line num="53" count="9" type="cond" truecount="2" falsecount="0"/>
-        <line num="54" count="8" type="stmt"/>
+        <line num="40" count="9" type="stmt"/>
+        <line num="42" count="9" type="stmt"/>
+        <line num="53" count="9" type="stmt"/>
+        <line num="54" count="9" type="cond" truecount="2" falsecount="0"/>
         <line num="55" count="8" type="stmt"/>
-        <line num="56" count="7" type="cond" truecount="4" falsecount="0"/>
-        <line num="57" count="6" type="stmt"/>
-        <line num="63" count="3" type="stmt"/>
-        <line num="66" count="2" type="stmt"/>
+        <line num="56" count="8" type="stmt"/>
+        <line num="57" count="7" type="cond" truecount="4" falsecount="0"/>
+        <line num="58" count="6" type="stmt"/>
+        <line num="64" count="3" type="stmt"/>
+        <line num="67" count="2" type="stmt"/>
       </file>
     </package>
   </project>
