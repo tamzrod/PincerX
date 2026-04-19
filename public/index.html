@@ -200,6 +200,55 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── Reading view ─────────────────────────────────────────────────────── */
+
+    .reading-view {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 8px 20px 20px;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 16px;
+      line-height: 1.8;
+      color: #222;
+    }
+
+    .reading-view .reading-story-title {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #1a1a2e;
+      text-align: center;
+    }
+
+    .reading-view .reading-meta {
+      text-align: center;
+      font-size: 13px;
+      color: #888;
+      font-style: italic;
+      margin-bottom: 28px;
+    }
+
+    .reading-chapter {
+      margin-bottom: 32px;
+    }
+
+    .reading-chapter h2 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      color: #333;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 6px;
+      font-family: system-ui, sans-serif;
+    }
+
+    .reading-chapter p {
+      margin-bottom: 14px;
+      text-indent: 1.5em;
+    }
+
+    .reading-chapter p:first-of-type { text-indent: 0; }
+
     /* ── Settings modal ───────────────────────────────────────────────────── */
 
     .modal-overlay {
@@ -279,11 +328,50 @@
     }
 
     .settings-btn:hover { background: rgba(255,255,255,.12); }
+
+    /* ── Page tabs ────────────────────────────────────────────────────────── */
+
+    .tab-bar {
+      background: #1a1a2e;
+      display: flex;
+      gap: 4px;
+      padding: 0 24px;
+      border-bottom: 3px solid #0f0f20;
+    }
+
+    .tab-btn {
+      background: transparent;
+      color: rgba(255,255,255,.6);
+      border: none;
+      border-radius: 0;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -3px;
+      transition: color .15s, border-color .15s;
+    }
+
+    .tab-btn:hover { color: rgba(255,255,255,.9); }
+
+    .tab-btn.active {
+      color: #fff;
+      border-bottom-color: #4a6cf7;
+    }
+
+    .page { display: none; }
+    .page.active { display: block; }
   </style>
 </head>
 <body>
 
 <header>PincerX Dashboard<button class="settings-btn" onclick="openSettings()">⚙ Settings</button></header>
+
+<nav class="tab-bar" role="tablist" aria-label="Application pages">
+  <button class="tab-btn active" id="tab-docs" role="tab" aria-selected="true" aria-controls="page-docs" onclick="switchTab('docs')">📄 Document Management</button>
+  <button class="tab-btn" id="tab-story" role="tab" aria-selected="false" aria-controls="page-story" onclick="switchTab('story')">✍️ Story Writer</button>
+</nav>
 
 <!-- Settings modal -->
 <div class="modal-overlay" id="settings-overlay" onclick="handleOverlayClick(event)">
@@ -305,8 +393,9 @@
     <div class="field-group">
       <label for="cfg-model">Model</label>
       <div style="display:flex;gap:8px;align-items:center">
-        <input type="text" id="cfg-model" placeholder="llama3, llama3.2, gpt-4o…" list="cfg-model-list" style="flex:1" />
-        <datalist id="cfg-model-list"></datalist>
+        <select id="cfg-model" style="flex:1">
+          <option value="">— click Detect to load available models —</option>
+        </select>
         <button class="btn-secondary" id="cfg-detect-btn" type="button" onclick="detectModels()" style="white-space:nowrap;flex-shrink:0">Detect</button>
       </div>
     </div>
@@ -325,90 +414,139 @@
   </div>
 </div>
 
-<div class="layout">
+<!-- ── Page 1: Document Management ─────────────────────────────────────── -->
+<div class="page active" id="page-docs" role="tabpanel" aria-labelledby="tab-docs">
+  <div class="layout">
 
-  <!-- LEFT: PDF Management -->
-  <aside class="panel">
-    <h2>📄 PDF Management</h2>
+    <!-- LEFT: PDF Management -->
+    <aside class="panel">
+      <h2>📄 PDF Management</h2>
 
-    <div class="section">
-      <h3>Upload PDF</h3>
-      <label for="pdf-file">Select a .pdf file</label>
-      <input type="file" id="pdf-file" accept=".pdf" />
-      <div class="row">
-        <button class="btn-primary" id="upload-btn" onclick="uploadPDF()">Upload</button>
+      <div class="section">
+        <h3>Upload PDF</h3>
+        <label for="pdf-file">Select a .pdf file</label>
+        <input type="file" id="pdf-file" accept=".pdf" />
+        <div class="row">
+          <button class="btn-primary" id="upload-btn" onclick="uploadPDF()">Upload</button>
+        </div>
+        <div class="msg" id="upload-msg"></div>
       </div>
-      <div class="msg" id="upload-msg"></div>
-    </div>
 
-    <div class="section">
-      <h3>Uploaded PDFs</h3>
-      <button class="btn-primary" onclick="loadPDFs()" style="font-size:12px;padding:5px 12px;">↻ Refresh</button>
-      <div id="pdf-list"><em style="color:#aaa;font-size:13px;">Loading…</em></div>
-      <div class="msg" id="delete-msg"></div>
-    </div>
-  </aside>
-
-  <!-- RIGHT: Interaction -->
-  <main class="panel">
-    <h2>🔍 Interaction</h2>
-
-    <!-- Ask -->
-    <div class="section">
-      <h3>Ask a Question</h3>
-      <label for="ask-input">Question</label>
-      <div class="row">
-        <input type="text" id="ask-input" placeholder="e.g. What does section 3 say?" />
-        <button class="btn-primary" id="ask-btn" onclick="askQuestion()">Ask</button>
+      <div class="section">
+        <h3>Uploaded PDFs</h3>
+        <button class="btn-primary" onclick="loadPDFs()" style="font-size:12px;padding:5px 12px;">↻ Refresh</button>
+        <div id="pdf-list"><em style="color:#aaa;font-size:13px;">Loading…</em></div>
+        <div class="msg" id="delete-msg"></div>
       </div>
-      <div class="msg" id="ask-msg"></div>
-      <div class="result-box" id="ask-result">
-        <div class="result-label">Answer</div>
-        <div class="answer-text" id="ask-answer"></div>
-        <div id="ask-sources-wrap" style="display:none">
-          <div class="result-label" style="margin-top:8px">Sources</div>
-          <ul class="sources-list" id="ask-sources"></ul>
+    </aside>
+
+    <!-- RIGHT: Interaction -->
+    <main class="panel">
+      <h2>🔍 Interaction</h2>
+
+      <!-- Ask -->
+      <div class="section">
+        <h3>Ask a Question</h3>
+        <label for="ask-input">Question</label>
+        <div class="row">
+          <input type="text" id="ask-input" placeholder="e.g. What does section 3 say?" />
+          <button class="btn-primary" id="ask-btn" onclick="askQuestion()">Ask</button>
+        </div>
+        <div class="msg" id="ask-msg"></div>
+        <div class="result-box" id="ask-result">
+          <div class="result-label">Answer</div>
+          <div class="answer-text" id="ask-answer"></div>
+          <div id="ask-sources-wrap" style="display:none">
+            <div class="result-label" style="margin-top:8px">Sources</div>
+            <ul class="sources-list" id="ask-sources"></ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Analyze -->
+      <div class="section">
+        <h3>Analyze Text</h3>
+        <label for="analyze-input">Text to analyze</label>
+        <textarea id="analyze-input" placeholder="Paste or type text here…"></textarea>
+        <div class="row">
+          <button class="btn-primary" id="analyze-btn" onclick="analyzeText()">Analyze</button>
+        </div>
+        <div class="msg" id="analyze-msg"></div>
+        <div class="result-box" id="analyze-result">
+          <div class="result-label">Analysis</div>
+          <div id="analyze-fields"></div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+<!-- ── Page 2: Story Writer ─────────────────────────────────────────────── -->
+<div class="page" id="page-story" role="tabpanel" aria-labelledby="tab-story">
+  <div class="layout" style="grid-template-columns: 1fr;">
+
+    <div class="panel">
+      <h2>✍️ Story Writer</h2>
+
+      <div class="section">
+        <h3>Story Details</h3>
+        <label for="story-title">Title</label>
+        <input type="text" id="story-title" placeholder="e.g. The Last Horizon" class="story-field" />
+        <label for="story-genre">Genre</label>
+        <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" class="story-field" />
+        <label for="story-tone">Tone</label>
+        <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
+        <div class="row">
+          <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
+        </div>
+        <div class="msg" id="story-msg"></div>
+      </div>
+
+      <div class="section">
+        <h3>Story Outline</h3>
+        <div class="result-box" id="story-result">
+          <div class="result-label">Generated Outline</div>
+          <pre id="story-outline"></pre>
+        </div>
+        <p id="story-placeholder" style="color:#aaa;font-size:13px;">Fill in the details above and click <strong>Generate Outline</strong> to see the result here.</p>
+      </div>
+
+      <div class="section" id="chapter-section" style="display:none">
+        <h3>Generate Chapters</h3>
+        <p style="color:#666;font-size:13px;margin-bottom:10px;">Generate chapters one at a time. Each chapter builds on the outline and all previously generated chapters.</p>
+        <div class="row">
+          <button class="btn-primary" id="chapter-btn" onclick="generateNextChapter()">Generate Chapter 1</button>
+        </div>
+        <div class="msg" id="chapter-msg"></div>
+      </div>
+
+      <div class="section" id="reading-section" style="display:none">
+        <h3>📖 Reading View</h3>
+        <div class="reading-view" id="reading-view">
+          <div class="reading-story-title" id="reading-title"></div>
+          <div class="reading-meta" id="reading-meta"></div>
         </div>
       </div>
     </div>
 
-    <!-- Analyze -->
-    <div class="section">
-      <h3>Analyze Text</h3>
-      <label for="analyze-input">Text to analyze</label>
-      <textarea id="analyze-input" placeholder="Paste or type text here…"></textarea>
-      <div class="row">
-        <button class="btn-primary" id="analyze-btn" onclick="analyzeText()">Analyze</button>
-      </div>
-      <div class="msg" id="analyze-msg"></div>
-      <div class="result-box" id="analyze-result">
-        <div class="result-label">Analysis</div>
-        <div id="analyze-fields"></div>
-      </div>
-    </div>
-
-    <!-- Story Writer -->
-    <div class="section">
-      <h3>✍️ Story Writer</h3>
-      <label for="story-title">Title</label>
-      <input type="text" id="story-title" placeholder="e.g. The Last Horizon" class="story-field" />
-      <label for="story-genre">Genre</label>
-      <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" class="story-field" />
-      <label for="story-tone">Tone</label>
-      <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
-      <div class="row">
-        <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
-      </div>
-      <div class="msg" id="story-msg"></div>
-      <div class="result-box" id="story-result">
-        <div class="result-label">Story Outline</div>
-        <pre id="story-outline"></pre>
-      </div>
-    </div>
-  </main>
+  </div>
 </div>
 
 <script>
+  // ── Tab navigation ────────────────────────────────────────────────────────
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      const active = btn.id === 'tab-' + name;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', String(active));
+    });
+    document.querySelectorAll('.page').forEach((page) => {
+      page.classList.toggle('active', page.id === 'page-' + name);
+    });
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
   function showMsg(id, text, type) {
@@ -659,7 +797,24 @@
       document.getElementById('cfg-scheme').value = scheme;
       document.getElementById('cfg-host').value = host;
       document.getElementById('cfg-port').value = port;
-      document.getElementById('cfg-model').value = cfg.model || '';
+
+      // Seed the model dropdown with the currently configured model so it is
+      // visible before the user clicks Detect.
+      const modelSelect = document.getElementById('cfg-model');
+      modelSelect.innerHTML = '';
+      if (cfg.model) {
+        const opt = document.createElement('option');
+        opt.value = cfg.model;
+        opt.textContent = cfg.model;
+        modelSelect.appendChild(opt);
+        modelSelect.value = cfg.model;
+      } else {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '— click Detect to load available models —';
+        modelSelect.appendChild(opt);
+      }
+
       document.getElementById('cfg-apikey').value = '';
       document.getElementById('cfg-apikey').placeholder = cfg.hasApiKey ? '(key stored — enter new key to replace)' : 'sk-… or leave blank';
     } catch (e) {
@@ -695,22 +850,22 @@
     try {
       const data = await apiFetch('/models?baseUrl=' + encodeURIComponent(baseUrl));
       const models = data.models || [];
-      const datalist = document.getElementById('cfg-model-list');
-      datalist.innerHTML = '';
-      models.forEach((name) => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        datalist.appendChild(opt);
-      });
 
       if (models.length === 0) {
         showMsg('cfg-msg', 'No models found on that server.', 'error');
       } else {
-        const currentModel = document.getElementById('cfg-model').value.trim();
-        if (!currentModel || !models.includes(currentModel)) {
-          document.getElementById('cfg-model').value = models[0];
-        }
-        showMsg('cfg-msg', `${models.length} model${models.length === 1 ? '' : 's'} detected. Click the Model field to choose.`, 'success');
+        const modelSelect = document.getElementById('cfg-model');
+        const currentModel = modelSelect.value;
+        modelSelect.innerHTML = '';
+        models.forEach((name) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          modelSelect.appendChild(opt);
+        });
+        // Keep the previously selected model if it is still available; otherwise default to the first.
+        modelSelect.value = models.includes(currentModel) ? currentModel : models[0];
+        showMsg('cfg-msg', `${models.length} model${models.length === 1 ? '' : 's'} detected.`, 'success');
       }
     } catch (e) {
       showMsg('cfg-msg', 'Could not detect models: ' + e.message, 'error');
@@ -766,6 +921,9 @@
 
   // ── Story Writer ──────────────────────────────────────────────────────────
 
+  // Tracks the active story state for chapter generation.
+  const storyState = { id: null, title: null, genre: null, tone: null, nextChapter: 1 };
+
   async function generateStory() {
     clearMsg('story-msg');
     const title = document.getElementById('story-title').value.trim();
@@ -788,12 +946,80 @@
       });
       document.getElementById('story-outline').textContent = data.outline || 'No outline was returned.';
       document.getElementById('story-result').classList.add('visible');
+      document.getElementById('story-placeholder').style.display = 'none';
       clearMsg('story-msg');
+
+      // Reset chapter state for the new story
+      storyState.id = data.id;
+      storyState.title = data.title;
+      storyState.genre = data.genre;
+      storyState.tone = data.tone;
+      storyState.nextChapter = 1;
+
+      // Reveal chapter section; reset reading view
+      document.getElementById('chapter-section').style.display = '';
+      document.getElementById('chapter-btn').textContent = 'Generate Chapter 1';
+      clearMsg('chapter-msg');
+      const readingSection = document.getElementById('reading-section');
+      readingSection.style.display = 'none';
+      document.getElementById('reading-title').textContent = data.title || '';
+      document.getElementById('reading-meta').textContent =
+        [data.genre, data.tone].filter(Boolean).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' · ');
+      // Remove any previously generated chapter nodes
+      document.querySelectorAll('.reading-chapter').forEach((el) => el.remove());
     } catch (e) {
       showMsg('story-msg', e.message, 'error');
     } finally {
       setLoading('story-btn', false, 'Generate Outline');
     }
+  }
+
+  async function generateNextChapter() {
+    if (!storyState.id) return;
+    clearMsg('chapter-msg');
+    const chapterNumber = storyState.nextChapter;
+
+    setLoading('chapter-btn', true, `Generate Chapter ${chapterNumber}`);
+    showMsg('chapter-msg', `Generating Chapter ${chapterNumber}…`, 'loading');
+
+    try {
+      const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chapterNumber }),
+      });
+
+      appendChapterToReading(chapterNumber, data.content || '');
+      storyState.nextChapter = chapterNumber + 1;
+      clearMsg('chapter-msg');
+      document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
+    } catch (e) {
+      showMsg('chapter-msg', e.message, 'error');
+    } finally {
+      setLoading('chapter-btn', false, `Generate Chapter ${storyState.nextChapter}`);
+    }
+  }
+
+  function appendChapterToReading(chapterNumber, content) {
+    const readingView = document.getElementById('reading-view');
+    const section = document.createElement('div');
+    section.className = 'reading-chapter';
+
+    const heading = document.createElement('h2');
+    heading.textContent = `Chapter ${chapterNumber}`;
+    section.appendChild(heading);
+
+    // Split on blank lines to create paragraphs
+    const paragraphs = content.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+    paragraphs.forEach((text) => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      section.appendChild(p);
+    });
+
+    readingView.appendChild(section);
+    document.getElementById('reading-section').style.display = '';
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // Close modal on Escape key
