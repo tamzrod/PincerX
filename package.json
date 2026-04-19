@@ -16,7 +16,8 @@
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
       "openclaw/**/*.js",
-      "api/**/*.js"
+      "api/**/*.js",
+      "story/**/*.js"
     ]
   },
   "dependencies": {
