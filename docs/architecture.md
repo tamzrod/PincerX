@@ -259,7 +259,7 @@ Tests live in `tests/` and are run with `npm test` (Jest with `--coverage`). Cov
 
 ### Current defenses
 
-The system applies a layered defence-in-depth approach to AI outputs, treating all model responses as untrusted strings until explicitly validated.
+The system applies a layered defense-in-depth approach to AI outputs, treating all model responses as untrusted strings until explicitly validated.
 
 **Layer 1 — Prompt constraints (pre-inference)**
 
