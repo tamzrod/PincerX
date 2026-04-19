@@ -478,10 +478,10 @@
     <h2 id="voice-title">🎙 Voice Settings</h2>
 
     <div class="field-group">
-      <label for="voice-select">Voice <span style="color:#aaa;font-weight:400">(upload a reference clip to add voices)</span></label>
+      <label for="voice-select">Voice <span style="color:#aaa;font-weight:400">(optional — upload a clip below to add custom voices)</span></label>
       <div style="display:flex;gap:8px;align-items:center">
         <select id="voice-select" style="flex:1">
-          <option value="">— default (no reference speaker) —</option>
+          <option value="">Default Voice</option>
         </select>
         <button class="btn-danger" id="voice-delete-btn" type="button" onclick="deleteVoice()" style="white-space:nowrap;flex-shrink:0;display:none">Delete</button>
       </div>
@@ -530,6 +530,7 @@
 
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeVoiceSettings()">Close</button>
+      <button class="btn-tts" id="voice-test-btn" type="button" onclick="testTTSVoice()">▶ Test</button>
       <button class="btn-primary" onclick="saveVoiceSettings()">Apply</button>
     </div>
   </div>
@@ -1127,7 +1128,18 @@
     await refreshVoiceList();
   }
 
+  let testTTSAudio = null;  // currently playing test audio in the voice modal
+  let testTTSController = null; // AbortController for in-flight test /tts fetch
+
+  function stopTestTTS() {
+    if (testTTSController) { testTTSController.abort(); testTTSController = null; }
+    if (testTTSAudio) { testTTSAudio.pause(); testTTSAudio = null; }
+  }
+
   function closeVoiceSettings() {
+    stopTestTTS();
+    const btn = document.getElementById('voice-test-btn');
+    if (btn) { btn.textContent = '▶ Test'; btn.classList.remove('loading', 'speaking'); btn.disabled = false; }
     document.getElementById('voice-overlay').classList.remove('open');
   }
 
@@ -1143,7 +1155,7 @@
       const voices = data.voices || [];
 
       // Rebuild dropdown
-      select.innerHTML = '<option value="">— default (no reference speaker) —</option>';
+      select.innerHTML = '<option value="">Default Voice</option>';
       voices.forEach((v) => {
         const opt = document.createElement('option');
         opt.value = v;
@@ -1187,6 +1199,107 @@
     voicePrefs.pitch_std = Number(document.getElementById('voice-pitch').value);
     closeVoiceSettings();
   }
+
+  const TTS_SAMPLE_TEXT = 'Hello! This is a preview of your current voice settings.';
+
+  async function testTTSVoice() {
+    const btn = document.getElementById('voice-test-btn');
+
+    // If already playing a test, stop it.
+    if (testTTSAudio) {
+      stopTestTTS();
+      btn.textContent = '▶ Test';
+      btn.classList.remove('loading', 'speaking');
+      btn.disabled = false;
+      return;
+    }
+
+    // Read current (unsaved) UI values.
+    const voiceId = document.getElementById('voice-select').value;
+    const emotionPreset = document.getElementById('voice-emotion').value;
+    const speakingRate = Number(document.getElementById('voice-rate').value);
+    const pitchStd = Number(document.getElementById('voice-pitch').value);
+
+    const ttsBody = { text: TTS_SAMPLE_TEXT, speaking_rate: speakingRate, pitch_std: pitchStd, emotion_preset: emotionPreset };
+    if (voiceId) ttsBody.voice_id = voiceId;
+
+    btn.textContent = '⏳ Loading…';
+    btn.classList.add('loading');
+    btn.disabled = false; // keep clickable so the user can cancel
+    clearMsg('voice-msg');
+    testTTSController = new AbortController();
+
+    try {
+      const response = await fetch('/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ttsBody),
+        signal: testTTSController.signal,
+      });
+      testTTSController = null;
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      testTTSAudio = new Audio(url);
+      testTTSAudio.onended = () => {
+        URL.revokeObjectURL(url);
+        testTTSAudio = null;
+        btn.textContent = '▶ Test';
+        btn.classList.remove('loading', 'speaking');
+        btn.disabled = false;
+      };
+      testTTSAudio.onerror = () => {
+        URL.revokeObjectURL(url);
+        testTTSAudio = null;
+        btn.textContent = '▶ Test';
+        btn.classList.remove('loading', 'speaking');
+        btn.disabled = false;
+      };
+
+      btn.textContent = '⏹ Stop';
+      btn.classList.remove('loading');
+      btn.classList.add('speaking');
+      testTTSAudio.play();
+    } catch (e) {
+      testTTSController = null;
+      btn.textContent = '▶ Test';
+      btn.classList.remove('loading', 'speaking');
+      btn.disabled = false;
+
+      // Fall back to Web Speech API if Zonos is unreachable.
+      // Web Speech API uses a rate multiplier (1.0 = normal) and a separate pitch
+      // scale that don't map directly to Zonos units, so we normalise speakingRate
+      // proportionally around its default of 15 tokens/s.
+      if (e.name !== 'AbortError' && window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(TTS_SAMPLE_TEXT);
+        utterance.rate = TTS_RATE * (speakingRate / 15);
+        utterance.pitch = TTS_PITCH;
+        btn.textContent = '⏹ Stop';
+        btn.classList.add('speaking');
+        // Minimal duck-typed object so stopTestTTS() can cancel Web Speech via pause().
+        testTTSAudio = { pause: () => window.speechSynthesis.cancel() };
+        utterance.onend = () => {
+          testTTSAudio = null;
+          btn.textContent = '▶ Test';
+          btn.classList.remove('speaking');
+        };
+        utterance.onerror = () => {
+          testTTSAudio = null;
+          btn.textContent = '▶ Test';
+          btn.classList.remove('speaking');
+        };
+        window.speechSynthesis.speak(utterance);
+      } else if (e.name !== 'AbortError') {
+        showMsg('voice-msg', `Test failed: ${e.message}`, 'error');
+      }
+    }
+  }
+
 
   async function uploadVoice() {
     clearMsg('voice-upload-msg');
