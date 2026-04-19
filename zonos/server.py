@@ -190,7 +190,7 @@ async def upload_voice(
     try:
         with torch.inference_mode():
             speaker = _model.make_speaker_embedding(wav_mono, sr)
-    except Exception as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=422,
             detail=f"Failed to extract speaker embedding: {exc}",
