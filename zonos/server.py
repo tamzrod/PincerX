@@ -39,6 +39,10 @@ _MODEL_NAME = "Zyphra/Zonos-v0.1-transformer"
 
 print(f"[Zonos] Loading {_MODEL_NAME} on {_DEVICE} …", flush=True)
 _model = Zonos.from_pretrained(_MODEL_NAME, device=_DEVICE)
+# Ensure every sub-module (e.g. speaker encoder) is on the same device.
+# from_pretrained moves most parameters but some lazy-initialised sub-modules
+# can remain on CPU, causing a device-mismatch when make_speaker_embedding runs.
+_model = _model.to(_DEVICE)
 _model.eval()
 _SAMPLING_RATE: int = _model.autoencoder.sampling_rate
 print(f"[Zonos] Model ready (sampling_rate={_SAMPLING_RATE}).", flush=True)
