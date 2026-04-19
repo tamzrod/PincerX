@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">28.71% </span>
+                <span class="strong">29.12% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>29/101</span>
+                <span class='fraction'>30/103</span>
             </div>
         
             
@@ -37,16 +37,16 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">16.66% </span>
+                <span class="strong">15.78% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>3/18</span>
+                <span class='fraction'>3/19</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">30.85% </span>
+                <span class="strong">31.25% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>29/94</span>
+                <span class='fraction'>30/96</span>
             </div>
         
             
@@ -330,7 +330,21 @@
 <a name='L265'></a><a href='#L265'>265</a>
 <a name='L266'></a><a href='#L266'>266</a>
 <a name='L267'></a><a href='#L267'>267</a>
-<a name='L268'></a><a href='#L268'>268</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L268'></a><a href='#L268'>268</a>
+<a name='L269'></a><a href='#L269'>269</a>
+<a name='L270'></a><a href='#L270'>270</a>
+<a name='L271'></a><a href='#L271'>271</a>
+<a name='L272'></a><a href='#L272'>272</a>
+<a name='L273'></a><a href='#L273'>273</a>
+<a name='L274'></a><a href='#L274'>274</a>
+<a name='L275'></a><a href='#L275'>275</a>
+<a name='L276'></a><a href='#L276'>276</a>
+<a name='L277'></a><a href='#L277'>277</a>
+<a name='L278'></a><a href='#L278'>278</a>
+<a name='L279'></a><a href='#L279'>279</a>
+<a name='L280'></a><a href='#L280'>280</a>
+<a name='L281'></a><a href='#L281'>281</a>
+<a name='L282'></a><a href='#L282'>282</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
@@ -372,6 +386,12 @@
 <span class="cline-any cline-yes">9x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -447,6 +467,14 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -645,6 +673,12 @@ async function create(title, genre, tone, aiOptions = {}) {
 const CHAPTER_MIN_WORDS = 700;
 &nbsp;
 /**
+ * Valid emotion presets understood by the Zonos TTS sidecar.
+ * These must match the keys in _EMOTION_PRESETS in zonos/server.py.
+ */
+const EMOTION_PRESETS = ['neutral', 'happy', 'sad', 'calm', 'energetic', 'angry'];
+&nbsp;
+/**
  * Normalise text returned by the AI so that literal `\n`/`\t` escape
  * sequences become real whitespace characters and surrounding whitespace
  * is removed.
@@ -718,6 +752,14 @@ async function <span class="fstat-no" title="function not covered" >generateChap
     '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
     '',
     'The chapter must be substantial: at least ' + CHAPTER_MIN_WORDS + ' words with vivid descriptions, meaningful dialogue, and strong pacing.',
+    '',
+    'IMPORTANT — Emotion tagging for text-to-speech:',
+    'Begin every paragraph with an emotion tag on the same line, immediately before the paragraph text.',
+    `The tag must be one of: ${EMOTION_PRESETS.map(<span class="fstat-no" title="function not covered" >(e</span>) =&gt; <span class="cstat-no" title="statement not covered" >`[emotion:${e}]`)</span>.join(', ')}.`,
+    'Choose the tag that best matches the mood of that paragraph.',
+    'The tags are invisible to readers and are used only by the audio narration system.',
+    'Example: "[emotion:sad] The old house creaked as she stepped inside, memories flooding back."',
+    '',
     'Do not include any explanation or text outside the JSON object.',
     '',
     `Title: ${storyData.title}`,
@@ -871,7 +913,7 @@ function <span class="fstat-no" title="function not covered" >get(</span>storyId
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-19T15:01:52.827Z
+                at 2026-04-19T15:05:05.750Z
             </div>
         <script src="../prettify.js"></script>
         <script>

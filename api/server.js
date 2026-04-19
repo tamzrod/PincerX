@@ -343,6 +343,24 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
 }
 
 /**
+ * Regex matching an emotion tag of the form [emotion:preset] at the start of a
+ * chunk (possibly preceded by whitespace).  Presets mirror the keys in
+ * _EMOTION_PRESETS in zonos/server.py.
+ */
+const EMOTION_TAG_RE = /^\[emotion:([a-z]+)\]\s*/;
+
+/**
+ * Strip all [emotion:X] tags from *text*, returning clean prose suitable for
+ * display or for sending directly to Zonos.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function stripEmotionTags(text) {
+  return text.replace(/\[emotion:[a-z]+\]\s*/g, '');
+}
+
+/**
  * Split *text* into sentence-sized chunks of at most *TTS_CHUNK_MAX_CHARS*
  * characters.  Mirrors the frontend splitIntoChunks() function exactly so that
  * both sides produce the same chunk list (and therefore the same cache keys).
@@ -383,6 +401,29 @@ function splitIntoTTSChunks(text) {
   }
   if (current) chunks.push(current);
   return chunks.length ? chunks : [text];
+}
+
+/**
+ * Same as splitIntoTTSChunks() but returns objects with the emotion preset
+ * extracted from each chunk's leading [emotion:X] tag.  The emotion tag is
+ * stripped from the returned text so Zonos only receives clean prose.
+ *
+ * The emotion "cascades": once a tag is seen, subsequent chunks inherit it
+ * until a new tag appears.  This means a sentence that continues a paragraph
+ * (after a mid-paragraph split) still gets the right emotion.
+ *
+ * @param {string} text - Chapter content, possibly containing [emotion:X] tags.
+ * @param {string} [fallbackEmotion='neutral'] - Preset used before the first tag.
+ * @returns {Array<{text: string, emotion: string}>}
+ */
+function splitIntoTTSChunksWithEmotion(text, fallbackEmotion = 'neutral') {
+  const rawChunks = splitIntoTTSChunks(text);
+  let currentEmotion = fallbackEmotion;
+  return rawChunks.map((chunk) => {
+    const match = chunk.match(EMOTION_TAG_RE);
+    if (match) currentEmotion = match[1];
+    return { text: stripEmotionTags(chunk), emotion: currentEmotion };
+  });
 }
 
 /**
@@ -474,11 +515,15 @@ const _prebakeJobs = new Map();
  * done immediately.  Chunks are processed sequentially to avoid overloading
  * the Zonos sidecar.
  *
+ * Emotion tags embedded in *chapterText* (e.g. "[emotion:happy]") are used
+ * to select the TTS emotion on a per-chunk basis.  *emotionPreset* acts as
+ * the fallback when no tag is present (e.g. for legacy content without tags).
+ *
  * @returns {string} jobId – pass to GET /tts-prebake/:jobId to poll progress.
  */
 function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPreset) {
   const jobId = crypto.randomUUID();
-  const chunks = splitIntoTTSChunks(chapterText);
+  const chunks = splitIntoTTSChunksWithEmotion(chapterText, emotionPreset || 'neutral');
   const job = { total: chunks.length, done: 0, errors: 0, status: 'running' };
   _prebakeJobs.set(jobId, job);
 
@@ -486,7 +531,7 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
     for (const chunk of chunks) {
       if (job.status === 'cancelled') break;
       try {
-        await _ensureAudioCached(chunk, voiceId, speakingRate, pitchStd, emotionPreset);
+        await _ensureAudioCached(chunk.text, voiceId, speakingRate, pitchStd, chunk.emotion);
       } catch (e) {
         job.errors++;
         console.warn(`[TTS prebake ${jobId}] chunk failed:`, e.message);

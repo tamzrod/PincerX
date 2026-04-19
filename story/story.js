@@ -46,6 +46,12 @@ async function create(title, genre, tone, aiOptions = {}) {
 const CHAPTER_MIN_WORDS = 700;
 
 /**
+ * Valid emotion presets understood by the Zonos TTS sidecar.
+ * These must match the keys in _EMOTION_PRESETS in zonos/server.py.
+ */
+const EMOTION_PRESETS = ['neutral', 'happy', 'sad', 'calm', 'energetic', 'angry'];
+
+/**
  * Normalise text returned by the AI so that literal `\n`/`\t` escape
  * sequences become real whitespace characters and surrounding whitespace
  * is removed.
@@ -119,6 +125,14 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
     '',
     'The chapter must be substantial: at least ' + CHAPTER_MIN_WORDS + ' words with vivid descriptions, meaningful dialogue, and strong pacing.',
+    '',
+    'IMPORTANT — Emotion tagging for text-to-speech:',
+    'Begin every paragraph with an emotion tag on the same line, immediately before the paragraph text.',
+    `The tag must be one of: ${EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ')}.`,
+    'Choose the tag that best matches the mood of that paragraph.',
+    'The tags are invisible to readers and are used only by the audio narration system.',
+    'Example: "[emotion:sad] The old house creaked as she stepped inside, memories flooding back."',
+    '',
     'Do not include any explanation or text outside the JSON object.',
     '',
     `Title: ${storyData.title}`,

@@ -1182,6 +1182,42 @@
     return out.trim();
   }
 
+  // ── Emotion-tag helpers ───────────────────────────────────────────────────
+
+  // Matches an [emotion:X] tag at the start of a string (with optional leading
+  // whitespace).  Must stay in sync with the server-side EMOTION_TAG_RE.
+  const EMOTION_TAG_RE = /^\[emotion:([a-z]+)\]\s*/;
+
+  /**
+   * Remove all [emotion:X] tags from *text* so they are never shown to readers.
+   *
+   * @param {string} text
+   * @returns {string}
+   */
+  function stripEmotionTags(text) {
+    return text.replace(/\[emotion:[a-z]+\]\s*/g, '');
+  }
+
+  /**
+   * Like splitIntoChunks() but returns { text, emotion } objects instead of
+   * plain strings.  The emotion is extracted from the leading [emotion:X] tag
+   * of each chunk (if present) and cascades to subsequent chunks until a new
+   * tag appears.  The tag is stripped from the returned text so the TTS
+   * service receives clean prose.
+   *
+   * @param {string} rawText - Chapter content with optional [emotion:X] tags.
+   * @returns {Array<{text: string, emotion: string}>}
+   */
+  function splitIntoChunksWithEmotion(rawText) {
+    const rawChunks = splitIntoChunks(rawText);
+    let currentEmotion = voicePrefs.emotion_preset || 'neutral';
+    return rawChunks.map((chunk) => {
+      const match = chunk.match(EMOTION_TAG_RE);
+      if (match) currentEmotion = match[1];
+      return { text: stripEmotionTags(chunk), emotion: currentEmotion };
+    });
+  }
+
   // ── Voice settings ────────────────────────────────────────────────────────
 
   // Default speaking rate in tokens/second (matches the Zonos server default).
@@ -1517,12 +1553,12 @@
 
   // Fires off a background prefetch for the next chunk so it is ready as soon
   // as the current chunk finishes playing, eliminating the gap between chunks.
-  function prefetchNextChunk(chunkText, btn) {
+  function prefetchNextChunk(chunk, btn) {
     if (activeTTSPrefetchCtrl || activeTTSPrefetched) return; // already in-flight or ready
     const ctrl = new AbortController();
     activeTTSPrefetchCtrl = ctrl;
-    const body = { text: chunkText, speaking_rate: voicePrefs.speaking_rate,
-      pitch_std: voicePrefs.pitch_std, emotion_preset: voicePrefs.emotion_preset };
+    const body = { text: chunk.text, speaking_rate: voicePrefs.speaking_rate,
+      pitch_std: voicePrefs.pitch_std, emotion_preset: chunk.emotion || voicePrefs.emotion_preset };
     if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
     fetch('/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body), signal: ctrl.signal })
@@ -1560,8 +1596,8 @@
       } else {
         // Nothing pre-fetched – fetch synchronously now.
         activeTTSController = new AbortController();
-        const body = { text: chunk, speaking_rate: voicePrefs.speaking_rate,
-          pitch_std: voicePrefs.pitch_std, emotion_preset: voicePrefs.emotion_preset };
+        const body = { text: chunk.text, speaking_rate: voicePrefs.speaking_rate,
+          pitch_std: voicePrefs.pitch_std, emotion_preset: chunk.emotion || voicePrefs.emotion_preset };
         if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
         const response = await fetch('/tts', {
           method: 'POST',
@@ -1618,20 +1654,24 @@
     const section = document.querySelector(`.reading-chapter[data-chapter="${chapterNumber}"]`);
     if (!section) return;
 
-    const text = Array.from(section.querySelectorAll('p'))
-      .map((p) => p.textContent.trim())
-      .filter(Boolean)
-      .join('\n\n');
+    // Prefer the raw content stored on the section element (which contains
+    // [emotion:X] tags) so that per-chunk emotion can be applied.  Fall back
+    // to the displayed paragraph text for legacy / plain content.
+    const rawContent = section.dataset.rawContent
+      || Array.from(section.querySelectorAll('p'))
+        .map((p) => p.textContent.trim())
+        .filter(Boolean)
+        .join('\n\n');
 
-    if (!text) return;
+    if (!rawContent) return;
 
     activeTTSButton = btn;
     btn.textContent = '⏳ Loading…';
     btn.classList.add('loading');
 
-    // Split the chapter into sentence-sized chunks so the first audio segment
-    // starts playing quickly instead of waiting for the whole chapter.
-    activeTTSQueue = splitIntoChunks(text);
+    // Split the chapter into emotion-tagged chunks so the first audio segment
+    // starts playing quickly and each chunk uses the right emotion preset.
+    activeTTSQueue = splitIntoChunksWithEmotion(rawContent);
     await playNextChunk(btn);
   }
 
@@ -1779,8 +1819,11 @@
 
       // Replace content in-place (keep the section element, replace paragraphs)
       stopTTS(); // stop any ongoing TTS for this chapter
+      const cleanContent = sanitizeContent(data.content || '');
+      // Update the raw content store so TTS can read emotion tags from the new content.
+      sectionEl.dataset.rawContent = cleanContent;
       sectionEl.querySelectorAll('p').forEach((p) => p.remove());
-      const paragraphs = sanitizeContent(data.content || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+      const paragraphs = cleanContent.split(/\n{2,}/).map((s) => stripEmotionTags(s.trim())).filter(Boolean);
       paragraphs.forEach((text) => {
         const p = document.createElement('p');
         p.textContent = text;
@@ -1839,8 +1882,9 @@
     const existing = readingView.querySelector(`[data-chapter="${chapterNumber}"]`);
     if (existing) {
       stopTTS();
+      existing.dataset.rawContent = clean;
       existing.querySelectorAll('p').forEach((p) => p.remove());
-      const paragraphs = clean.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+      const paragraphs = clean.split(/\n{2,}/).map((s) => stripEmotionTags(s.trim())).filter(Boolean);
       paragraphs.forEach((text) => {
         const p = document.createElement('p');
         p.textContent = text;
@@ -1853,6 +1897,9 @@
     const section = document.createElement('div');
     section.className = 'reading-chapter';
     section.dataset.chapter = chapterNumber;
+    // Store the raw content (with emotion tags) for use by the TTS engine.
+    // Emotion tags are stripped when the text is rendered into <p> elements below.
+    section.dataset.rawContent = clean;
 
     const header = document.createElement('div');
     header.className = 'chapter-header';
@@ -1901,8 +1948,8 @@
     prebakeWrap.appendChild(prebakeLabel);
     section.appendChild(prebakeWrap);
 
-    // Split on blank lines to create paragraphs
-    const paragraphs = clean.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+    // Split on blank lines to create paragraphs, stripping emotion tags from display.
+    const paragraphs = clean.split(/\n{2,}/).map((s) => stripEmotionTags(s.trim())).filter(Boolean);
     paragraphs.forEach((text) => {
       const p = document.createElement('p');
       p.textContent = text;
