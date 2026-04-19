@@ -213,7 +213,7 @@ async function deleteChapter(storyId, chapterNumber) {
  * @returns {{ storyId: string }}
  */
 function deleteStory(storyId) {
-  const filename = path.basename(`${storyId}.json`);
+  const filename = `${storyId}.json`;
   const filepath = path.join(STORIES_DIR, filename);
 
   if (!fs.existsSync(filepath)) {

@@ -1984,7 +1984,7 @@
           if (status.status === 'complete') {
             stopPolling();
             fillEl.style.width = '100%';
-            if (status.total > 0 && status.errors >= status.total) {
+            if (status.errors >= status.total) {
               // All chunks failed — hide bar silently (Zonos likely unavailable)
               wrapEl.style.display = 'none';
             } else {
