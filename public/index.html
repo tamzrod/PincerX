@@ -996,6 +996,31 @@
   const isTTSSupported = !!window.speechSynthesis;
 
   let activeTTSButton = null; // currently active TTS button
+  let ttsVoices = [];
+
+  function loadTTSVoices() {
+    ttsVoices = window.speechSynthesis.getVoices();
+  }
+
+  if (isTTSSupported) {
+    loadTTSVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', loadTTSVoices);
+  }
+
+  function pickBestVoice() {
+    if (!ttsVoices.length) return null;
+    // Prefer voices with "natural" or "neural" in the name (high quality).
+    const naturalPatterns = [/natural/i, /neural/i, /premium/i, /enhanced/i];
+    for (const pattern of naturalPatterns) {
+      const match = ttsVoices.find((v) => pattern.test(v.name) && /en(-|_)/i.test(v.lang));
+      if (match) return match;
+    }
+    // Fall back to any English Google voice (Chrome).
+    const google = ttsVoices.find((v) => /google/i.test(v.name) && /en(-|_)/i.test(v.lang));
+    if (google) return google;
+    // Fall back to any English voice.
+    return ttsVoices.find((v) => /en(-|_)/i.test(v.lang)) || null;
+  }
 
   function stopTTS() {
     if (window.speechSynthesis && window.speechSynthesis.speaking) {
@@ -1025,6 +1050,10 @@
     if (!text) return;
 
     const utterance = new SpeechSynthesisUtterance(text);
+    const bestVoice = pickBestVoice();
+    if (bestVoice) utterance.voice = bestVoice;
+    utterance.rate = 0.92;  // slightly slower than default for clarity
+    utterance.pitch = 1.0;  // neutral pitch
     utterance.onend = () => stopTTS();
     utterance.onerror = () => stopTTS();
 
