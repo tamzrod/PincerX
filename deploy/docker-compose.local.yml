@@ -1,0 +1,17 @@
+services:
+  pincerx:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:11434}
+      AI_MODEL: ${AI_MODEL:-llama3}
+      AI_API_KEY: ${AI_API_KEY:-}
+    volumes:
+      - ../data:/data
+      - ../pdfs:/pdfs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
