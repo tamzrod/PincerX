@@ -385,6 +385,25 @@
         <div id="analyze-fields"></div>
       </div>
     </div>
+
+    <!-- Story Writer -->
+    <div class="section">
+      <h3>✍️ Story Writer</h3>
+      <label for="story-title">Title</label>
+      <input type="text" id="story-title" placeholder="e.g. The Last Horizon" style="margin-bottom:8px;" />
+      <label for="story-genre">Genre</label>
+      <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" style="margin-bottom:8px;" />
+      <label for="story-tone">Tone</label>
+      <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
+      <div class="row">
+        <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
+      </div>
+      <div class="msg" id="story-msg"></div>
+      <div class="result-box" id="story-result">
+        <div class="result-label">Story Outline</div>
+        <pre id="story-outline"></pre>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -741,6 +760,38 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Save';
+    }
+  }
+
+  // ── Story Writer ──────────────────────────────────────────────────────────
+
+  async function generateStory() {
+    clearMsg('story-msg');
+    const title = document.getElementById('story-title').value.trim();
+    const genre = document.getElementById('story-genre').value.trim();
+    const tone  = document.getElementById('story-tone').value.trim();
+
+    if (!title) { showMsg('story-msg', 'Please enter a story title.', 'error'); return; }
+    if (!genre) { showMsg('story-msg', 'Please enter a genre.', 'error'); return; }
+    if (!tone)  { showMsg('story-msg', 'Please enter a tone.', 'error'); return; }
+
+    setLoading('story-btn', true, 'Generate Outline');
+    document.getElementById('story-result').classList.remove('visible');
+    showMsg('story-msg', 'Generating story outline…', 'loading');
+
+    try {
+      const data = await apiFetch('/story/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, genre, tone }),
+      });
+      document.getElementById('story-outline').textContent = data.outline || JSON.stringify(data, null, 2);
+      document.getElementById('story-result').classList.add('visible');
+      clearMsg('story-msg');
+    } catch (e) {
+      showMsg('story-msg', e.message, 'error');
+    } finally {
+      setLoading('story-btn', false, 'Generate Outline');
     }
   }
 
