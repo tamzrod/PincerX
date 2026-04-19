@@ -1298,47 +1298,11 @@
 
     clearMsg('voice-msg');
 
-    // ── Step 1: play via the browser Speech API immediately so the user hears
-    //    rate/pitch feedback without waiting for Zonos to synthesize.
-    //    Web Speech API uses a rate multiplier (1.0 = normal) and a separate
-    //    pitch scale, so we normalise speakingRate around its default of 15 t/s.
-    if (window.speechSynthesis) {
-      const utterance = new SpeechSynthesisUtterance(TTS_SAMPLE_TEXT);
-      utterance.rate = TTS_RATE * (speakingRate / TTS_DEFAULT_RATE);
-      utterance.pitch = TTS_PITCH;
-      // Duck-typed object so stopTestTTS() can cancel Web Speech via .pause().
-      testTTSAudio = { pause: () => window.speechSynthesis.cancel() };
-      btn.textContent = '⏹ Stop';
-      btn.classList.remove('loading');
-      btn.classList.add('speaking');
-      utterance.onend = utterance.onerror = () => {
-        // Clear the duck-typed handle only if a real Zonos Audio hasn't
-        // already replaced it (real Audio elements have a .paused property).
-        if (testTTSAudio && typeof testTTSAudio.paused === 'undefined') {
-          testTTSAudio = null;
-        }
-        if (!testTTSAudio && !testTTSController) {
-          // Nothing else active – restore the button.
-          btn.textContent = '▶ Test';
-          btn.classList.remove('loading', 'speaking');
-          btn.disabled = false;
-        } else if (testTTSController) {
-          // Zonos is still synthesizing – switch to a loading indicator.
-          btn.textContent = '⏳ Loading…';
-          btn.classList.remove('speaking');
-          btn.classList.add('loading');
-        }
-        // else: Zonos Audio took over before Web Speech finished – leave as-is.
-      };
-      window.speechSynthesis.speak(utterance);
-    } else {
-      // No browser TTS – show loading until Zonos responds.
-      btn.textContent = '⏳ Loading…';
-      btn.classList.add('loading');
-    }
+    // Show a loading indicator while Zonos synthesizes the sample.
+    btn.textContent = '⏳ Loading…';
+    btn.classList.add('loading');
 
-    // ── Step 2: synthesize via Zonos in the background.  When the audio
-    //    arrives, stop Web Speech and swap in the higher-quality Zonos audio.
+    // Synthesize via Zonos.
     const ttsBody = { text: TTS_SAMPLE_TEXT, speaking_rate: speakingRate, pitch_std: pitchStd, emotion_preset: emotionPreset };
     if (voiceId) ttsBody.voice_id = voiceId;
 
@@ -1354,23 +1318,13 @@
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        // Zonos failed; Web Speech already gave the user feedback.
-        // If Web Speech has ended and nothing else is playing, restore button.
-        if (!testTTSAudio) {
-          btn.textContent = '▶ Test';
-          btn.classList.remove('loading', 'speaking');
-          btn.disabled = false;
-        }
+        btn.textContent = '▶ Test';
+        btn.classList.remove('loading', 'speaking');
+        btn.disabled = false;
         return;
       }
 
       const blob = await response.blob();
-
-      // Stop Web Speech if it is still running so Zonos audio can take over.
-      if (window.speechSynthesis && window.speechSynthesis.speaking) {
-        window.speechSynthesis.cancel();
-      }
-      testTTSAudio = null;
 
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
@@ -1392,12 +1346,9 @@
     } catch (e) {
       testTTSController = null;
       if (e.name === 'AbortError') return; // user cancelled – button already reset
-      // Zonos unreachable; Web Speech already gave feedback.
-      if (!testTTSAudio) {
-        btn.textContent = '▶ Test';
-        btn.classList.remove('loading', 'speaking');
-        btn.disabled = false;
-      }
+      btn.textContent = '▶ Test';
+      btn.classList.remove('loading', 'speaking');
+      btn.disabled = false;
     }
   }
 
@@ -1474,10 +1425,9 @@
   }
 
   // ── Text-to-speech ────────────────────────────────────────────────────────
-  // Primary engine: Zonos (served via POST /tts on the Node backend).
-  // Fallback: browser Web Speech API, used when the Zonos sidecar is unreachable.
+  // Engine: Zonos (served via POST /tts on the Node backend).
 
-  const TTS_RATE = 0.92;  // slightly slower than default for clarity
+  const TTS_RATE = 0.92;  // retained for reference; no longer used for Web Speech
   const TTS_PITCH = 1.0;  // neutral pitch
 
   let activeTTSButton = null;        // currently active TTS button
@@ -1510,9 +1460,6 @@
     if (activeTTSObjectURL) {
       URL.revokeObjectURL(activeTTSObjectURL);
       activeTTSObjectURL = null;
-    }
-    if (window.speechSynthesis && window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
     }
     if (activeTTSButton) {
       activeTTSButton.textContent = '🔊 Read';
@@ -1651,23 +1598,8 @@
     } catch (e) {
       if (isTTSCancelled(btn)) return;
       activeTTSController = null;
-      // Fall back to the browser Web Speech API for the remaining text.
-      if (window.speechSynthesis) {
-        const remaining = [chunk, ...activeTTSQueue].join(' ');
-        activeTTSQueue = [];
-        stopTTS();
-        const utterance = new SpeechSynthesisUtterance(remaining);
-        utterance.rate = TTS_RATE;
-        utterance.pitch = TTS_PITCH;
-        utterance.onend = () => stopTTS();
-        utterance.onerror = () => stopTTS();
-        activeTTSButton = btn;
-        btn.textContent = '⏹ Stop';
-        btn.classList.add('speaking');
-        window.speechSynthesis.speak(utterance);
-      } else {
-        console.warn('[TTS] Zonos unavailable and browser TTS not supported:', e.message);
-      }
+      console.warn('[TTS] Zonos unavailable:', e.message);
+      stopTTS();
     }
   }
 
