@@ -289,6 +289,8 @@
     .btn-tts:hover:not(:disabled) { background: #1b5e20; }
     .btn-tts.speaking { background: #555; }
     .btn-tts.speaking:hover:not(:disabled) { background: #333; }
+    .btn-tts.loading { background: #7b8a9b; cursor: wait; }
+    .btn-tts.loading:hover:not(:disabled) { background: #7b8a9b; }
 
     .reading-panel {
       overflow-y: auto;
@@ -992,51 +994,49 @@
   }
 
   // ── Text-to-speech ────────────────────────────────────────────────────────
+  // Primary engine: Zonos (served via POST /tts on the Node backend).
+  // Fallback: browser Web Speech API, used when the Zonos sidecar is unreachable.
 
-  const isTTSSupported = !!window.speechSynthesis;
+  const TTS_RATE = 0.92;  // slightly slower than default for clarity
+  const TTS_PITCH = 1.0;  // neutral pitch
 
-  let activeTTSButton = null; // currently active TTS button
-  let ttsVoices = [];
+  let activeTTSButton = null;     // currently active TTS button
+  let activeTTSAudio = null;      // currently playing HTMLAudioElement
+  let activeTTSObjectURL = null;  // blob URL; revoked after playback to free memory
+  let activeTTSController = null; // AbortController for the in-flight /tts fetch
 
-  function loadTTSVoices() {
-    ttsVoices = window.speechSynthesis.getVoices();
-  }
-
-  if (isTTSSupported) {
-    loadTTSVoices();
-    window.speechSynthesis.addEventListener('voiceschanged', loadTTSVoices);
-  }
-
-  function pickBestVoice() {
-    if (!ttsVoices.length) return null;
-    // Prefer voices with "natural" or "neural" in the name (high quality).
-    const naturalPatterns = [/natural/i, /neural/i, /premium/i, /enhanced/i];
-    for (const pattern of naturalPatterns) {
-      const match = ttsVoices.find((v) => pattern.test(v.name) && /en(-|_)/i.test(v.lang));
-      if (match) return match;
-    }
-    // Fall back to any English Google voice (Chrome).
-    const google = ttsVoices.find((v) => /google/i.test(v.name) && /en(-|_)/i.test(v.lang));
-    if (google) return google;
-    // Fall back to any English voice.
-    return ttsVoices.find((v) => /en(-|_)/i.test(v.lang)) || null;
-  }
+  // Returns true when the given button is no longer the active TTS target,
+  // meaning the request was cancelled or superseded by another chapter.
+  function isTTSCancelled(btn) { return activeTTSButton !== btn; }
 
   function stopTTS() {
+    if (activeTTSController) {
+      activeTTSController.abort();
+      activeTTSController = null;
+    }
+    if (activeTTSAudio) {
+      activeTTSAudio.pause();
+      activeTTSAudio = null;
+    }
+    if (activeTTSObjectURL) {
+      URL.revokeObjectURL(activeTTSObjectURL);
+      activeTTSObjectURL = null;
+    }
     if (window.speechSynthesis && window.speechSynthesis.speaking) {
       window.speechSynthesis.cancel();
     }
     if (activeTTSButton) {
       activeTTSButton.textContent = '🔊 Read';
-      activeTTSButton.classList.remove('speaking');
+      activeTTSButton.classList.remove('speaking', 'loading');
+      activeTTSButton.disabled = false;
       activeTTSButton = null;
     }
   }
 
-  function readChapterAloud(chapterNumber, btn) {
-    // If this button is already speaking, stop.
+  async function readChapterAloud(chapterNumber, btn) {
+    // If this button is already active (loading or speaking), cancel it.
     if (btn === activeTTSButton) { stopTTS(); return; }
-    // Stop any other chapter that is speaking.
+    // Stop any other chapter that is currently active.
     stopTTS();
 
     const section = document.querySelector(`.reading-chapter[data-chapter="${chapterNumber}"]`);
@@ -1049,18 +1049,62 @@
 
     if (!text) return;
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    const bestVoice = pickBestVoice();
-    if (bestVoice) utterance.voice = bestVoice;
-    utterance.rate = 0.92;  // slightly slower than default for clarity
-    utterance.pitch = 1.0;  // neutral pitch
-    utterance.onend = () => stopTTS();
-    utterance.onerror = () => stopTTS();
-
+    // Show loading state.  The button stays clickable so the user can cancel.
     activeTTSButton = btn;
-    btn.textContent = '⏹ Stop';
-    btn.classList.add('speaking');
-    window.speechSynthesis.speak(utterance);
+    btn.textContent = '⏳ Loading…';
+    btn.classList.add('loading');
+    activeTTSController = new AbortController();
+
+    try {
+      const response = await fetch('/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: activeTTSController.signal,
+      });
+      activeTTSController = null;
+
+      // Bail out if the user cancelled while the request was in-flight.
+      if (isTTSCancelled(btn)) return;
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      if (isTTSCancelled(btn)) return;
+
+      activeTTSObjectURL = URL.createObjectURL(blob);
+      activeTTSAudio = new Audio(activeTTSObjectURL);
+      activeTTSAudio.onended = () => stopTTS();
+      activeTTSAudio.onerror = () => stopTTS();
+
+      btn.textContent = '⏹ Stop';
+      btn.classList.remove('loading');
+      btn.classList.add('speaking');
+      activeTTSAudio.play();
+    } catch (e) {
+      // Aborted or stopped by the user – nothing to do.
+      if (isTTSCancelled(btn)) return;
+      activeTTSController = null;
+      stopTTS();
+
+      // Fall back to the browser Web Speech API when Zonos is unreachable.
+      if (window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = TTS_RATE;
+        utterance.pitch = TTS_PITCH;
+        utterance.onend = () => stopTTS();
+        utterance.onerror = () => stopTTS();
+        activeTTSButton = btn;
+        btn.textContent = '⏹ Stop';
+        btn.classList.add('speaking');
+        window.speechSynthesis.speak(utterance);
+      } else {
+        console.warn('[TTS] Zonos unavailable and browser TTS not supported:', e.message);
+      }
+    }
   }
 
   // ── Story Writer ──────────────────────────────────────────────────────────
@@ -1283,7 +1327,6 @@
     ttsBtn.textContent = '🔊 Read';
     ttsBtn.title = 'Read chapter aloud';
     ttsBtn.onclick = () => readChapterAloud(chapterNumber, ttsBtn);
-    if (!isTTSSupported) ttsBtn.style.display = 'none';
     actions.appendChild(ttsBtn);
 
     const regenBtn = document.createElement('button');

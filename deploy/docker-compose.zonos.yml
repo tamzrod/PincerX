@@ -1,0 +1,38 @@
+# Zonos TTS overlay – adds the GPU-accelerated Zonos service to the stack.
+#
+# Usage (combine with the main stack):
+#   docker compose \
+#     -f deploy/docker-compose.stack.yml \
+#     -f deploy/docker-compose.zonos.yml \
+#     --env-file deploy/.env \
+#     up -d
+#
+# The overlay:
+#   1. Builds and starts the Zonos sidecar (GPU-enabled).
+#   2. Injects ZONOS_URL into the pincerx service so /tts routes to Zonos.
+
+services:
+  zonos:
+    build:
+      context: ../zonos
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - zonos_cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+  pincerx:
+    environment:
+      ZONOS_URL: http://zonos:8000
+    depends_on:
+      - zonos
+
+volumes:
+  zonos_cache:
