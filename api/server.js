@@ -302,8 +302,7 @@ function ttsFetchError(e) {
  * Body: { "text": "chapter text to synthesize", "voice_id": "myVoice",
  *         "speaking_rate": 15.0, "pitch_std": 45.0, "emotion_preset": "neutral" }
  * Proxies the request to the Zonos TTS sidecar and streams back a WAV file.
- * Falls back to a 502 with a JSON error body if the sidecar is unreachable so
- * the browser can fall back to the Web Speech API gracefully.
+ * Returns a 502 with a JSON error body if the sidecar is unreachable.
  *
  * Generated audio is cached to disk (data/tts-cache/) keyed by a SHA-256 hash
  * of the normalised request parameters.  Subsequent requests with identical
