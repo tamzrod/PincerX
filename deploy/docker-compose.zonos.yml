@@ -26,6 +26,7 @@ services:
               capabilities: [gpu]
     volumes:
       - zonos_cache:/root/.cache/huggingface
+      - zonos_voices:/app/voices
     restart: unless-stopped
 
   pincerx:
@@ -36,3 +37,4 @@ services:
 
 volumes:
   zonos_cache:
+  zonos_voices:
