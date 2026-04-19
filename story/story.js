@@ -64,4 +64,82 @@ function parseOutline(raw) {
   return raw.trim();
 }
 
-module.exports = { create };
+/**
+ * Generate a chapter for an existing story and persist it to disk.
+ *
+ * @param {string} storyId       - The story ID (from the `id` field of a saved story).
+ * @param {number} chapterNumber - 1-based chapter index to generate.
+ * @param {object} [aiOptions]   - Options forwarded to ai.ask().
+ * @returns {Promise<{storyId: string, chapterNumber: number, content: string}>}
+ */
+async function generateChapter(storyId, chapterNumber, aiOptions = {}) {
+  const filename = path.basename(`${storyId}.json`);
+  const filepath = path.join(STORIES_DIR, filename);
+
+  if (!fs.existsSync(filepath)) {
+    throw new Error(`Story not found: ${storyId}`);
+  }
+
+  const storyData = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+
+  const prior = (storyData.chapters || [])
+    .filter((c) => c.number < chapterNumber)
+    .sort((a, b) => a.number - b.number)
+    .map((c) => `Chapter ${c.number}:\n${c.content}`)
+    .join('\n\n');
+
+  const prompt = [
+    'You are a creative writing assistant. Write a chapter of a story.',
+    'Respond with ONLY a valid JSON object containing exactly this field:',
+    '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
+    '',
+    'Do not include any explanation or text outside the JSON object.',
+    '',
+    `Title: ${storyData.title}`,
+    `Genre: ${storyData.genre}`,
+    `Tone: ${storyData.tone}`,
+    `Outline:\n${storyData.outline}`,
+    prior ? `\nPreviously written chapters:\n${prior}` : '',
+    `\nNow write Chapter ${chapterNumber}. Make it complete and engaging.`,
+  ].join('\n');
+
+  const raw = await ai.ask(prompt, aiOptions);
+  const content = parseChapterContent(raw);
+  const chapter = { number: chapterNumber, content, createdAt: new Date().toISOString() };
+
+  if (!storyData.chapters) storyData.chapters = [];
+  const idx = storyData.chapters.findIndex((c) => c.number === chapterNumber);
+  if (idx >= 0) {
+    storyData.chapters[idx] = chapter;
+  } else {
+    storyData.chapters.push(chapter);
+    storyData.chapters.sort((a, b) => a.number - b.number);
+  }
+
+  fs.writeFileSync(filepath, JSON.stringify(storyData, null, 2), 'utf8');
+  return { storyId, chapterNumber, content };
+}
+
+/**
+ * Extract the chapter content string from the AI response.
+ * Falls back to the raw response text if JSON parsing fails.
+ *
+ * @param {string} raw - Raw string from the AI.
+ * @returns {string}
+ */
+function parseChapterContent(raw) {
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[0]);
+      if (typeof parsed.content === 'string' && parsed.content.trim()) {
+        return parsed.content.trim();
+      }
+    } catch {
+      // fall through to raw fallback
+    }
+  }
+  return raw.trim();
+}
+
+module.exports = { create, generateChapter };

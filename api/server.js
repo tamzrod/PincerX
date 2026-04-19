@@ -295,6 +295,34 @@ app.post('/story/create', async (req, res) => {
   }
 });
 
+/**
+ * POST /story/:id/chapter
+ * Body: { "chapterNumber": 1 }
+ * Generates a chapter for an existing story and saves it to data/stories/.
+ */
+app.post('/story/:id/chapter', async (req, res) => {
+  const { id } = req.params;
+  const { chapterNumber } = req.body;
+
+  if (!id || !/^[a-z0-9-]+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
+    return res.status(400).json({ error: 'Request body must include a positive integer "chapterNumber".' });
+  }
+
+  try {
+    const result = await story.generateChapter(id, chapterNumber);
+    return res.status(201).json(result);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(502).json({ error: `Chapter generation error: ${e.message}` });
+  }
+});
+
 if (require.main === module) {
   app.listen(PORT, async () => {
     console.log(`PincerX API running on http://localhost:${PORT}`);

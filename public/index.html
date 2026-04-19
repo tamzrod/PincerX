@@ -200,6 +200,55 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── Reading view ─────────────────────────────────────────────────────── */
+
+    .reading-view {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 8px 20px 20px;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 16px;
+      line-height: 1.8;
+      color: #222;
+    }
+
+    .reading-view .reading-story-title {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #1a1a2e;
+      text-align: center;
+    }
+
+    .reading-view .reading-meta {
+      text-align: center;
+      font-size: 13px;
+      color: #888;
+      font-style: italic;
+      margin-bottom: 28px;
+    }
+
+    .reading-chapter {
+      margin-bottom: 32px;
+    }
+
+    .reading-chapter h2 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      color: #333;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 6px;
+      font-family: system-ui, sans-serif;
+    }
+
+    .reading-chapter p {
+      margin-bottom: 14px;
+      text-indent: 1.5em;
+    }
+
+    .reading-chapter p:first-of-type { text-indent: 0; }
+
     /* ── Settings modal ───────────────────────────────────────────────────── */
 
     .modal-overlay {
@@ -460,6 +509,23 @@
           <pre id="story-outline"></pre>
         </div>
         <p id="story-placeholder" style="color:#aaa;font-size:13px;">Fill in the details above and click <strong>Generate Outline</strong> to see the result here.</p>
+      </div>
+
+      <div class="section" id="chapter-section" style="display:none">
+        <h3>Generate Chapters</h3>
+        <p style="color:#666;font-size:13px;margin-bottom:10px;">Generate chapters one at a time. Each chapter builds on the outline and all previously generated chapters.</p>
+        <div class="row">
+          <button class="btn-primary" id="chapter-btn" onclick="generateNextChapter()">Generate Chapter 1</button>
+        </div>
+        <div class="msg" id="chapter-msg"></div>
+      </div>
+
+      <div class="section" id="reading-section" style="display:none">
+        <h3>📖 Reading View</h3>
+        <div class="reading-view" id="reading-view">
+          <div class="reading-story-title" id="reading-title"></div>
+          <div class="reading-meta" id="reading-meta"></div>
+        </div>
       </div>
     </div>
 
@@ -837,6 +903,9 @@
 
   // ── Story Writer ──────────────────────────────────────────────────────────
 
+  // Tracks the active story state for chapter generation.
+  const storyState = { id: null, title: null, genre: null, tone: null, nextChapter: 1 };
+
   async function generateStory() {
     clearMsg('story-msg');
     const title = document.getElementById('story-title').value.trim();
@@ -861,11 +930,78 @@
       document.getElementById('story-result').classList.add('visible');
       document.getElementById('story-placeholder').style.display = 'none';
       clearMsg('story-msg');
+
+      // Reset chapter state for the new story
+      storyState.id = data.id;
+      storyState.title = data.title;
+      storyState.genre = data.genre;
+      storyState.tone = data.tone;
+      storyState.nextChapter = 1;
+
+      // Reveal chapter section; reset reading view
+      document.getElementById('chapter-section').style.display = '';
+      document.getElementById('chapter-btn').textContent = 'Generate Chapter 1';
+      clearMsg('chapter-msg');
+      const readingSection = document.getElementById('reading-section');
+      readingSection.style.display = 'none';
+      document.getElementById('reading-title').textContent = data.title || '';
+      document.getElementById('reading-meta').textContent =
+        [data.genre, data.tone].filter(Boolean).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' · ');
+      // Remove any previously generated chapter nodes
+      document.querySelectorAll('.reading-chapter').forEach((el) => el.remove());
     } catch (e) {
       showMsg('story-msg', e.message, 'error');
     } finally {
       setLoading('story-btn', false, 'Generate Outline');
     }
+  }
+
+  async function generateNextChapter() {
+    if (!storyState.id) return;
+    clearMsg('chapter-msg');
+    const chapterNumber = storyState.nextChapter;
+
+    setLoading('chapter-btn', true, `Generate Chapter ${chapterNumber}`);
+    showMsg('chapter-msg', `Generating Chapter ${chapterNumber}…`, 'loading');
+
+    try {
+      const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chapterNumber }),
+      });
+
+      appendChapterToReading(chapterNumber, data.content || '');
+      storyState.nextChapter = chapterNumber + 1;
+      clearMsg('chapter-msg');
+      document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
+    } catch (e) {
+      showMsg('chapter-msg', e.message, 'error');
+    } finally {
+      setLoading('chapter-btn', false, `Generate Chapter ${storyState.nextChapter}`);
+    }
+  }
+
+  function appendChapterToReading(chapterNumber, content) {
+    const readingView = document.getElementById('reading-view');
+    const section = document.createElement('div');
+    section.className = 'reading-chapter';
+
+    const heading = document.createElement('h2');
+    heading.textContent = `Chapter ${chapterNumber}`;
+    section.appendChild(heading);
+
+    // Split on blank lines to create paragraphs
+    const paragraphs = content.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+    paragraphs.forEach((text) => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      section.appendChild(p);
+    });
+
+    readingView.appendChild(section);
+    document.getElementById('reading-section').style.display = '';
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // Close modal on Escape key

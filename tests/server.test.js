@@ -392,7 +392,96 @@ describe('DELETE /pdf', () => {
   });
 });
 
-// ─── POST /story/create ───────────────────────────────────────────────────────
+// ─── POST /story/:id/chapter ──────────────────────────────────────────────────
+
+describe('POST /story/:id/chapter', () => {
+  it('returns 201 with chapter content on valid input', async () => {
+    story.generateChapter.mockResolvedValue({
+      storyId: '1234-my-story',
+      chapterNumber: 1,
+      content: 'The sun rose over the hills as our hero stepped outside.',
+    });
+
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({ chapterNumber: 1 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.storyId).toBe('1234-my-story');
+    expect(res.body.chapterNumber).toBe(1);
+    expect(res.body.content).toMatch(/sun rose/);
+    expect(story.generateChapter).toHaveBeenCalledWith('1234-my-story', 1);
+  });
+
+  it('returns 400 when story ID contains invalid characters', async () => {
+    const res = await request(app)
+      .post('/story/my.story_id/chapter')
+      .send({ chapterNumber: 1 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid story id/i);
+  });
+
+  it('returns 400 when story ID is uppercase', async () => {
+    const res = await request(app)
+      .post('/story/UPPERCASE-ID/chapter')
+      .send({ chapterNumber: 1 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid story id/i);
+  });
+
+  it('returns 400 when chapterNumber is missing', async () => {
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/chapterNumber/i);
+  });
+
+  it('returns 400 when chapterNumber is zero', async () => {
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({ chapterNumber: 0 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/chapterNumber/i);
+  });
+
+  it('returns 400 when chapterNumber is a float', async () => {
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({ chapterNumber: 1.5 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/chapterNumber/i);
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    story.generateChapter.mockRejectedValue(new Error('Story not found: missing-story'));
+
+    const res = await request(app)
+      .post('/story/missing-story/chapter')
+      .send({ chapterNumber: 1 });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/story not found/i);
+  });
+
+  it('returns 502 when AI generation fails', async () => {
+    story.generateChapter.mockRejectedValue(new Error('AI offline'));
+
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({ chapterNumber: 2 });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/Chapter generation error/);
+    expect(res.body.error).toMatch(/AI offline/);
+  });
+});
+
 
 describe('POST /story/create', () => {
   it('returns 201 with the created story on valid input', async () => {
