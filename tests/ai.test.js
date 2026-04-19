@@ -127,4 +127,83 @@ describe('OpenClaw ai.js', () => {
       await expect(ai.ask('prompt')).rejects.toThrow('AI request failed: ECONNREFUSED');
     });
   });
+
+  describe('timeout and race-condition behaviour', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('rejects with a timeout error when timeoutMs elapses before a response', async () => {
+      const mockReq = Object.assign(new EventEmitter(), {
+        write: jest.fn(),
+        end: jest.fn(),
+        // Simulate Node.js: destroy(err) emits 'error' on the request
+        destroy: jest.fn(function (err) { this.emit('error', err); }),
+      });
+
+      jest.spyOn(http, 'request').mockImplementation(() => mockReq);
+
+      const promise = ai.ask('prompt', { timeoutMs: 5000 });
+
+      jest.advanceTimersByTime(5000);
+
+      await expect(promise).rejects.toThrow('AI request failed: AI request timed out');
+      expect(mockReq.destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call req.destroy() and clears the timer after a successful response', async () => {
+      const mockRes = Object.assign(new EventEmitter(), { statusCode: 200 });
+      const mockReq = Object.assign(new EventEmitter(), {
+        write: jest.fn(),
+        destroy: jest.fn(),
+        // Emit response synchronously so the promise settles before timer fires
+        end: jest.fn(function () {
+          mockRes.emit('data', JSON.stringify({ response: 'hello' }));
+          mockRes.emit('end');
+        }),
+      });
+
+      jest.spyOn(http, 'request').mockImplementation((_opts, cb) => {
+        cb(mockRes);
+        return mockReq;
+      });
+
+      const result = await ai.ask('prompt', { timeoutMs: 5000 });
+      expect(result).toBe('hello');
+
+      // Advance past the timeout deadline – destroy must never be called
+      jest.advanceTimersByTime(6000);
+      expect(mockReq.destroy).not.toHaveBeenCalled();
+    });
+
+    it('does not reject twice when timeout fires after a successful response', async () => {
+      const mockRes = Object.assign(new EventEmitter(), { statusCode: 200 });
+      const mockReq = Object.assign(new EventEmitter(), {
+        write: jest.fn(),
+        destroy: jest.fn(function (err) { this.emit('error', err); }),
+        end: jest.fn(function () {
+          mockRes.emit('data', JSON.stringify({ response: 'done' }));
+          mockRes.emit('end');
+        }),
+      });
+
+      jest.spyOn(http, 'request').mockImplementation((_opts, cb) => {
+        cb(mockRes);
+        return mockReq;
+      });
+
+      const result = await ai.ask('prompt', { timeoutMs: 5000 });
+      expect(result).toBe('done');
+
+      // Simulate a late timeout firing – should be a no-op
+      jest.advanceTimersByTime(6000);
+      // If destroy were called and emitted 'error', a second rejection would be
+      // unhandled and cause the test to fail – so reaching here is the assertion.
+      expect(mockReq.destroy).not.toHaveBeenCalled();
+    });
+  });
 });
