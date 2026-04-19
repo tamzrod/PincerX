@@ -1,4 +1,3 @@
-zonos @ git+https://github.com/Zyphra/Zonos.git
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 torchaudio>=2.1.0

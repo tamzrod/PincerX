@@ -12,6 +12,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+
+# Install Zonos from source, patching its pyproject.toml so that setuptools
+# includes all subpackages (zonos.backbone, zonos.conditioning, …).
+# The upstream uses include = ["zonos"] which only installs the top-level
+# package; changing it to ["zonos*"] makes the glob match subpackages too.
+RUN git clone --depth=1 https://github.com/Zyphra/Zonos.git /tmp/Zonos \
+    && sed -i 's/include = \["zonos"\]/include = ["zonos*"]/' /tmp/Zonos/pyproject.toml \
+    && pip install --no-cache-dir /tmp/Zonos \
+    && rm -rf /tmp/Zonos
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server.py .
