@@ -140,25 +140,28 @@ def _ensure_prebuilt_voices() -> None:
     Errors for individual presets are logged as warnings and do not interrupt
     generation of the remaining presets.
     """
-    # Warm up the speaker encoder with a silent clip before the preset loop
-    # so that any lazily-initialised sub-modules (e.g. streaming buffers
-    # inside the encoder backbone) are created on _DEVICE rather than
-    # defaulting to CPU.  Without this warm-up the first forward pass through
-    # make_speaker_embedding silently materialises those buffers on CPU; the
-    # subsequent _model.to(_DEVICE) call inside the loop cannot see them in
-    # time, causing a "tensors on different devices" error for later presets.
+    # Warm up the speaker encoder with a silent clip so that any lazily-
+    # initialised sub-modules (e.g. streaming buffers inside the encoder
+    # backbone) are materialised before the preset loop.  The warm-up may
+    # itself fail with a device-mismatch error if some buffers default to CPU;
+    # the finally block always calls _model.to(_DEVICE) to migrate those
+    # buffers, regardless of whether the warm-up succeeded or failed.
     try:
         with torch.inference_mode():
             _dummy = torch.zeros(1, _SAMPLING_RATE, device=_DEVICE)
             _model.make_speaker_embedding(_dummy, _SAMPLING_RATE)
-            # Move any newly-created lazy buffers to the target device.
-            _model.to(_DEVICE)
     except Exception as exc:  # noqa: BLE001
         print(
             f"[Zonos] Warning: speaker encoder warm-up failed: {exc}. "
-            "Built-in voice preset generation may fail with a device-mismatch error.",
+            "Attempting device migration to recover.",
             flush=True,
         )
+    finally:
+        # Always move any lazily-created buffers to the target device,
+        # whether the warm-up succeeded or failed.  If make_speaker_embedding
+        # raised a device-mismatch error, those lazy CPU buffers now exist and
+        # must be migrated before the preset generation loop runs.
+        _model.to(_DEVICE)
 
     for preset_id, spec in _VOICE_PRESETS.items():
         pt_path = _VOICES_DIR / f"{preset_id}.pt"
@@ -195,6 +198,11 @@ def _ensure_prebuilt_voices() -> None:
                     all_wavs.append(wav)
 
             combined = torch.cat(all_wavs, dim=-1)
+
+            # Move any lazily-initialised sub-modules (e.g. streaming buffers
+            # created inside the speaker encoder during generate()) to the
+            # target device before extracting the speaker embedding.
+            _model.to(_DEVICE)
 
             with torch.inference_mode():
                 speaker = _model.make_speaker_embedding(
