@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">78.93% </span>
+                <span class="strong">78.91% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>476/603</span>
+                <span class='fraction'>479/607</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">65.09% </span>
+                <span class="strong">65.26% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>263/404</span>
+                <span class='fraction'>263/403</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">80.03% </span>
+                <span class="strong">80% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>453/566</span>
+                <span class='fraction'>456/570</span>
             </div>
         
             
@@ -1431,7 +1431,16 @@
 <a name='L1366'></a><a href='#L1366'>1366</a>
 <a name='L1367'></a><a href='#L1367'>1367</a>
 <a name='L1368'></a><a href='#L1368'>1368</a>
-<a name='L1369'></a><a href='#L1369'>1369</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L1369'></a><a href='#L1369'>1369</a>
+<a name='L1370'></a><a href='#L1370'>1370</a>
+<a name='L1371'></a><a href='#L1371'>1371</a>
+<a name='L1372'></a><a href='#L1372'>1372</a>
+<a name='L1373'></a><a href='#L1373'>1373</a>
+<a name='L1374'></a><a href='#L1374'>1374</a>
+<a name='L1375'></a><a href='#L1375'>1375</a>
+<a name='L1376'></a><a href='#L1376'>1376</a>
+<a name='L1377'></a><a href='#L1377'>1377</a>
+<a name='L1378'></a><a href='#L1378'>1378</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -1844,6 +1853,14 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -2156,11 +2173,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -2311,10 +2324,15 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -3207,6 +3225,14 @@ const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 const SPEAKER_TAG_RE = /^\[speaker:([A-Za-z0-9_-]+)\]\s*/;
 &nbsp;
 /**
+ * Generic speaker identifiers that fall back to the caller's voice and neutral
+ * emotion rather than using a character-specific voice from the profile store.
+ * Named character speakers (anything NOT in this list) are resolved via the
+ * characterVoiceMap in startPrebakeJob.
+ */
+const GENERIC_SPEAKERS = new Set(['narrator', 'male', 'female']);
+&nbsp;
+/**
  * Strip all speaker and emotion tags from *text*, returning clean prose suitable
  * for display or for sending directly to Zonos.  Handles the canonical
  * [speaker:X] and [emotion:X] square-bracket formats as well as the "emotion:X"
@@ -3524,11 +3550,7 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
       // Resolve the effective voice for this chunk.  Named character speakers
       // use their profile voice when available; narrator and generic male/female
       // tags fall back to the caller-supplied voiceId.
-      const isGenericSpeaker = (
-        chunk.speaker === 'narrator' ||
-<span class="branch-1 cbranch-no" title="branch not covered" >        chunk.speaker === 'male' </span>||
-<span class="branch-2 cbranch-no" title="branch not covered" >        chunk.speaker === 'female'</span>
-      );
+      const isGenericSpeaker = GENERIC_SPEAKERS.has(chunk.speaker);
       const effectiveVoiceId = (!isGenericSpeaker &amp;&amp; <span class="branch-1 cbranch-no" title="branch not covered" >characterVoiceMap[chunk.speaker])</span>
         ? <span class="branch-0 cbranch-no" title="branch not covered" >characterVoiceMap[chunk.speaker]</span>
         : voiceId;
@@ -3676,13 +3698,18 @@ app.delete('/tts/voice/:id', async (req, res) =&gt; {
  *
  * @param {string} str - Input string, e.g. 'Shadowfall City'.
  * @returns {string} Slug, e.g. 'shadowfall-city'.
+ * @throws {Error} When the input produces an empty slug (e.g. whitespace-only input).
  * @example slugify('Shadowfall City') // → 'shadowfall-city'
  */
 function slugify(str) {
-  return str
+  const slug = str
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+  <span class="missing-if-branch" title="if path not taken" >I</span>if (!slug) {
+<span class="cstat-no" title="statement not covered" >    throw new Error('Input produces an empty slug — please provide a non-empty name.');</span>
+  }
+  return slug;
 }
 &nbsp;
 // ── Story character profiles ──────────────────────────────────────────────────
@@ -4174,7 +4201,7 @@ module.exports = app;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-20T02:30:48.346Z
+                at 2026-04-20T02:33:52.198Z
             </div>
         <script src="../prettify.js"></script>
         <script>

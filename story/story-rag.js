@@ -174,8 +174,10 @@ function clearStory(storyId) {
   const p = path.join(dir, 'rag-docs.json');
   if (fs.existsSync(p)) fs.unlinkSync(p);
   // Remove the directory only when empty.  Only ENOTEMPTY and ENOENT are
-  // expected here; any other error is re-thrown.
-  try { fs.rmdirSync(dir); } catch (e) {
+  // expected here; any other error (e.g. EACCES, EIO) is re-thrown.
+  try {
+    fs.rmdirSync(dir);
+  } catch (e) {
     if (e.code !== 'ENOTEMPTY' && e.code !== 'ENOENT') throw e;
   }
 }

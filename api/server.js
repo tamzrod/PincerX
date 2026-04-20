@@ -406,6 +406,14 @@ const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 const SPEAKER_TAG_RE = /^\[speaker:([A-Za-z0-9_-]+)\]\s*/;
 
 /**
+ * Generic speaker identifiers that fall back to the caller's voice and neutral
+ * emotion rather than using a character-specific voice from the profile store.
+ * Named character speakers (anything NOT in this list) are resolved via the
+ * characterVoiceMap in startPrebakeJob.
+ */
+const GENERIC_SPEAKERS = new Set(['narrator', 'male', 'female']);
+
+/**
  * Strip all speaker and emotion tags from *text*, returning clean prose suitable
  * for display or for sending directly to Zonos.  Handles the canonical
  * [speaker:X] and [emotion:X] square-bracket formats as well as the "emotion:X"
@@ -723,11 +731,7 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
       // Resolve the effective voice for this chunk.  Named character speakers
       // use their profile voice when available; narrator and generic male/female
       // tags fall back to the caller-supplied voiceId.
-      const isGenericSpeaker = (
-        chunk.speaker === 'narrator' ||
-        chunk.speaker === 'male' ||
-        chunk.speaker === 'female'
-      );
+      const isGenericSpeaker = GENERIC_SPEAKERS.has(chunk.speaker);
       const effectiveVoiceId = (!isGenericSpeaker && characterVoiceMap[chunk.speaker])
         ? characterVoiceMap[chunk.speaker]
         : voiceId;
@@ -875,13 +879,18 @@ app.delete('/tts/voice/:id', async (req, res) => {
  *
  * @param {string} str - Input string, e.g. 'Shadowfall City'.
  * @returns {string} Slug, e.g. 'shadowfall-city'.
+ * @throws {Error} When the input produces an empty slug (e.g. whitespace-only input).
  * @example slugify('Shadowfall City') // → 'shadowfall-city'
  */
 function slugify(str) {
-  return str
+  const slug = str
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+  if (!slug) {
+    throw new Error('Input produces an empty slug — please provide a non-empty name.');
+  }
+  return slug;
 }
 
 // ── Story character profiles ──────────────────────────────────────────────────

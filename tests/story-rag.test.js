@@ -129,63 +129,66 @@ describe('storyRag.listDocs()', () => {
 
 // ── retrieve ─────────────────────────────────────────────────────────────────
 
-describe('storyRag.retrieve()', () => {
-  beforeEach(() => {
-    storyRag.addDoc(TEST_STORY_ID, {
-      id: 'char-elena',
-      type: 'character',
-      name: 'Elena',
-      content: 'Elena is a detective from New Chicago. She is curious and determined.',
-    });
-    storyRag.addDoc(TEST_STORY_ID, {
-      id: 'lore-city',
-      type: 'lore',
-      title: 'New Chicago',
-      content: 'A sprawling city built on the ruins of Old Chicago.',
-    });
-    storyRag.addDoc(TEST_STORY_ID, {
-      id: 'summary-1',
-      type: 'summary',
-      chapterNumber: 1,
-      content: 'Elena arrives in New Chicago and meets her partner Thomas.',
-    });
+/**
+ * Helper: add the three standard test documents used by all retrieve tests.
+ * Called at the start of each test rather than in a beforeEach to avoid the
+ * outer-scope cleanup (which runs before the inner beforeEach) producing a
+ * clean slate that then gets re-populated at a timing the first test may miss.
+ */
+function addRetrieveDocs() {
+  storyRag.addDoc(TEST_STORY_ID, {
+    id: 'char-elena',
+    type: 'character',
+    name: 'Elena',
+    content: 'Elena is a detective from New Chicago. She is curious and determined.',
   });
+  storyRag.addDoc(TEST_STORY_ID, {
+    id: 'lore-city',
+    type: 'lore',
+    title: 'New Chicago',
+    content: 'A sprawling city built on the ruins of Old Chicago.',
+  });
+  storyRag.addDoc(TEST_STORY_ID, {
+    id: 'summary-1',
+    type: 'summary',
+    chapterNumber: 1,
+    content: 'Elena arrives in New Chicago and meets her partner Thomas.',
+  });
+}
 
+describe('storyRag.retrieve()', () => {
   it('returns documents ranked by keyword relevance', () => {
-    // Add docs explicitly for complete test isolation; beforeEach also adds them,
-    // but this guarantees the correct rich content is present regardless of order.
-    storyRag.addDoc(TEST_STORY_ID, {
-      id: 'char-elena',
-      type: 'character',
-      name: 'Elena',
-      content: 'Elena is a detective from New Chicago. She is curious and determined.',
-    });
-
+    addRetrieveDocs();
     const results = storyRag.retrieve(TEST_STORY_ID, 'Elena detective curious');
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].id).toBe('char-elena');
   });
 
   it('matches on the title field of lore documents', () => {
+    addRetrieveDocs();
     const results = storyRag.retrieve(TEST_STORY_ID, 'New Chicago city');
     expect(results.some((d) => d.id === 'lore-city')).toBe(true);
   });
 
   it('matches on the name field of character documents', () => {
+    addRetrieveDocs();
     const results = storyRag.retrieve(TEST_STORY_ID, 'Elena');
     expect(results.some((d) => d.id === 'char-elena')).toBe(true);
   });
 
   it('returns an empty array when no keywords match', () => {
+    addRetrieveDocs();
     expect(storyRag.retrieve(TEST_STORY_ID, 'zzxxx completely unrelated')).toEqual([]);
   });
 
   it('limits results to topK', () => {
+    addRetrieveDocs();
     const results = storyRag.retrieve(TEST_STORY_ID, 'Chicago Elena city', 1);
     expect(results).toHaveLength(1);
   });
 
-  it('filters out short stop words (≤2 chars)', () => {
+  it('filters out short stop words (<= 2 chars)', () => {
+    addRetrieveDocs();
     const results = storyRag.retrieve(TEST_STORY_ID, 'is it');
     expect(results).toEqual([]);
   });

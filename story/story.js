@@ -150,7 +150,7 @@ function buildSpeakerTagInstruction(characters) {
     return 'Speaker tags: [speaker:narrator] for narrative prose, [speaker:male] for male character speech, [speaker:female] for female character speech.';
   }
   const examples = characters
-    .slice(0, 4)
+    .slice(0, 4) // limit examples to 4 to keep the instruction line concise in the prompt
     .map((c) => `[speaker:${c.name}]`)
     .join(', ');
   return (
@@ -188,6 +188,9 @@ async function _storeChapterSummary(storyId, chapterNumber, content, aiOptions) 
       content: summary.trim(),
     });
   } catch (e) {
+    // Intentionally suppress summary errors — chapter data has already been
+    // written to disk and the caller should not see a failure just because
+    // the optional post-processing step couldn't complete.
     console.warn('[story] Failed to generate summary for chapter:', chapterNumber, e.message);
   }
 }
