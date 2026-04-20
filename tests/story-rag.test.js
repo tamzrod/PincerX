@@ -121,6 +121,10 @@ describe('storyRag.listDocs()', () => {
   it('returns an empty array when the story has no RAG docs', () => {
     expect(storyRag.listDocs('nonexistent-story-999')).toEqual([]);
   });
+
+  it('throws for an invalid story ID', () => {
+    expect(() => storyRag.listDocs('../evil')).toThrow(/invalid story id/i);
+  });
 });
 
 // ── retrieve ─────────────────────────────────────────────────────────────────
@@ -209,6 +213,11 @@ describe('storyRag.clearStory()', () => {
 
   it('is a no-op when the story has no RAG directory', () => {
     expect(() => storyRag.clearStory('nonexistent-story-999')).not.toThrow();
+  });
+
+  it('throws for an invalid story ID', () => {
+    expect(() => storyRag.clearStory('../evil')).toThrow(/invalid story id/i);
+    expect(() => storyRag.clearStory('../../etc/passwd')).toThrow(/invalid story id/i);
   });
 
   it('returns empty listDocs after clear', () => {

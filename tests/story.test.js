@@ -136,9 +136,7 @@ describe('story.js — generateChapter()', () => {
    * Helper: write a minimal story JSON file so generateChapter can load it.
    */
   function writeStory(id, data = {}) {
-    const fs2 = require('fs');
-    const p = require('path');
-    fs2.mkdirSync(STORIES_DIR, { recursive: true });
+    fs.mkdirSync(STORIES_DIR, { recursive: true });
     const defaults = {
       id,
       title: 'Test Story',
@@ -148,8 +146,8 @@ describe('story.js — generateChapter()', () => {
       createdAt: new Date().toISOString(),
       chapters: [],
     };
-    fs2.writeFileSync(
-      p.join(STORIES_DIR, `${id}.json`),
+    fs.writeFileSync(
+      path.join(STORIES_DIR, `${id}.json`),
       JSON.stringify({ ...defaults, ...data }, null, 2),
       'utf8',
     );
@@ -185,7 +183,7 @@ describe('story.js — generateChapter()', () => {
     await storyModule.generateChapter('test-save-1234', 1);
 
     const saved = JSON.parse(
-      fs.readFileSync(require('path').join(STORIES_DIR, 'test-save-1234.json'), 'utf8'),
+      fs.readFileSync(path.join(STORIES_DIR, 'test-save-1234.json'), 'utf8'),
     );
     expect(saved.chapters).toHaveLength(1);
     expect(saved.chapters[0].content).toBe('Saved chapter content.');
@@ -322,11 +320,9 @@ describe('story.js — generateChapter()', () => {
 
 describe('story.js — deleteChapter()', () => {
   function writeStory(id, chapters = []) {
-    const fs2 = require('fs');
-    const p = require('path');
-    fs2.mkdirSync(STORIES_DIR, { recursive: true });
-    fs2.writeFileSync(
-      p.join(STORIES_DIR, `${id}.json`),
+    fs.mkdirSync(STORIES_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(STORIES_DIR, `${id}.json`),
       JSON.stringify({
         id,
         title: 'T',
@@ -370,19 +366,17 @@ describe('story.js — deleteStory()', () => {
   });
 
   it('deletes the story JSON file and clears the story RAG docs', () => {
-    const fs2 = require('fs');
-    const p = require('path');
-    fs2.mkdirSync(STORIES_DIR, { recursive: true });
+    fs.mkdirSync(STORIES_DIR, { recursive: true });
     const id = 'del-story-1234';
-    fs2.writeFileSync(
-      p.join(STORIES_DIR, `${id}.json`),
+    fs.writeFileSync(
+      path.join(STORIES_DIR, `${id}.json`),
       JSON.stringify({ id, title: 'T', genre: 'g', tone: 't', outline: 'o', createdAt: new Date().toISOString() }),
       'utf8',
     );
 
     storyModule.deleteStory(id);
 
-    expect(fs2.existsSync(p.join(STORIES_DIR, `${id}.json`))).toBe(false);
+    expect(fs.existsSync(path.join(STORIES_DIR, `${id}.json`))).toBe(false);
     expect(storyRag.clearStory).toHaveBeenCalledWith(id);
   });
 

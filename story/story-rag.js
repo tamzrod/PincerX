@@ -6,9 +6,34 @@ const path = require('path');
 const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 
 /**
- * Return the absolute path to the per-story RAG docs file.
+ * Allowed pattern for story IDs — matches the same rule enforced by the API
+ * layer (STORY_ID_RE in server.js).  Validated here as defence-in-depth so
+ * that story-rag.js cannot be used to construct paths outside STORIES_DIR even
+ * if it were called from code that skips the server-level check.
+ */
+const VALID_STORY_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * Throw a TypeError when storyId does not match the allowed pattern.
+ * Prevents path-traversal attacks by ensuring storyId cannot contain path
+ * separators or relative segments.
  *
  * @param {string} storyId
+ */
+function _assertValidStoryId(storyId) {
+  if (
+    !storyId ||
+    typeof storyId !== 'string' ||
+    !VALID_STORY_ID_RE.test(storyId)
+  ) {
+    throw new TypeError(`Invalid story ID: "${storyId}"`);
+  }
+}
+
+/**
+ * Return the absolute path to the per-story RAG docs file.
+ *
+ * @param {string} storyId - Already-validated story ID.
  * @returns {string}
  */
 function _docsPath(storyId) {
@@ -50,6 +75,7 @@ function saveDocs(storyId, docs) {
  * @param {object} doc - Must include an `id` string field.
  */
 function addDoc(storyId, doc) {
+  _assertValidStoryId(storyId);
   const docs = loadDocs(storyId);
   const idx = docs.findIndex((d) => d.id === doc.id);
   if (idx >= 0) {
@@ -69,6 +95,7 @@ function addDoc(storyId, doc) {
  * @returns {boolean}
  */
 function removeDoc(storyId, docId) {
+  _assertValidStoryId(storyId);
   const docs = loadDocs(storyId);
   const idx = docs.findIndex((d) => d.id === docId);
   if (idx < 0) return false;
@@ -86,6 +113,7 @@ function removeDoc(storyId, docId) {
  * @returns {Array<object>}
  */
 function listDocs(storyId, type) {
+  _assertValidStoryId(storyId);
   const docs = loadDocs(storyId);
   return type ? docs.filter((d) => d.type === type) : docs;
 }
@@ -101,6 +129,7 @@ function listDocs(storyId, type) {
  * @returns {Array<object>}
  */
 function retrieve(storyId, query, topK = 5) {
+  _assertValidStoryId(storyId);
   const docs = loadDocs(storyId);
   const keywords = query
     .toLowerCase()
@@ -136,12 +165,16 @@ function retrieve(storyId, query, topK = 5) {
  * @param {string} storyId
  */
 function clearStory(storyId) {
+  _assertValidStoryId(storyId);
   const dir = path.join(STORIES_DIR, storyId);
   if (!fs.existsSync(dir)) return;
   const p = _docsPath(storyId);
   if (fs.existsSync(p)) fs.unlinkSync(p);
-  // Remove the directory only when empty; ignore errors if it still has content.
-  try { fs.rmdirSync(dir); } catch { /* non-empty or already gone */ }
+  // Remove the directory only when empty.  Only ENOTEMPTY and ENOENT are
+  // expected here; any other error is re-thrown.
+  try { fs.rmdirSync(dir); } catch (e) {
+    if (e.code !== 'ENOTEMPTY' && e.code !== 'ENOENT') throw e;
+  }
 }
 
 module.exports = { addDoc, removeDoc, listDocs, retrieve, clearStory };

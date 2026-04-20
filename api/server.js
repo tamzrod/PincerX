@@ -873,8 +873,9 @@ app.delete('/tts/voice/:id', async (req, res) => {
  * Lowercases, replaces non-alphanumeric characters with dashes, and trims
  * leading/trailing dashes.
  *
- * @param {string} str
- * @returns {string}
+ * @param {string} str - Input string, e.g. 'Shadowfall City'.
+ * @returns {string} Slug, e.g. 'shadowfall-city'.
+ * @example slugify('Shadowfall City') // → 'shadowfall-city'
  */
 function slugify(str) {
   return str

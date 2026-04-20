@@ -100,6 +100,9 @@ function parseOutline(raw) {
 
 /**
  * Build a RAG-enriched character context block from story character profiles.
+ * Returns a formatted multi-line string listing each character's name, role,
+ * gender, personality, backstory, and speech style — or an empty string when
+ * no characters have been defined for the story.
  *
  * @param {Array<object>} characters - Character docs from the story RAG store.
  * @returns {string} Formatted character context, or empty string when none exist.
@@ -118,6 +121,8 @@ function buildCharacterContext(characters) {
 
 /**
  * Build a RAG-enriched world context block from story lore entries.
+ * Returns a formatted multi-line string of lore titles and their descriptions,
+ * or an empty string when no lore entries have been defined for the story.
  *
  * @param {Array<object>} loreEntries - Lore docs from the story RAG store.
  * @returns {string} Formatted lore context, or empty string when none exist.
@@ -137,8 +142,8 @@ function buildLoreContext(loreEntries) {
  * Uses character names when character profiles are defined; falls back to the
  * generic [speaker:male] / [speaker:female] format otherwise.
  *
- * @param {Array<object>} characters
- * @returns {string}
+ * @param {Array<object>} characters - Character docs from the story RAG store.
+ * @returns {string} A single instruction sentence for the AI prompt.
  */
 function buildSpeakerTagInstruction(characters) {
   if (!characters.length) {
@@ -183,7 +188,7 @@ async function _storeChapterSummary(storyId, chapterNumber, content, aiOptions) 
       content: summary.trim(),
     });
   } catch (e) {
-    console.warn(`[story] Failed to generate summary for chapter ${chapterNumber}:`, e.message);
+    console.warn('[story] Failed to generate summary for chapter:', chapterNumber, e.message);
   }
 }
 
