@@ -301,6 +301,88 @@
     .btn-prebake:hover:not(:disabled) { background: #0d47a1; }
     .btn-prebake:disabled { background: #7b8a9b; cursor: wait; }
 
+    .btn-transcript {
+      background: #6a1b9a;
+      color: #fff;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+    .btn-transcript:hover:not(:disabled) { background: #4a148c; }
+
+    /* ── Character manager ────────────────────────────────────────────────── */
+
+    .char-card {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border-radius: 5px;
+      background: #f8f9fc;
+      border: 1px solid #e8eaf0;
+      margin-bottom: 5px;
+      font-size: 12px;
+    }
+
+    .char-card-name { flex: 1; font-weight: 500; color: #333; }
+    .char-card-voice { color: #777; font-size: 11px; margin-right: 4px; white-space: nowrap; }
+
+    /* ── Voice Transcript modal ───────────────────────────────────────────── */
+
+    .transcript-modal {
+      width: 820px;
+      max-width: 96vw;
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .transcript-modal h2 { margin-bottom: 8px; }
+
+    #transcript-rows {
+      flex: 1;
+      overflow-y: auto;
+      border: 1px solid #e0e3ef;
+      border-radius: 6px;
+      padding: 6px;
+      background: #f8f9fc;
+      margin-bottom: 10px;
+    }
+
+    .tr-row {
+      display: grid;
+      grid-template-columns: 110px 100px 1fr 36px;
+      gap: 6px;
+      align-items: start;
+      padding: 6px 4px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .tr-row:last-child { border-bottom: none; }
+
+    .tr-speaker, .tr-emotion {
+      border: 1px solid #d0d5dd;
+      border-radius: 4px;
+      padding: 4px 6px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+
+    .tr-text {
+      border: 1px solid #d0d5dd;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 48px;
+    }
+
+    .tr-play {
+      padding: 4px 8px;
+      font-size: 13px;
+      min-width: 36px;
+    }
+
     .reading-panel {
       overflow-y: auto;
       max-height: calc(100vh - 110px);
@@ -889,6 +971,50 @@
         </div>
         <div class="msg" id="chapter-msg"></div>
       </div>
+
+      <!-- Character Manager (shown after a story is created or loaded) -->
+      <div class="section" id="char-section" style="display:none">
+        <h3>🎭 Characters &amp; Voices</h3>
+        <p style="color:#666;font-size:12px;margin-bottom:8px">Define characters to keep voice and personality consistent across chapters. Assign a Zonos voice to each character for automated per-character TTS.</p>
+
+        <div id="char-list"><em style="color:#aaa;font-size:12px">No characters yet.</em></div>
+        <div class="msg" id="char-msg"></div>
+
+        <details style="margin-top:10px">
+          <summary style="font-size:12px;font-weight:600;cursor:pointer;color:#4a6cf7">＋ Add / Update Character</summary>
+          <div style="margin-top:8px">
+            <label for="char-name" style="font-size:12px">Name <span style="color:#c0392b">*</span></label>
+            <input type="text" id="char-name" placeholder="e.g. Elena" style="margin-bottom:6px" />
+
+            <label for="char-role" style="font-size:12px">Role</label>
+            <input type="text" id="char-role" placeholder="e.g. protagonist" style="margin-bottom:6px" />
+
+            <label for="char-gender" style="font-size:12px">Gender</label>
+            <select id="char-gender" style="width:100%;margin-bottom:6px;border:1px solid #d0d5dd;border-radius:5px;padding:6px 8px;font-size:13px;font-family:inherit">
+              <option value="">Unspecified</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="non-binary">Non-binary</option>
+            </select>
+
+            <label for="char-personality" style="font-size:12px">Personality</label>
+            <input type="text" id="char-personality" placeholder="e.g. curious, empathetic" style="margin-bottom:6px" />
+
+            <label for="char-backstory" style="font-size:12px">Backstory (brief)</label>
+            <textarea id="char-backstory" placeholder="e.g. A former detective…" style="min-height:50px;margin-bottom:6px;font-size:12px"></textarea>
+
+            <label for="char-speech" style="font-size:12px">Speech Style</label>
+            <input type="text" id="char-speech" placeholder="e.g. formal, uses archaic words" style="margin-bottom:6px" />
+
+            <label for="char-voice" style="font-size:12px">Voice Profile <span style="color:#aaa;font-weight:400">(Zonos voice ID)</span></label>
+            <select id="char-voice" style="width:100%;margin-bottom:8px;border:1px solid #d0d5dd;border-radius:5px;padding:6px 8px;font-size:13px;font-family:inherit">
+              <option value="">No voice (use narrator voice)</option>
+            </select>
+
+            <button class="btn-primary" id="char-save-btn" onclick="saveCharacter()" style="width:100%">Save Character</button>
+          </div>
+        </details>
+      </div>
     </aside>
 
     <!-- RIGHT: Reading view -->
@@ -1406,20 +1532,23 @@
   const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 
   // Matches a speaker tag at the start of a chunk string, identifying whether
-  // the paragraph is narrator prose or character dialogue (and the gender).
-  const SPEAKER_TAG_RE = /^\[speaker:(narrator|male|female)\]\s*/;
+  // the paragraph is narrator prose or character dialogue.  Accepts any
+  // alphanumeric/underscore/dash identifier so named character tags such as
+  // [speaker:Elena] are recognised alongside the legacy [speaker:male] /
+  // [speaker:female] / [speaker:narrator] format.
+  const SPEAKER_TAG_RE = /^\[speaker:([A-Za-z0-9_-]+)\]\s*/;
 
   /**
    * Remove all speaker and emotion tags from *text* so they are never shown
-   * to readers.  Handles [speaker:X], [emotion:X] (square-bracket) and
-   * "emotion:X" (quoted) formats.
+   * to readers.  Handles [speaker:X] for any alphanumeric speaker name,
+   * [emotion:X] (square-bracket) and "emotion:X" (quoted) formats.
    *
    * @param {string} text
    * @returns {string}
    */
   function stripTTSTags(text) {
     return text
-      .replace(/\[speaker:(narrator|male|female)\]\s*/g, '')
+      .replace(/\[speaker:[A-Za-z0-9_-]+\]\s*/g, '')
       .replace(/\[emotion:[a-z]+\]\s*/g, '')
       .replace(/"emotion:[a-z]+"\s*/g, '');
   }
@@ -1981,9 +2110,18 @@
       let blob;
       // Fetch the current chunk from Zonos (one request at a time).
       activeTTSController = new AbortController();
+
+      // Resolve the effective voice for this chunk.  Named character speakers
+      // use their profile voice when available; narrator and generic male/female
+      // tags always fall back to the global voicePrefs.voice_id.
+      const GENERIC_SPEAKERS = new Set(['narrator', 'male', 'female']);
+      const effectiveVoiceId = (!GENERIC_SPEAKERS.has(chunk.speaker) && storyCharacterVoiceMap[chunk.speaker])
+        ? storyCharacterVoiceMap[chunk.speaker]
+        : voicePrefs.voice_id;
+
       const body = { text: chunk.text, speaking_rate: voicePrefs.speaking_rate,
         pitch_std: voicePrefs.pitch_std, emotion_preset: chunk.emotion || voicePrefs.emotion_preset };
-      if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
+      if (effectiveVoiceId) body.voice_id = effectiveVoiceId;
       const response = await fetch('/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2065,6 +2203,9 @@
   const storyState = { id: null, title: null, genre: null, tone: null, nextChapter: 1 };
   // Maps chapter number → active prebake poll interval ID.
   const chapterPrebakeJobs = new Map();
+  // Maps character name → Zonos voice_id for the currently loaded story.
+  // Refreshed whenever a story is loaded or a character profile is saved.
+  let storyCharacterVoiceMap = {};
 
   function resetStory() {
     stopTTS();
@@ -2079,6 +2220,7 @@
     storyState.genre = null;
     storyState.tone = null;
     storyState.nextChapter = 1;
+    storyCharacterVoiceMap = {};
 
     document.getElementById('story-title').value = '';
     document.getElementById('story-genre').value = '';
@@ -2097,6 +2239,23 @@
     document.querySelectorAll('.reading-chapter').forEach((el) => el.remove());
     document.getElementById('reading-title').textContent = '';
     document.getElementById('reading-meta').textContent = '';
+    // Clear character manager
+    document.getElementById('char-list').innerHTML = '';
+    document.getElementById('char-section').style.display = 'none';
+  }
+
+  /**
+   * Fetch the character name → Zonos voice_id map for the current story
+   * and cache it in storyCharacterVoiceMap.  Called when a story is loaded
+   * and whenever a character profile is saved or deleted.
+   */
+  async function refreshCharacterVoiceMap() {
+    if (!storyState.id) return;
+    try {
+      const data = await fetch(`/story/${encodeURIComponent(storyState.id)}/character-voices`)
+        .then((r) => r.ok ? r.json() : null).catch(() => null);
+      if (data && data.voices) storyCharacterVoiceMap = data.voices;
+    } catch { /* silently ignore */ }
   }
 
   async function generateStory() {
@@ -2142,6 +2301,10 @@
         [data.genre, data.tone].filter(Boolean).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' · ');
       // Remove any previously generated chapter nodes
       document.querySelectorAll('.reading-chapter').forEach((el) => el.remove());
+      // Show character manager section for new story
+      document.getElementById('char-section').style.display = '';
+      document.getElementById('char-list').innerHTML = '';
+      storyCharacterVoiceMap = {};
       // Refresh saved stories list so the new entry appears
       loadStoryList();
     } catch (e) {
@@ -2299,6 +2462,13 @@
     ttsBtn.title = 'Read chapter aloud';
     ttsBtn.onclick = () => readChapterAloud(chapterNumber, ttsBtn);
     actions.appendChild(ttsBtn);
+
+    const transcriptBtn = document.createElement('button');
+    transcriptBtn.className = 'btn-transcript';
+    transcriptBtn.textContent = '🎭 Voice Editor';
+    transcriptBtn.title = 'Edit speaker and emotion per paragraph';
+    transcriptBtn.onclick = () => { populateCharVoicePicker(); openTranscriptEditor(chapterNumber, section); };
+    actions.appendChild(transcriptBtn);
 
     const prebakeBtn = document.createElement('button');
     prebakeBtn.className = 'btn-prebake';
@@ -2622,15 +2792,345 @@
       storyState.nextChapter = chapters.length > 0 ? chapters[chapters.length - 1].number + 1 : 1;
       document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
 
+      // Remove existing chapter nodes and re-render
+      document.querySelectorAll('.reading-chapter').forEach((el) => el.remove());
+
+      const chapters = (data.chapters || []).sort((a, b) => a.number - b.number);
+      for (const ch of chapters) {
+        appendChapterToReading(ch.number, ch.content);
+      }
+      storyState.nextChapter = chapters.length > 0 ? chapters[chapters.length - 1].number + 1 : 1;
+      document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
+
+      // Load character manager and voice map
+      document.getElementById('char-section').style.display = '';
+      await loadCharacters();
+      await refreshCharacterVoiceMap();
+
       switchTab('story');
     } catch (e) {
       showMsg('story-msg', `Failed to load story: ${e.message}`, 'error');
     }
   }
 
+  // ── Character Manager ─────────────────────────────────────────────────────
+
+  /**
+   * Fetch and render all character profiles for the current story.
+   */
+  async function loadCharacters() {
+    if (!storyState.id) return;
+    const listEl = document.getElementById('char-list');
+    listEl.innerHTML = '';
+    try {
+      const data = await fetch(`/story/${encodeURIComponent(storyState.id)}/characters`)
+        .then((r) => r.ok ? r.json() : null).catch(() => null);
+      const characters = (data && data.characters) ? data.characters : [];
+      if (!characters.length) {
+        listEl.innerHTML = '<em style="color:#aaa;font-size:12px">No characters yet.</em>';
+        return;
+      }
+      characters.forEach((c) => appendCharacterCard(c, listEl));
+    } catch { /* ignore */ }
+  }
+
+  function appendCharacterCard(c, listEl) {
+    const card = document.createElement('div');
+    card.className = 'char-card';
+    card.dataset.charId = c.id;
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'char-card-name';
+    nameEl.textContent = c.name + (c.role ? ` — ${c.role}` : '') + (c.gender ? ` (${c.gender})` : '');
+
+    const voiceEl = document.createElement('div');
+    voiceEl.className = 'char-card-voice';
+    voiceEl.textContent = c.voiceId ? `🎙 ${c.voiceId}` : '🎙 No voice assigned';
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-danger';
+    delBtn.style.cssText = 'padding:2px 7px;font-size:11px;flex-shrink:0';
+    delBtn.textContent = '🗑';
+    delBtn.title = 'Delete character';
+    delBtn.onclick = () => deleteCharacter(c.id, card);
+
+    card.appendChild(nameEl);
+    card.appendChild(voiceEl);
+    card.appendChild(delBtn);
+    listEl.appendChild(card);
+  }
+
+  async function saveCharacter() {
+    if (!storyState.id) return;
+    clearMsg('char-msg');
+
+    const name        = document.getElementById('char-name').value.trim();
+    const role        = document.getElementById('char-role').value.trim();
+    const gender      = document.getElementById('char-gender').value;
+    const personality = document.getElementById('char-personality').value.trim();
+    const backstory   = document.getElementById('char-backstory').value.trim();
+    const speechStyle = document.getElementById('char-speech').value.trim();
+    const voiceId     = document.getElementById('char-voice').value;
+
+    if (!name) { showMsg('char-msg', 'Character name is required.', 'error'); return; }
+
+    const btn = document.getElementById('char-save-btn');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Saving…';
+
+    try {
+      await apiFetch(`/story/${encodeURIComponent(storyState.id)}/character`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, role, gender, personality, backstory, speechStyle, voiceId }),
+      });
+      // Clear form
+      ['char-name','char-role','char-personality','char-backstory','char-speech'].forEach((id) => {
+        document.getElementById(id).value = '';
+      });
+      document.getElementById('char-gender').value = '';
+      document.getElementById('char-voice').value = '';
+      showMsg('char-msg', `Character "${name}" saved.`, 'success');
+      await loadCharacters();
+      await refreshCharacterVoiceMap();
+    } catch (e) {
+      showMsg('char-msg', e.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save Character';
+    }
+  }
+
+  async function deleteCharacter(charId, cardEl) {
+    if (!storyState.id) return;
+    try {
+      await apiFetch(`/story/${encodeURIComponent(storyState.id)}/character/${encodeURIComponent(charId)}`, { method: 'DELETE' });
+      cardEl.remove();
+      const listEl = document.getElementById('char-list');
+      if (!listEl.children.length) listEl.innerHTML = '<em style="color:#aaa;font-size:12px">No characters yet.</em>';
+      await refreshCharacterVoiceMap();
+    } catch (e) {
+      showMsg('char-msg', `Failed to delete: ${e.message}`, 'error');
+    }
+  }
+
+  /**
+   * Populate the character voice picker with the voices available from Zonos.
+   * Called when the character manager section is first shown.
+   */
+  async function populateCharVoicePicker() {
+    const select = document.getElementById('char-voice');
+    const current = select.value;
+    select.innerHTML = '<option value="">No voice (use narrator voice)</option>';
+    try {
+      const data = await fetch('/tts/voices').then((r) => r.ok ? r.json() : null).catch(() => null);
+      (data && data.voices ? data.voices : []).forEach((v) => {
+        const opt = document.createElement('option');
+        opt.value = v; opt.textContent = v;
+        select.appendChild(opt);
+      });
+      if (current) select.value = current;
+    } catch { /* Zonos offline */ }
+  }
+
+  // ── Voice Transcript Editor ───────────────────────────────────────────────
+
+  const EMOTION_OPTIONS = ['neutral', 'calm', 'happy', 'sad', 'energetic', 'angry'];
+
+  /** Currently open transcript chapter number. */
+  let transcriptChapterNum = null;
+  /** Parsed paragraph rows from the transcript editor. */
+  let transcriptRows = [];
+  /** All known speaker options (narrator + male + female + character names). */
+  let transcriptSpeakers = ['narrator', 'male', 'female'];
+
+  function openTranscriptEditor(chapterNumber, sectionEl) {
+    transcriptChapterNum = chapterNumber;
+    const rawContent = sectionEl.dataset.rawContent || '';
+
+    // Build speaker list from characters in current story
+    const chars = Array.from(document.querySelectorAll('.char-card')).map((c) => c.querySelector('.char-card-name').textContent.split(' — ')[0].trim());
+    transcriptSpeakers = ['narrator', 'male', 'female', ...chars.filter((n) => !['narrator','male','female'].includes(n))];
+
+    // Parse paragraphs preserving raw tags
+    const PARA_SPEAKER_RE = /^\[speaker:([A-Za-z0-9_-]+)\]/;
+    const PARA_EMOTION_RE = /\[emotion:([a-z]+)\]/;
+    const paragraphs = rawContent.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+
+    transcriptRows = paragraphs.map((para, idx) => {
+      const sm = para.match(PARA_SPEAKER_RE);
+      const em = para.match(PARA_EMOTION_RE);
+      return {
+        idx,
+        speaker: sm ? sm[1] : 'narrator',
+        emotion: em ? em[1] : 'neutral',
+        text: stripTTSTags(para),
+        raw: para,
+      };
+    });
+
+    renderTranscriptModal();
+    document.getElementById('transcript-overlay').classList.add('open');
+  }
+
+  function closeTranscriptEditor() {
+    document.getElementById('transcript-overlay').classList.remove('open');
+    transcriptChapterNum = null;
+    transcriptRows = [];
+  }
+
+  function renderTranscriptModal() {
+    const container = document.getElementById('transcript-rows');
+    container.innerHTML = '';
+
+    transcriptRows.forEach((row, i) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'tr-row';
+
+      // Speaker selector
+      const speakerSel = document.createElement('select');
+      speakerSel.className = 'tr-speaker';
+      speakerSel.title = 'Speaker';
+      transcriptSpeakers.forEach((sp) => {
+        const opt = document.createElement('option');
+        opt.value = sp; opt.textContent = sp;
+        if (sp === row.speaker) opt.selected = true;
+        speakerSel.appendChild(opt);
+      });
+      speakerSel.onchange = () => { transcriptRows[i].speaker = speakerSel.value; };
+
+      // Emotion selector
+      const emotionSel = document.createElement('select');
+      emotionSel.className = 'tr-emotion';
+      emotionSel.title = 'Emotion';
+      EMOTION_OPTIONS.forEach((em) => {
+        const opt = document.createElement('option');
+        opt.value = em; opt.textContent = em;
+        if (em === row.emotion) opt.selected = true;
+        emotionSel.appendChild(opt);
+      });
+      emotionSel.onchange = () => { transcriptRows[i].emotion = emotionSel.value; };
+
+      // Paragraph text (editable)
+      const textArea = document.createElement('textarea');
+      textArea.className = 'tr-text';
+      textArea.value = row.text;
+      textArea.rows = 2;
+      textArea.oninput = () => { transcriptRows[i].text = textArea.value; };
+
+      // Play button
+      const playBtn = document.createElement('button');
+      playBtn.className = 'btn-tts tr-play';
+      playBtn.textContent = '▶';
+      playBtn.title = 'Preview this paragraph';
+      playBtn.onclick = () => previewTranscriptRow(i, playBtn);
+
+      rowEl.appendChild(speakerSel);
+      rowEl.appendChild(emotionSel);
+      rowEl.appendChild(textArea);
+      rowEl.appendChild(playBtn);
+      container.appendChild(rowEl);
+    });
+  }
+
+  let transcriptAudio = null;
+  let transcriptController = null;
+
+  function stopTranscriptPreview() {
+    if (transcriptController) { transcriptController.abort(); transcriptController = null; }
+    if (transcriptAudio) { transcriptAudio.pause(); transcriptAudio = null; }
+  }
+
+  async function previewTranscriptRow(idx, btn) {
+    stopTranscriptPreview();
+    const row = transcriptRows[idx];
+    if (!row || !row.text.trim()) return;
+
+    const GENERIC_SPEAKERS = new Set(['narrator', 'male', 'female']);
+    const effectiveVoiceId = (!GENERIC_SPEAKERS.has(row.speaker) && storyCharacterVoiceMap[row.speaker])
+      ? storyCharacterVoiceMap[row.speaker]
+      : voicePrefs.voice_id;
+    const effectiveEmotion = row.speaker === 'narrator' ? 'neutral' : row.emotion;
+
+    btn.textContent = '⏳';
+    btn.disabled = true;
+    transcriptController = new AbortController();
+    try {
+      const body = {
+        text: row.text.trim(),
+        speaking_rate: voicePrefs.speaking_rate,
+        pitch_std: voicePrefs.pitch_std,
+        emotion_preset: effectiveEmotion,
+      };
+      if (effectiveVoiceId) body.voice_id = effectiveVoiceId;
+      const response = await fetch('/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: transcriptController.signal,
+      });
+      transcriptController = null;
+      if (!response.ok) { btn.textContent = '▶'; btn.disabled = false; return; }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      transcriptAudio = new Audio(url);
+      transcriptAudio.onended = () => { URL.revokeObjectURL(url); transcriptAudio = null; btn.textContent = '▶'; btn.disabled = false; };
+      transcriptAudio.onerror = () => { btn.textContent = '▶'; btn.disabled = false; };
+      btn.textContent = '⏹';
+      btn.disabled = false;
+      btn.onclick = () => { stopTranscriptPreview(); btn.textContent = '▶'; btn.onclick = () => previewTranscriptRow(idx, btn); };
+      transcriptAudio.play();
+    } catch (e) {
+      transcriptController = null;
+      if (e.name !== 'AbortError') { btn.textContent = '▶'; btn.disabled = false; }
+    }
+  }
+
+  async function saveTranscriptEdits() {
+    if (!storyState.id || transcriptChapterNum === null) return;
+    clearMsg('transcript-msg');
+
+    // Rebuild chapter content with updated tags
+    const content = transcriptRows.map((row) => {
+      const text = row.text.trim();
+      if (!text) return null;
+      return `[speaker:${row.speaker}][emotion:${row.emotion}] ${text}`;
+    }).filter(Boolean).join('\n\n');
+
+    const btn = document.getElementById('transcript-save-btn');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Saving…';
+
+    try {
+      await apiFetch(
+        `/story/${encodeURIComponent(storyState.id)}/chapter/${transcriptChapterNum}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        },
+      );
+      // Update the section element's rawContent so TTS picks up the new tags
+      const sectionEl = document.querySelector(`.reading-chapter[data-chapter="${transcriptChapterNum}"]`);
+      if (sectionEl) {
+        sectionEl.dataset.rawContent = content;
+        // Re-render clean paragraphs
+        sectionEl.querySelectorAll('p').forEach((p) => p.remove());
+        content.split(/\n{2,}/).map((s) => stripTTSTags(s.trim())).filter(Boolean).forEach((text) => {
+          const p = document.createElement('p');
+          p.textContent = text;
+          sectionEl.appendChild(p);
+        });
+      }
+      showMsg('transcript-msg', 'Saved.', 'success');
+      setTimeout(closeTranscriptEditor, 800);
+    } catch (e) {
+      showMsg('transcript-msg', e.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save Changes';
+    }
+  }
+
   // Close modals on Escape key
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeSettings(); closeVoiceSettings(); }
+    if (e.key === 'Escape') { closeSettings(); closeVoiceSettings(); closeTranscriptEditor(); stopTranscriptPreview(); }
   });
 
   // Enter key shortcut for ask input
@@ -2642,6 +3142,20 @@
   loadPDFs();
   loadStoryList();
 </script>
+
+<!-- ── Voice Transcript Editor modal ─────────────────────────────────────── -->
+<div class="modal-overlay" id="transcript-overlay" onclick="if(event.target===this){stopTranscriptPreview();closeTranscriptEditor();}">
+  <div class="modal transcript-modal" role="dialog" aria-modal="true" aria-labelledby="transcript-title">
+    <h2 id="transcript-title">🎭 Voice Transcript Editor</h2>
+    <p style="font-size:12px;color:#666;margin-bottom:10px">Edit the speaker and emotion for each paragraph. Click ▶ to preview a single paragraph. Click <strong>Save Changes</strong> to apply to the chapter.</p>
+    <div id="transcript-rows"></div>
+    <div class="msg" id="transcript-msg"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="stopTranscriptPreview();closeTranscriptEditor()">Close</button>
+      <button class="btn-primary" id="transcript-save-btn" onclick="saveTranscriptEdits()">Save Changes</button>
+    </div>
+  </div>
+</div>
 
 <!-- ── Global Zonos activity status bar ──────────────────────────────────── -->
 <div id="zonos-status-bar" class="zonos-status-bar" role="status" aria-live="polite" aria-atomic="true">

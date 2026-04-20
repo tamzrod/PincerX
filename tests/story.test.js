@@ -386,3 +386,52 @@ describe('story.js — deleteStory()', () => {
     expect(() => storyModule.deleteStory('ghost-story')).toThrow('Story not found');
   });
 });
+
+// ── story.js — updateChapterContent() ────────────────────────────────────────
+
+describe('story.js — updateChapterContent()', () => {
+  function writeStory(id, chapters = []) {
+    fs.mkdirSync(STORIES_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(STORIES_DIR, `${id}.json`),
+      JSON.stringify({
+        id,
+        title: 'T',
+        genre: 'g',
+        tone: 't',
+        outline: 'o',
+        createdAt: new Date().toISOString(),
+        chapters,
+      }, null, 2),
+      'utf8',
+    );
+  }
+
+  it('updates the content of an existing chapter and returns the result', () => {
+    const id = 'upd-ch-1234';
+    writeStory(id, [{ number: 1, content: 'Old content.', createdAt: new Date().toISOString() }]);
+
+    const result = storyModule.updateChapterContent(id, 1, '[speaker:narrator] New content.');
+
+    expect(result.storyId).toBe(id);
+    expect(result.chapterNumber).toBe(1);
+    expect(result.content).toBe('[speaker:narrator] New content.');
+
+    // Verify persisted on disk
+    const saved = JSON.parse(fs.readFileSync(path.join(STORIES_DIR, `${id}.json`), 'utf8'));
+    expect(saved.chapters[0].content).toBe('[speaker:narrator] New content.');
+    // number and createdAt must be preserved
+    expect(saved.chapters[0].number).toBe(1);
+    expect(saved.chapters[0].createdAt).toBeDefined();
+  });
+
+  it('throws when the story does not exist', () => {
+    expect(() => storyModule.updateChapterContent('no-story', 1, 'content')).toThrow('Story not found');
+  });
+
+  it('throws when the chapter does not exist', () => {
+    const id = 'upd-ch-miss-1234';
+    writeStory(id, []);
+    expect(() => storyModule.updateChapterContent(id, 99, 'content')).toThrow('Chapter 99 not found');
+  });
+});

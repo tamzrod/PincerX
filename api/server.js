@@ -1251,6 +1251,38 @@ app.delete('/story/:id/chapter/:chapterNumber', async (req, res) => {
 });
 
 /**
+ * PATCH /story/:id/chapter/:num
+ * Body: { "content": "updated chapter text with [speaker:X][emotion:X] tags" }
+ * Replaces the content of a specific chapter in-place on disk.
+ * Used by the Voice Transcript editor to save per-paragraph speaker/emotion changes.
+ */
+app.patch('/story/:id/chapter/:num', (req, res) => {
+  const { id, num } = req.params;
+  const chapterNumber = parseInt(num, 10);
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
+    return res.status(400).json({ error: 'Invalid chapter number.' });
+  }
+
+  const { content } = req.body;
+  const contentErr = validateStringField(content, 'content');
+  if (contentErr) return res.status(400).json({ error: contentErr });
+
+  try {
+    const result = story.updateChapterContent(id, chapterNumber, content.trim());
+    return res.json(result);
+  } catch (e) {
+    if (e.message.startsWith('Story not found') || e.message.startsWith('Chapter')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: `Update chapter error: ${e.message}` });
+  }
+});
+
+/**
  * DELETE /story/:id
  * Permanently deletes an entire story and all its chapters from disk.
  * Also removes any TTS cache audio files that were pre-generated for this story.

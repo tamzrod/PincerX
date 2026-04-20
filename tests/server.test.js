@@ -1435,3 +1435,76 @@ describe('GET /story/:id/character-voices', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// ─── PATCH /story/:id/chapter/:num ───────────────────────────────────────────
+
+describe('PATCH /story/:id/chapter/:num', () => {
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app)
+      .patch('/story/BAD_ID!/chapter/1')
+      .send({ content: 'Updated content.' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid story id/i);
+  });
+
+  it('returns 400 for a non-integer chapter number', async () => {
+    const res = await request(app)
+      .patch('/story/abc-test/chapter/abc')
+      .send({ content: 'Updated content.' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid chapter number/i);
+  });
+
+  it('returns 400 when content is missing', async () => {
+    const res = await request(app)
+      .patch('/story/abc-test/chapter/1')
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/content/i);
+  });
+
+  it('returns 400 when content is an empty string', async () => {
+    const res = await request(app)
+      .patch('/story/abc-test/chapter/1')
+      .send({ content: '' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/content/i);
+  });
+
+  it('returns updated chapter data on success', async () => {
+    story.updateChapterContent = jest.fn().mockReturnValue({
+      storyId: 'abc-test',
+      chapterNumber: 1,
+      content: '[speaker:narrator][emotion:neutral] The new content.',
+    });
+
+    const res = await request(app)
+      .patch('/story/abc-test/chapter/1')
+      .send({ content: '[speaker:narrator][emotion:neutral] The new content.' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.storyId).toBe('abc-test');
+    expect(res.body.chapterNumber).toBe(1);
+    expect(story.updateChapterContent).toHaveBeenCalledWith('abc-test', 1, '[speaker:narrator][emotion:neutral] The new content.');
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    story.updateChapterContent = jest.fn().mockImplementation(() => {
+      throw new Error('Story not found: abc-test');
+    });
+    const res = await request(app)
+      .patch('/story/abc-test/chapter/1')
+      .send({ content: 'Some content.' });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 when the chapter does not exist', async () => {
+    story.updateChapterContent = jest.fn().mockImplementation(() => {
+      throw new Error('Chapter 99 not found in story: abc-test');
+    });
+    const res = await request(app)
+      .patch('/story/abc-test/chapter/99')
+      .send({ content: 'Some content.' });
+    expect(res.status).toBe(404);
+  });
+});
