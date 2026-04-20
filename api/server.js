@@ -353,7 +353,7 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
  * whitespace), used for tag extraction.  Handles both the canonical square-bracket
  * form ([emotion:preset]) and the quoted form ("emotion:preset") that some LLMs
  * emit.  The anchored ^ means this only matches a leading tag; the global
- * replacement in stripEmotionTags() uses the unanchored form.  Unknown presets
+ * replacement in stripTTSTags() uses the unanchored form.  Unknown presets
  * extracted here are passed through to Zonos, which falls back to "neutral".
  */
 const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
@@ -374,7 +374,7 @@ const SPEAKER_TAG_RE = /^\[speaker:(narrator|male|female)\]\s*/;
  * @param {string} text
  * @returns {string}
  */
-function stripEmotionTags(text) {
+function stripTTSTags(text) {
   return text
     .replace(/\[speaker:(narrator|male|female)\]\s*/g, '')
     .replace(/\[emotion:[a-z]+\]\s*/g, '')
@@ -459,7 +459,7 @@ function splitIntoTTSChunksWithEmotion(text, fallbackEmotion = 'neutral') {
     if (emotionMatch) currentEmotion = emotionMatch[1] || emotionMatch[2]; // group 1 = bracket format, group 2 = quoted format
     // Narrator paragraphs always use neutral emotion to prevent volume fluctuation
     const effectiveEmotion = currentSpeaker === 'narrator' ? 'neutral' : currentEmotion;
-    return { text: stripEmotionTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
+    return { text: stripTTSTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
   });
 }
 

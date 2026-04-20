@@ -17,7 +17,7 @@ FN:230,(anonymous_13)
 FN:255,(anonymous_14)
 FN:294,ttsFetchError
 FN:340,ttsCacheKey
-FN:377,stripEmotionTags
+FN:377,stripTTSTags
 FN:393,splitIntoTTSChunks
 FN:399,(anonymous_19)
 FN:445,splitIntoTTSChunksWithEmotion
@@ -65,7 +65,7 @@ FNDA:5,(anonymous_13)
 FNDA:7,(anonymous_14)
 FNDA:4,ttsFetchError
 FNDA:13,ttsCacheKey
-FNDA:1,stripEmotionTags
+FNDA:1,stripTTSTags
 FNDA:1,splitIntoTTSChunks
 FNDA:2,(anonymous_19)
 FNDA:1,splitIntoTTSChunksWithEmotion

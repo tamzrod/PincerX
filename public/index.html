@@ -1298,7 +1298,7 @@
   // leading whitespace) for tag extraction.  Handles the canonical square-bracket
   // form ([emotion:preset]) and the quoted form ("emotion:preset") that some LLMs
   // emit.  The anchored ^ means this only extracts a leading tag; the global
-  // replacement in stripEmotionTags() uses the unanchored forms.
+  // replacement in stripTTSTags() uses the unanchored forms.
   const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 
   // Matches a speaker tag at the start of a chunk string, identifying whether
@@ -1313,7 +1313,7 @@
    * @param {string} text
    * @returns {string}
    */
-  function stripEmotionTags(text) {
+  function stripTTSTags(text) {
     return text
       .replace(/\[speaker:(narrator|male|female)\]\s*/g, '')
       .replace(/\[emotion:[a-z]+\]\s*/g, '')
@@ -1354,7 +1354,7 @@
       if (emotionMatch) currentEmotion = emotionMatch[1] || emotionMatch[2]; // group 1 = bracket, group 2 = quoted
       // Narrator always uses neutral emotion to prevent volume fluctuation
       const effectiveEmotion = currentSpeaker === 'narrator' ? 'neutral' : currentEmotion;
-      return { text: stripEmotionTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
+      return { text: stripTTSTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
     });
   }
 
@@ -1730,10 +1730,18 @@
         return;
       }
       const chunk = chunks[index];
-      // Use narrator voice for narrator paragraphs; user-selected type for characters.
-      const chunkVoiceType = (chunk.speaker && chunk.speaker !== 'narrator')
-        ? (voicePrefs.voice_type || 'narrator')
-        : 'narrator';
+      // Use narrator voice for narrator paragraphs.
+      // For character chunks, prefer the user-selected voice type if it is explicitly
+      // 'male' or 'female'; otherwise fall back to the chunk's own speaker gender so
+      // that gender detection always applies to characters even when voice_type is
+      // left at the default 'narrator'.
+      let chunkVoiceType;
+      if (chunk.speaker && chunk.speaker !== 'narrator') {
+        const pref = voicePrefs.voice_type;
+        chunkVoiceType = (pref && pref !== 'narrator') ? pref : chunk.speaker;
+      } else {
+        chunkVoiceType = 'narrator';
+      }
       const voice = pickBrowserVoice(chunkVoiceType);
       const utterance = new SpeechSynthesisUtterance(chunk.text);
       if (voice) utterance.voice = voice;
@@ -2039,7 +2047,7 @@
       // Update the raw content store so TTS can read emotion tags from the new content.
       sectionEl.dataset.rawContent = cleanContent;
       sectionEl.querySelectorAll('p').forEach((p) => p.remove());
-      const paragraphs = cleanContent.split(/\n{2,}/).map((s) => stripEmotionTags(s.trim())).filter(Boolean);
+      const paragraphs = cleanContent.split(/\n{2,}/).map((s) => stripTTSTags(s.trim())).filter(Boolean);
       paragraphs.forEach((text) => {
         const p = document.createElement('p');
         p.textContent = text;
@@ -2100,11 +2108,7 @@
       stopTTS();
       existing.dataset.rawContent = clean;
       existing.querySelectorAll('p').forEach((p) => p.remove());
-      const paragraphs = clean.split(/\n{2,}/).map((s) => stripEmotionTags(s.trim())).filter(Boolean);
-      paragraphs.forEach((text) => {
-        const p = document.createElement('p');
-        p.textContent = text;
-        existing.appendChild(p);
+      const paragraphs = clean.split(/\n{2,}/).map((s) => stripTTSTags(s.trim())).filter(Boolean);
       });
       existing.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
@@ -2164,8 +2168,8 @@
     prebakeWrap.appendChild(prebakeLabel);
     section.appendChild(prebakeWrap);
 
-    // Split on blank lines to create paragraphs, stripping emotion tags from display.
-    const paragraphs = clean.split(/\n{2,}/).map((s) => stripEmotionTags(s.trim())).filter(Boolean);
+    // Split on blank lines to create paragraphs, stripping speaker/emotion tags from display.
+    const paragraphs = clean.split(/\n{2,}/).map((s) => stripTTSTags(s.trim())).filter(Boolean);
     paragraphs.forEach((text) => {
       const p = document.createElement('p');
       p.textContent = text;
