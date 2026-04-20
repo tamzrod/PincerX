@@ -1131,6 +1131,15 @@
   </div>
 </div>
 
+<!-- ── Paragraph edit context menu ──────────────────────────────────────── -->
+<div id="para-ctx-menu" role="dialog" aria-label="Edit paragraph speaker">
+  <div class="para-ctx-label" id="para-ctx-title">Paragraph Speaker</div>
+  <select id="para-ctx-speaker" aria-label="Assign speaker"></select>
+  <button class="para-ctx-btn" id="para-ctx-modify-voice">🎙 Modify Voice Profile</button>
+  <hr style="border:none;border-top:1px solid #eee;margin:4px 0 6px">
+  <button class="para-ctx-btn primary" id="para-ctx-save">💾 Save Chapter Changes</button>
+</div>
+
 <script>
   // ── Tab navigation ────────────────────────────────────────────────────────
 
@@ -3517,15 +3526,6 @@
   loadPDFs();
   loadStoryList();
 </script>
-
-<!-- ── Paragraph edit context menu ──────────────────────────────────────── -->
-<div id="para-ctx-menu" role="dialog" aria-label="Edit paragraph speaker">
-  <div class="para-ctx-label" id="para-ctx-title">Paragraph Speaker</div>
-  <select id="para-ctx-speaker" aria-label="Assign speaker"></select>
-  <button class="para-ctx-btn" id="para-ctx-modify-voice">🎙 Modify Voice Profile</button>
-  <hr style="border:none;border-top:1px solid #eee;margin:4px 0 6px">
-  <button class="para-ctx-btn primary" id="para-ctx-save">💾 Save Chapter Changes</button>
-</div>
 
 <!-- ── Voice Transcript Editor modal ─────────────────────────────────────── -->
 <div class="modal-overlay" id="transcript-overlay" onclick="if(event.target===this){stopTranscriptPreview();closeTranscriptEditor();}">
