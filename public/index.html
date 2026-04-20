@@ -292,6 +292,15 @@
     .btn-tts.loading { background: #7b8a9b; cursor: wait; }
     .btn-tts.loading:hover:not(:disabled) { background: #7b8a9b; }
 
+    .btn-prebake {
+      background: #1565c0;
+      color: #fff;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+    .btn-prebake:hover:not(:disabled) { background: #0d47a1; }
+    .btn-prebake:disabled { background: #7b8a9b; cursor: wait; }
+
     .reading-panel {
       overflow-y: auto;
       max-height: calc(100vh - 110px);
@@ -2010,10 +2019,6 @@
       storyState.nextChapter = chapterNumber + 1;
       clearMsg('chapter-msg');
       document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
-
-      // Kick off background TTS synthesis so audio is ready when user hits Read.
-      const section = document.querySelector(`.reading-chapter[data-chapter="${chapterNumber}"]`);
-      if (section) startChapterPrebake(chapterNumber, section);
     } catch (e) {
       showMsg('chapter-msg', e.message, 'error');
     } finally {
@@ -2053,9 +2058,6 @@
         p.textContent = text;
         sectionEl.appendChild(p);
       });
-
-      // Re-prebake with the new content (different cache key)
-      startChapterPrebake(chapterNumber, sectionEl);
 
       clearMsg('chapter-msg');
     } catch (e) {
@@ -2141,6 +2143,13 @@
     ttsBtn.title = 'Read chapter aloud';
     ttsBtn.onclick = () => readChapterAloud(chapterNumber, ttsBtn);
     actions.appendChild(ttsBtn);
+
+    const prebakeBtn = document.createElement('button');
+    prebakeBtn.className = 'btn-prebake';
+    prebakeBtn.textContent = '🎙 Generate Audio';
+    prebakeBtn.title = 'Pre-generate audio for this chapter';
+    prebakeBtn.onclick = () => startChapterPrebake(chapterNumber, section);
+    actions.appendChild(prebakeBtn);
 
     const regenBtn = document.createElement('button');
     regenBtn.className = 'btn-warning';
@@ -2250,10 +2259,14 @@
 
     stopPolling(); // Cancel any existing poll before starting a new one.
 
-    const wrapEl  = sectionEl.querySelector('.tts-prebake-wrap');
-    const fillEl  = sectionEl.querySelector('.tts-prebake-fill');
-    const labelEl = sectionEl.querySelector('.tts-prebake-label');
+    const wrapEl    = sectionEl.querySelector('.tts-prebake-wrap');
+    const fillEl    = sectionEl.querySelector('.tts-prebake-fill');
+    const labelEl   = sectionEl.querySelector('.tts-prebake-label');
+    const genBtn    = sectionEl.querySelector('.btn-prebake');
     if (!wrapEl || !fillEl || !labelEl) return;
+
+    // Disable the button while generation is in progress.
+    if (genBtn) { genBtn.disabled = true; genBtn.textContent = '🎙 Generating…'; }
 
     try {
       const data = await fetch(
@@ -2270,10 +2283,16 @@
         },
       ).then((r) => r.ok ? r.json() : null).catch(() => null);
 
-      if (!data) return; // Zonos/server unavailable — silently skip
+      if (!data) {
+        if (genBtn) { genBtn.disabled = false; genBtn.textContent = '🎙 Generate Audio'; }
+        return; // Zonos/server unavailable — silently skip
+      }
 
       const { jobId, total } = data;
-      if (!jobId) return;
+      if (!jobId) {
+        if (genBtn) { genBtn.disabled = false; genBtn.textContent = '🎙 Generate Audio'; }
+        return;
+      }
 
       // Register this chapter in the global activity tracker.
       _zonosPrebakeChapters.set(chapterNumber, { done: 0, total });
@@ -2287,7 +2306,11 @@
         try {
           const status = await fetch(`/tts-prebake/${encodeURIComponent(jobId)}`)
             .then((r) => r.ok ? r.json() : null).catch(() => null);
-          if (!status) { stopPolling(); return; }
+          if (!status) {
+            stopPolling();
+            if (genBtn) { genBtn.disabled = false; genBtn.textContent = '🎙 Generate Audio'; }
+            return;
+          }
 
           const pct = status.total > 0 ? Math.round((status.done / status.total) * 100) : 100;
           fillEl.style.width = `${pct}%`;
@@ -2303,6 +2326,7 @@
             // Unregister from the global tracker once this chapter is done.
             _zonosPrebakeChapters.delete(chapterNumber);
             updateZonosBar();
+            if (genBtn) { genBtn.disabled = false; genBtn.textContent = '🎙 Generate Audio'; }
             if (status.errors >= status.total) {
               // All chunks failed — hide bar silently (Zonos likely unavailable)
               wrapEl.style.display = 'none';
@@ -2317,12 +2341,14 @@
           _zonosPrebakeChapters.delete(chapterNumber);
           updateZonosBar();
           wrapEl.style.display = 'none';
+          if (genBtn) { genBtn.disabled = false; genBtn.textContent = '🎙 Generate Audio'; }
         }
       }, 2000);
 
       chapterPrebakeJobs.set(chapterNumber, intervalId);
     } catch {
       wrapEl.style.display = 'none';
+      if (genBtn) { genBtn.disabled = false; genBtn.textContent = '🎙 Generate Audio'; }
     }
   }
 
@@ -2439,12 +2465,6 @@
       }
       storyState.nextChapter = chapters.length > 0 ? chapters[chapters.length - 1].number + 1 : 1;
       document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
-
-      // Kick off prebake for all chapters (instant if already cached)
-      for (const ch of chapters) {
-        const section = document.querySelector(`.reading-chapter[data-chapter="${ch.number}"]`);
-        if (section) startChapterPrebake(ch.number, section);
-      }
 
       switchTab('story');
     } catch (e) {
