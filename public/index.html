@@ -2792,16 +2792,6 @@
       storyState.nextChapter = chapters.length > 0 ? chapters[chapters.length - 1].number + 1 : 1;
       document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
 
-      // Remove existing chapter nodes and re-render
-      document.querySelectorAll('.reading-chapter').forEach((el) => el.remove());
-
-      const chapters = (data.chapters || []).sort((a, b) => a.number - b.number);
-      for (const ch of chapters) {
-        appendChapterToReading(ch.number, ch.content);
-      }
-      storyState.nextChapter = chapters.length > 0 ? chapters[chapters.length - 1].number + 1 : 1;
-      document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
-
       // Load character manager and voice map
       document.getElementById('char-section').style.display = '';
       await loadCharacters();
