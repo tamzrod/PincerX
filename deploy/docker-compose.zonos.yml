@@ -28,12 +28,21 @@ services:
       - zonos_cache:/root/.cache/huggingface
       - zonos_voices:/app/voices
     restart: unless-stopped
+    healthcheck:
+      # Poll the /health endpoint; Python is always available in the PyTorch base image.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Allow up to 2 minutes for the Zonos model to load before health checks begin.
+      start_period: 120s
 
   pincerx:
     environment:
       ZONOS_URL: http://zonos:8000
     depends_on:
-      - zonos
+      zonos:
+        condition: service_healthy
 
 volumes:
   zonos_cache:
