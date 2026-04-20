@@ -571,6 +571,41 @@ app.post('/tts', async (req, res) => {
   }
 });
 
+/**
+ * POST /tts/cached
+ * Same body as POST /tts but only serves from the on-disk cache.
+ * Returns the cached WAV (200) if the audio has already been synthesised,
+ * or 204 No Content if it is not yet cached (without calling Zonos).
+ * Used by the frontend to play pre-generated audio chunks immediately
+ * while an ongoing prebake job is still generating the remaining chunks.
+ */
+app.post('/tts/cached', (req, res) => {
+  const { text, voice_id, speaking_rate, pitch_std, emotion_preset } = req.body;
+  const err = validateStringField(text, 'text');
+  if (err) return res.status(400).json({ error: err });
+
+  const trimmed = text.trim().slice(0, TTS_MAX_CHARS);
+  const voiceId = typeof voice_id === 'string' ? voice_id.trim() : '';
+  const emotionPreset = typeof emotion_preset === 'string' ? emotion_preset.trim() : '';
+
+  const cacheKey = ttsCacheKey(trimmed, voiceId, speaking_rate, pitch_std, emotionPreset);
+  const cachePath = path.join(TTS_CACHE_DIR, `${cacheKey}.wav`);
+
+  if (!fs.existsSync(cachePath)) {
+    return res.status(204).end();
+  }
+
+  try {
+    const buf = fs.readFileSync(cachePath);
+    res.set('Content-Type', 'audio/wav');
+    res.set('Content-Length', String(buf.length));
+    res.set('X-TTS-Cache', 'hit');
+    return res.send(buf);
+  } catch {
+    return res.status(204).end();
+  }
+});
+
 // ── TTS prebake job system ────────────────────────────────────────────────────
 // Jobs live in memory (cleared on restart) but the WAV files they produce are
 // persisted in TTS_CACHE_DIR, so reloaded stories still get cache hits.
