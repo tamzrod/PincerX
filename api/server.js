@@ -353,22 +353,30 @@ function ttsCacheKey(text, voiceId, speakingRate, pitchStd, emotionPreset) {
  * whitespace), used for tag extraction.  Handles both the canonical square-bracket
  * form ([emotion:preset]) and the quoted form ("emotion:preset") that some LLMs
  * emit.  The anchored ^ means this only matches a leading tag; the global
- * replacement in stripEmotionTags() uses the unanchored form.  Unknown presets
+ * replacement in stripTTSTags() uses the unanchored form.  Unknown presets
  * extracted here are passed through to Zonos, which falls back to "neutral".
  */
 const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 
 /**
- * Strip all emotion tags from *text*, returning clean prose suitable for
- * display or for sending directly to Zonos.  Handles the canonical
- * [emotion:X] square-bracket format as well as the "emotion:X" quoted format
- * that some models produce when they misread the example in the prompt.
+ * Regex matching a speaker tag at the start of a chunk, used to identify
+ * whether the paragraph is narrator prose or character dialogue and, in the
+ * latter case, the character's gender.
+ */
+const SPEAKER_TAG_RE = /^\[speaker:(narrator|male|female)\]\s*/;
+
+/**
+ * Strip all speaker and emotion tags from *text*, returning clean prose suitable
+ * for display or for sending directly to Zonos.  Handles the canonical
+ * [speaker:X] and [emotion:X] square-bracket formats as well as the "emotion:X"
+ * quoted format that some models produce when they misread the example in the prompt.
  *
  * @param {string} text
  * @returns {string}
  */
-function stripEmotionTags(text) {
+function stripTTSTags(text) {
   return text
+    .replace(/\[speaker:(narrator|male|female)\]\s*/g, '')
     .replace(/\[emotion:[a-z]+\]\s*/g, '')
     .replace(/"emotion:[a-z]+"\s*/g, '');
 }
@@ -418,24 +426,40 @@ function splitIntoTTSChunks(text) {
 
 /**
  * Same as splitIntoTTSChunks() but returns objects with the emotion preset
- * extracted from each chunk's leading [emotion:X] tag.  The emotion tag is
+ * and speaker type extracted from each chunk's leading tags.  Both tags are
  * stripped from the returned text so Zonos only receives clean prose.
  *
- * The emotion "cascades": once a tag is seen, subsequent chunks inherit it
- * until a new tag appears.  This means a sentence that continues a paragraph
- * (after a mid-paragraph split) still gets the right emotion.
+ * The emotion and speaker "cascade": once a tag is seen, subsequent chunks
+ * inherit it until a new tag appears.  This ensures sentences that continue a
+ * paragraph (after a mid-paragraph split) get the right settings.
  *
- * @param {string} text - Chapter content, possibly containing [emotion:X] tags.
+ * Speaker rules enforced here:
+ *   - narrator chunks always use emotion "neutral" regardless of the emotion tag,
+ *     keeping the narration voice stable and preventing sudden volume changes.
+ *   - male/female character chunks use the emotion from their [emotion:X] tag.
+ *
+ * @param {string} text - Chapter content, possibly containing [speaker:X] and [emotion:X] tags.
  * @param {string} [fallbackEmotion='neutral'] - Preset used before the first tag.
- * @returns {Array<{text: string, emotion: string}>}
+ * @returns {Array<{text: string, emotion: string, speaker: string}>}
  */
 function splitIntoTTSChunksWithEmotion(text, fallbackEmotion = 'neutral') {
   const rawChunks = splitIntoTTSChunks(text);
   let currentEmotion = fallbackEmotion;
+  let currentSpeaker = 'narrator';
   return rawChunks.map((chunk) => {
-    const match = chunk.match(EMOTION_TAG_RE);
-    if (match) currentEmotion = match[1] || match[2]; // group 1 = bracket format, group 2 = quoted format (alternation ensures only one captures)
-    return { text: stripEmotionTags(chunk), emotion: currentEmotion };
+    let remaining = chunk;
+    // Extract speaker tag first (it precedes the emotion tag in the new format)
+    const speakerMatch = remaining.match(SPEAKER_TAG_RE);
+    if (speakerMatch) {
+      currentSpeaker = speakerMatch[1];
+      remaining = remaining.slice(speakerMatch[0].length);
+    }
+    // Extract emotion tag
+    const emotionMatch = remaining.match(EMOTION_TAG_RE);
+    if (emotionMatch) currentEmotion = emotionMatch[1] || emotionMatch[2]; // group 1 = bracket format, group 2 = quoted format
+    // Narrator paragraphs always use neutral emotion to prevent volume fluctuation
+    const effectiveEmotion = currentSpeaker === 'narrator' ? 'neutral' : currentEmotion;
+    return { text: stripTTSTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
   });
 }
 
@@ -738,12 +762,13 @@ app.post('/story/create', async (req, res) => {
 
 /**
  * POST /story/:id/chapter
- * Body: { "chapterNumber": 1, "customPrompt": "..." }
+ * Body: { "chapterNumber": 1, "customPrompt": "...", "dialogRatio": 60 }
  * Generates a chapter for an existing story and saves it to data/stories/.
+ * dialogRatio (0–100) controls the percentage of character dialogue vs narration.
  */
 app.post('/story/:id/chapter', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber, customPrompt } = req.body;
+  const { chapterNumber, customPrompt, dialogRatio } = req.body;
 
   if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
@@ -754,9 +779,13 @@ app.post('/story/:id/chapter', async (req, res) => {
   }
 
   const prompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
+  const aiOptions = {};
+  if (typeof dialogRatio === 'number' && Number.isFinite(dialogRatio)) {
+    aiOptions.dialogRatio = dialogRatio;
+  }
 
   try {
-    const result = await story.generateChapter(id, chapterNumber, {}, prompt);
+    const result = await story.generateChapter(id, chapterNumber, aiOptions, prompt);
     return res.status(201).json(result);
   } catch (e) {
     if (e.message.startsWith('Story not found')) {

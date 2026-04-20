@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">29.12% </span>
+                <span class="strong">29.24% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>30/103</span>
+                <span class='fraction'>31/106</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">18.36% </span>
+                <span class="strong">17.64% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>9/49</span>
+                <span class='fraction'>9/51</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">31.25% </span>
+                <span class="strong">31.31% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>30/96</span>
+                <span class='fraction'>31/99</span>
             </div>
         
             
@@ -345,7 +345,20 @@
 <a name='L280'></a><a href='#L280'>280</a>
 <a name='L281'></a><a href='#L281'>281</a>
 <a name='L282'></a><a href='#L282'>282</a>
-<a name='L283'></a><a href='#L283'>283</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L283'></a><a href='#L283'>283</a>
+<a name='L284'></a><a href='#L284'>284</a>
+<a name='L285'></a><a href='#L285'>285</a>
+<a name='L286'></a><a href='#L286'>286</a>
+<a name='L287'></a><a href='#L287'>287</a>
+<a name='L288'></a><a href='#L288'>288</a>
+<a name='L289'></a><a href='#L289'>289</a>
+<a name='L290'></a><a href='#L290'>290</a>
+<a name='L291'></a><a href='#L291'>291</a>
+<a name='L292'></a><a href='#L292'>292</a>
+<a name='L293'></a><a href='#L293'>293</a>
+<a name='L294'></a><a href='#L294'>294</a>
+<a name='L295'></a><a href='#L295'>295</a>
+<a name='L296'></a><a href='#L296'>296</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
@@ -388,6 +401,9 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">9x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
@@ -461,13 +477,21 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -476,6 +500,8 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -674,6 +700,9 @@ async function create(title, genre, tone, aiOptions = {}) {
 /** Minimum target word count included in the chapter generation prompt. */
 const CHAPTER_MIN_WORDS = 700;
 &nbsp;
+/** Default percentage of the chapter that should be character dialogue (0–100). */
+const DEFAULT_DIALOG_RATIO = 60;
+&nbsp;
 /**
  * Valid emotion presets understood by the Zonos TTS sidecar.
  * These must match the keys in _EMOTION_PRESETS in zonos/server.py.
@@ -742,6 +771,11 @@ async function <span class="fstat-no" title="function not covered" >generateChap
 &nbsp;
   const storyData = <span class="cstat-no" title="statement not covered" >JSON.parse(fs.readFileSync(filepath, 'utf8'));</span>
 &nbsp;
+  const dialogRatio = <span class="cstat-no" title="statement not covered" >(typeof aiOptions.dialogRatio === 'number')</span>
+    ? Math.max(0, Math.min(100, Math.round(aiOptions.dialogRatio)))
+    : DEFAULT_DIALOG_RATIO;
+  const narrationRatio = <span class="cstat-no" title="statement not covered" >100 - dialogRatio;</span>
+&nbsp;
   const prior = <span class="cstat-no" title="statement not covered" >(storyData.chapters || [])</span>
     .filter(<span class="fstat-no" title="function not covered" >(c</span>) =&gt; <span class="cstat-no" title="statement not covered" >c.number &lt; chapterNumber)</span>
     .sort(<span class="fstat-no" title="function not covered" >(a</span>, b) =&gt; <span class="cstat-no" title="statement not covered" >a.number - b.number)</span>
@@ -754,14 +788,19 @@ async function <span class="fstat-no" title="function not covered" >generateChap
     '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
     '',
     'The chapter must be substantial: at least ' + CHAPTER_MIN_WORDS + ' words with vivid descriptions, meaningful dialogue, and strong pacing.',
+    `Aim for approximately ${dialogRatio}% character dialogue and ${narrationRatio}% narration/description.`,
+    'Dialogue lines and narrative description should each form their own paragraphs where possible.',
     '',
-    'IMPORTANT — Emotion tagging for text-to-speech:',
-    'Begin every paragraph with an emotion tag on the same line, immediately before the paragraph text.',
-    `The tag must be one of: ${EMOTION_PRESETS.map(<span class="fstat-no" title="function not covered" >(e</span>) =&gt; <span class="cstat-no" title="statement not covered" >`[emotion:${e}]`)</span>.join(', ')}.`,
-    'Choose the tag that best matches the mood of that paragraph.',
+    'IMPORTANT — Speaker and emotion tagging for text-to-speech:',
+    'Begin every paragraph with a speaker tag immediately followed by an emotion tag, before the paragraph text.',
+    'Speaker tags: [speaker:narrator] for narrative prose, [speaker:male] for male character speech, [speaker:female] for female character speech.',
+    `Emotion tags: one of ${EMOTION_PRESETS.map(<span class="fstat-no" title="function not covered" >(e</span>) =&gt; <span class="cstat-no" title="statement not covered" >`[emotion:${e}]`)</span>.join(', ')}.`,
+    'For narrator paragraphs, use ONLY [emotion:neutral] or [emotion:calm]. Reserve expressive emotions for character dialogue.',
     'The tags are invisible to readers and are used only by the audio narration system.',
-    'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tag.',
-    'Example: [emotion:sad] The old house creaked as she stepped inside, memories flooding back.',
+    'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tags.',
+    'Example narrator: [speaker:narrator][emotion:neutral] The old house creaked as she stepped inside.',
+    'Example male character: [speaker:male][emotion:happy] "We finally made it!" Thomas shouted.',
+    'Example female character: [speaker:female][emotion:sad] "I\'m so sorry," Elena whispered softly.',
     '',
     'Do not include any explanation or text outside the JSON object.',
     '',
@@ -916,7 +955,7 @@ function <span class="fstat-no" title="function not covered" >get(</span>storyId
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-20T00:02:32.520Z
+                at 2026-04-20T00:42:31.812Z
             </div>
         <script src="../prettify.js"></script>
         <script>
