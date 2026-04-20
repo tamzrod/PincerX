@@ -470,6 +470,10 @@ function splitIntoTTSChunks(text) {
  *     keeping the narration voice stable and preventing sudden volume changes.
  *   - male/female character chunks use the emotion from their [emotion:X] tag.
  *
+ * After tag extraction, each character-voiced chunk is further split at
+ * dialogue/attribution boundaries (see splitDialogueFromAttribution) so that
+ * quoted speech and its narrative attribution are voiced by the correct speaker.
+ *
  * @param {string} text - Chapter content, possibly containing [speaker:X] and [emotion:X] tags.
  * @param {string} [fallbackEmotion='neutral'] - Preset used before the first tag.
  * @returns {Array<{text: string, emotion: string, speaker: string}>}
@@ -478,7 +482,8 @@ function splitIntoTTSChunksWithEmotion(text, fallbackEmotion = 'neutral') {
   const rawChunks = splitIntoTTSChunks(text);
   let currentEmotion = fallbackEmotion;
   let currentSpeaker = 'narrator';
-  return rawChunks.map((chunk) => {
+  const result = [];
+  for (const chunk of rawChunks) {
     let remaining = chunk;
     // Extract speaker tag first (it precedes the emotion tag in the new format)
     const speakerMatch = remaining.match(SPEAKER_TAG_RE);
@@ -491,9 +496,67 @@ function splitIntoTTSChunksWithEmotion(text, fallbackEmotion = 'neutral') {
     if (emotionMatch) currentEmotion = emotionMatch[1] || emotionMatch[2]; // group 1 = bracket format, group 2 = quoted format
     // Narrator paragraphs always use neutral emotion to prevent volume fluctuation
     const effectiveEmotion = currentSpeaker === 'narrator' ? 'neutral' : currentEmotion;
-    return { text: stripTTSTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
-  });
+    const baseChunk = { text: stripTTSTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
+    // Split character chunks at inline dialogue/attribution boundaries so that
+    // quoted speech and unquoted attribution are voiced by the correct speaker.
+    for (const sub of splitDialogueFromAttribution(baseChunk)) {
+      result.push(sub);
+    }
+  }
+  return result;
 }
+
+/**
+ * Split a single chunk at inline dialogue/attribution boundaries.
+ *
+ * When an AI-generated paragraph mixes a character's quoted dialogue with a
+ * narrative attribution in the same sentence (e.g. "I see," she said softly.)
+ * the entire chunk would otherwise be read by the character voice, making the
+ * attribution sound wrong.  This function splits such chunks so that:
+ *   - quoted spans  → keep the chunk's original (character) speaker
+ *   - unquoted spans → switch to narrator/neutral
+ *
+ * Narrator-tagged chunks are returned unchanged because narration may
+ * legitimately contain quoted words without implying a speaker switch.
+ *
+ * Both straight double-quotes (") and curly double-quotes (" ") are recognised.
+ *
+ * @param {{text: string, emotion: string, speaker: string}} chunk
+ * @returns {Array<{text: string, emotion: string, speaker: string}>}
+ */
+function splitDialogueFromAttribution(chunk) {
+  if (chunk.speaker === 'narrator') return [chunk];
+
+  // Regex that matches a straight-quoted or curly-quoted span.
+  // The inner character class deliberately excludes the closing quote type
+  // to keep the match tight without needing look-ahead for nested quotes.
+  const QUOTE_RE = /"[^"]*"|\u201C[^\u201D]*\u201D/g;
+
+  const parts = [];
+  let lastIdx = 0;
+  let match;
+
+  while ((match = QUOTE_RE.exec(chunk.text)) !== null) {
+    // Any unquoted attribution text before this quote → narrator
+    const before = chunk.text.slice(lastIdx, match.index).trim();
+    if (before) {
+      parts.push({ text: before, emotion: 'neutral', speaker: 'narrator' });
+    }
+    // The quoted dialogue itself → keep the character voice and emotion
+    parts.push({ text: match[0], emotion: chunk.emotion, speaker: chunk.speaker });
+    lastIdx = match.index + match[0].length;
+  }
+
+  // Any trailing attribution text after the last closing quote → narrator
+  const trailing = chunk.text.slice(lastIdx).trim();
+  if (trailing) {
+    parts.push({ text: trailing, emotion: 'neutral', speaker: 'narrator' });
+  }
+
+  // If no split was made (no quotes found) return the chunk unchanged.
+  return parts.length > 0 ? parts : [chunk];
+}
+
 
 /**
  * Ensure that the WAV audio for *text* with the given voice settings is present

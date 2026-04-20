@@ -1097,3 +1097,64 @@ describe('GET /tts-prebake/:jobId', () => {
     expect(res.body.status).toBe('complete');
   });
 });
+
+// ─── POST /tts/cached ────────────────────────────────────────────────────────
+
+describe('POST /tts/cached', () => {
+  let originalFetch;
+  beforeEach(() => { originalFetch = global.fetch; clearTtsCache(); });
+  afterEach(() => { global.fetch = originalFetch; clearTtsCache(); });
+
+  it('returns 400 when text is missing', async () => {
+    const res = await request(app).post('/tts/cached').send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when text is an empty string', async () => {
+    const res = await request(app).post('/tts/cached').send({ text: '' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 204 when the audio is not in the cache', async () => {
+    const res = await request(app).post('/tts/cached').send({ text: 'Not yet cached' });
+    expect(res.status).toBe(204);
+    expect(res.body).toEqual({}); // no body on 204
+  });
+
+  it('returns 200 with cached WAV when audio was previously synthesized', async () => {
+    const fakeWav = Buffer.from('RIFF....wav');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    // Prime the cache via the regular /tts endpoint
+    await request(app).post('/tts').send({ text: 'Cached chunk text' });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    // /tts/cached should serve it without calling Zonos again
+    global.fetch = jest.fn(); // reset so we can assert no new calls
+    const res = await request(app).post('/tts/cached').send({ text: 'Cached chunk text' });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/audio\/wav/);
+    expect(res.headers['x-tts-cache']).toBe('hit');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('returns 204 (not 200) when the same text with different voice params is requested', async () => {
+    const fakeWav = Buffer.from('RIFF');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(fakeWav.buffer),
+    });
+
+    // Cache with default params
+    await request(app).post('/tts').send({ text: 'Voice param test' });
+
+    // Request with a different speaking_rate → different cache key → 204
+    global.fetch = jest.fn();
+    const res = await request(app).post('/tts/cached').send({ text: 'Voice param test', speaking_rate: 20 });
+    expect(res.status).toBe(204);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
