@@ -161,7 +161,16 @@ def _ensure_prebuilt_voices() -> None:
                         device=_DEVICE,
                     )
                     conditioning = _model.prepare_conditioning(cond_dict)
-                    codes = _model.generate(conditioning)
+                    # Preset phrases are at most ~6 s of speech; cap at 15 s to
+                    # avoid allocating a full 30-second KV cache per preset.
+                    # The oversized cache exhausts VRAM, causing a CUDA error
+                    # that corrupts the device context and makes every subsequent
+                    # synthesis request fail with "CUDA error: unknown error".
+                    codes = _model.generate(
+                        conditioning,
+                        max_new_tokens=86 * 15,
+                        progress_bar=False,
+                    )
                     wav   = _model.autoencoder.decode(codes).cpu()[0]
                     all_wavs.append(wav)
 
@@ -173,6 +182,11 @@ def _ensure_prebuilt_voices() -> None:
                 )
 
             torch.save(speaker.cpu(), pt_path)
+            # Free any cached CUDA allocations before the next preset so that
+            # repeated synthesis + speaker-encoder calls don't accumulate
+            # fragmented VRAM across the six preset iterations.
+            if _DEVICE != "cpu":
+                torch.cuda.empty_cache()
             print(f"[Zonos] Generated preset voice: {preset_id}", flush=True)
 
         except Exception as exc:  # noqa: BLE001
