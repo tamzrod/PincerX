@@ -845,6 +845,53 @@ describe('GET /tts/voices', () => {
   });
 });
 
+// ─── GET /tts/voice-presets ──────────────────────────────────────────────────
+
+describe('GET /tts/voice-presets', () => {
+  let originalFetch;
+
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('returns the preset list from Zonos', async () => {
+    const presets = [
+      { id: 'preset-adult-female', label: 'Adult Female (20–40 yrs)', ready: true },
+      { id: 'preset-adult-male',   label: 'Adult Male (20–40 yrs)',   ready: false },
+    ];
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ presets }),
+    });
+
+    const res = await request(app).get('/tts/voice-presets');
+
+    expect(res.status).toBe(200);
+    expect(res.body.presets).toHaveLength(2);
+    expect(res.body.presets[0]).toMatchObject({ id: 'preset-adult-female', ready: true });
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/voices/presets'),
+      expect.any(Object),
+    );
+  });
+
+  it('returns 502 when Zonos is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const res = await request(app).get('/tts/voice-presets');
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/TTS service unreachable/i);
+  });
+
+  it('returns 502 when Zonos returns a non-OK status', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503 });
+
+    const res = await request(app).get('/tts/voice-presets');
+
+    expect(res.status).toBe(502);
+  });
+});
+
 // ─── POST /tts/voice ─────────────────────────────────────────────────────────
 
 describe('POST /tts/voice', () => {

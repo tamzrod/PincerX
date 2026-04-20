@@ -597,6 +597,109 @@
     }
     .btn-small-danger:hover { background: #fdf0ef; }
 
+    /* ── Paragraph hover editing ─────────────────────────────────────────────── */
+
+    .reading-chapter p[data-speaker] {
+      position: relative;
+      padding: 3px 26px 3px 4px;
+      border-radius: 3px;
+      margin-left: -4px;
+      transition: background-color 0.1s;
+    }
+
+    .reading-chapter p[data-speaker]:hover {
+      background: rgba(74, 108, 247, 0.07);
+    }
+
+    .reading-chapter p.para-unsaved {
+      background: rgba(255, 167, 38, 0.13);
+    }
+
+    .para-edit-btn {
+      display: none;
+      position: absolute;
+      right: 2px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 11px;
+      padding: 1px 3px;
+      opacity: 0.55;
+      line-height: 1;
+    }
+
+    .reading-chapter p[data-speaker]:hover .para-edit-btn {
+      display: inline;
+    }
+
+    /* ── Paragraph context menu ───────────────────────────────────────────────── */
+
+    #para-ctx-menu {
+      display: none;
+      position: fixed;
+      z-index: 500;
+      background: #fff;
+      border: 1px solid #e0e3ef;
+      border-radius: 8px;
+      padding: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.15);
+      min-width: 210px;
+      font-size: 13px;
+    }
+
+    #para-ctx-menu.open { display: block; }
+
+    .para-ctx-label {
+      font-size: 11px;
+      color: #888;
+      padding: 0 2px 6px;
+      border-bottom: 1px solid #eee;
+      margin-bottom: 8px;
+    }
+
+    #para-ctx-speaker {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+      margin-bottom: 8px;
+    }
+
+    #para-ctx-speaker:focus { border-color: #4a6cf7; }
+
+    .para-ctx-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      padding: 5px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      color: #333;
+      margin-bottom: 3px;
+    }
+
+    .para-ctx-btn:hover { background: #f0f4ff; color: #4a6cf7; }
+
+    .para-ctx-btn.primary {
+      background: #4a6cf7;
+      color: #fff;
+      text-align: center;
+      margin-top: 6px;
+      margin-bottom: 0;
+      font-weight: 500;
+    }
+
+    .para-ctx-btn.primary:hover { background: #3a5ce7; }
+    .para-ctx-btn.primary:disabled { background: #9db2f7; cursor: default; }
+
     /* ── TTS prebake progress bar ─────────────────────────────────────────── */
 
     .tts-prebake-wrap {
@@ -1652,7 +1755,265 @@
     return parts.length > 0 ? parts : [chunk];
   }
 
-  // ── Voice settings ────────────────────────────────────────────────────────
+  // ── Paragraph rendering with speaker metadata ─────────────────────────────
+
+  /**
+   * Human-readable labels for built-in voice presets.
+   * Mirrors the VOICE_PRESETS dict in zonos/server.py.
+   */
+  const PRESET_LABELS = {
+    'preset-young-girl':     'Preset: Young Girl',
+    'preset-young-boy':      'Preset: Young Boy',
+    'preset-adult-female':   'Preset: Adult Female',
+    'preset-adult-male':     'Preset: Adult Male',
+    'preset-elderly-female': 'Preset: Elderly Female',
+    'preset-elderly-male':   'Preset: Elderly Male',
+  };
+
+  /**
+   * Return a human-readable voice label for display in character cards.
+   *
+   * @param {string} voiceId
+   * @returns {string}
+   */
+  function formatVoiceId(voiceId) {
+    if (!voiceId) return '🎙 No voice assigned';
+    return '🎙 ' + (PRESET_LABELS[voiceId] || voiceId);
+  }
+
+  /**
+   * Map a character's gender (and optional personality) to the best-fit
+   * built-in voice preset.  Mirrors the pickVoicePreset() logic in story.js.
+   *
+   * @param {string} gender      - 'male', 'female', 'non-binary', or ''.
+   * @param {string} [personality] - Optional personality text for age hints.
+   * @returns {string} Preset voice ID.
+   */
+  function pickCharacterPreset(gender, personality) {
+    const g    = (gender      || '').toLowerCase();
+    const desc = (personality || '').toLowerCase();
+    const isYoung   = /\b(young|child|teen|youth|kid)\b/.test(desc);
+    const isElderly = /\b(old|elder|aged|elderly|senior)\b/.test(desc);
+
+    if (g === 'female' || g === 'non-binary') {
+      if (isYoung)   return 'preset-young-girl';
+      if (isElderly) return 'preset-elderly-female';
+      return 'preset-adult-female';
+    }
+    if (g === 'male') {
+      if (isYoung)   return 'preset-young-boy';
+      if (isElderly) return 'preset-elderly-male';
+      return 'preset-adult-male';
+    }
+    return 'preset-adult-male';
+  }
+
+  /**
+   * Build and append paragraph elements for a chapter section.
+   * Each <p> receives data-speaker and data-emotion attributes (extracted
+   * from the raw TTS tags) and a small edit button that opens the inline
+   * speaker editor.  The visible text has TTS tags stripped.
+   *
+   * @param {string}      rawContent - Raw chapter content with [speaker:X][emotion:X] tags.
+   * @param {HTMLElement} container  - The .reading-chapter section element to append to.
+   */
+  function renderChapterParagraphs(rawContent, container) {
+    const PARA_SPEAKER_RE = /^\[speaker:([A-Za-z0-9_-]+)\]\s*/;
+    const PARA_EMOTION_RE = /\[emotion:([a-z]+)\]/;
+
+    rawContent.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean).forEach((para, idx) => {
+      const speakerMatch = para.match(PARA_SPEAKER_RE);
+      const emotionMatch = para.match(PARA_EMOTION_RE);
+      const speaker = speakerMatch ? speakerMatch[1] : 'narrator';
+      const emotion = emotionMatch ? emotionMatch[1] : 'neutral';
+
+      const p = document.createElement('p');
+      p.textContent = stripTTSTags(para);
+      p.dataset.speaker   = speaker;
+      p.dataset.emotion   = emotion;
+      p.dataset.paraIdx   = idx;
+
+      const editBtn = document.createElement('button');
+      editBtn.className   = 'para-edit-btn';
+      editBtn.textContent = '✏️';
+      editBtn.title       = 'Edit speaker (or right-click paragraph)';
+      editBtn.setAttribute('aria-label', 'Edit paragraph speaker');
+      editBtn.onclick = (e) => { e.stopPropagation(); openParaCtxMenu(e, p); };
+      p.appendChild(editBtn);
+
+      container.appendChild(p);
+    });
+  }
+
+  // ── Paragraph context menu ────────────────────────────────────────────────
+
+  /** Tracks which paragraph and chapter section are being edited. */
+  const _paraCtx = { paragraph: null, section: null };
+
+  /**
+   * Build the list of speakers available for the current story.
+   * Combines generic options with named characters from the character cards.
+   *
+   * @returns {string[]}
+   */
+  function _getStorySpeakers() {
+    const chars = Array.from(document.querySelectorAll('.char-card'))
+      .map((c) => c.querySelector('.char-card-name').textContent.split(' — ')[0].trim());
+    return ['narrator', 'male', 'female',
+      ...chars.filter((n) => !['narrator', 'male', 'female'].includes(n))];
+  }
+
+  /**
+   * Open the floating paragraph context menu near the triggering event.
+   *
+   * @param {MouseEvent|PointerEvent} e - The click / contextmenu event.
+   * @param {HTMLElement}             pEl - The <p data-speaker> element.
+   */
+  function openParaCtxMenu(e, pEl) {
+    const section = pEl.closest('.reading-chapter');
+    if (!section) return;
+
+    _paraCtx.paragraph = pEl;
+    _paraCtx.section   = section;
+
+    // Populate speaker dropdown
+    const speakerSel     = document.getElementById('para-ctx-speaker');
+    const currentSpeaker = pEl.dataset.speaker || 'narrator';
+    speakerSel.innerHTML = '';
+    _getStorySpeakers().forEach((sp) => {
+      const opt = document.createElement('option');
+      opt.value = sp; opt.textContent = sp;
+      if (sp === currentSpeaker) opt.selected = true;
+      speakerSel.appendChild(opt);
+    });
+
+    // Position menu near cursor, keeping it fully on-screen
+    const menu = document.getElementById('para-ctx-menu');
+    const x = Math.min(e.clientX, window.innerWidth  - 230);
+    const y = Math.min(e.clientY, window.innerHeight - 240);
+    menu.style.left = `${x}px`;
+    menu.style.top  = `${y}px`;
+    menu.classList.add('open');
+    speakerSel.focus();
+  }
+
+  /** Close the paragraph context menu without saving. */
+  function closeParaCtxMenu() {
+    document.getElementById('para-ctx-menu').classList.remove('open');
+    _paraCtx.paragraph = null;
+    _paraCtx.section   = null;
+  }
+
+  /**
+   * Apply the speaker selected in the context menu dropdown to the paragraph.
+   * Marks the paragraph and section as having unsaved changes.
+   */
+  function applyParaCtxSpeaker() {
+    const pEl = _paraCtx.paragraph;
+    if (!pEl) return;
+    pEl.dataset.speaker = document.getElementById('para-ctx-speaker').value;
+    pEl.classList.add('para-unsaved');
+    if (_paraCtx.section) _paraCtx.section.dataset.unsaved = '1';
+  }
+
+  /**
+   * Rebuild chapter content from the current paragraph DOM state and PATCH it
+   * to the server.  Clears unsaved-change indicators on success.
+   */
+  async function saveParaCtxChanges() {
+    const section = _paraCtx.section;
+    if (!section || !storyState.id) return;
+
+    const chapterNum = Number(section.dataset.chapter);
+    if (!chapterNum) return;
+
+    // Reconstruct content from each paragraph's data attributes + visible text
+    const paras = Array.from(section.querySelectorAll('p[data-speaker]'));
+    const content = paras.map((p) => {
+      const speaker = p.dataset.speaker || 'narrator';
+      const emotion = p.dataset.emotion || 'neutral';
+      // Collect only text nodes (skip the edit-icon button child)
+      const text = Array.from(p.childNodes)
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => n.textContent)
+        .join('').trim();
+      if (!text) return null;
+      return `[speaker:${speaker}][emotion:${emotion}] ${text}`;
+    }).filter(Boolean).join('\n\n');
+
+    const btn = document.getElementById('para-ctx-save');
+    const origLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Saving…';
+
+    try {
+      await apiFetch(
+        `/story/${encodeURIComponent(storyState.id)}/chapter/${chapterNum}`,
+        {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ content }),
+        },
+      );
+      // Persist the updated raw content on the section element
+      section.dataset.rawContent = content;
+      // Clear unsaved-change indicators
+      section.querySelectorAll('p.para-unsaved').forEach((p) => p.classList.remove('para-unsaved'));
+      delete section.dataset.unsaved;
+      closeParaCtxMenu();
+    } catch (e) {
+      btn.textContent = '⚠️ Save failed';
+      setTimeout(() => { btn.disabled = false; btn.textContent = origLabel; }, 2500);
+    }
+  }
+
+  /**
+   * Open the character manager (and pre-fill it for the current speaker) or
+   * the global voice settings modal for generic speakers.
+   */
+  function openModifyVoiceForPara() {
+    const speaker = document.getElementById('para-ctx-speaker').value;
+    closeParaCtxMenu();
+
+    const GENERIC = new Set(['narrator', 'male', 'female']);
+    if (!GENERIC.has(speaker)) {
+      // Open character section and pre-fill the Add/Update form
+      const charSection = document.getElementById('char-section');
+      charSection.style.display = '';
+      const details = charSection.querySelector('details');
+      if (details) details.open = true;
+      const nameInput = document.getElementById('char-name');
+      if (nameInput && !nameInput.value) nameInput.value = speaker;
+      charSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      populateCharVoicePicker();
+    } else {
+      openVoiceSettings();
+    }
+  }
+
+  // Wire up context menu controls
+  document.getElementById('para-ctx-speaker')
+    .addEventListener('change', applyParaCtxSpeaker);
+  document.getElementById('para-ctx-modify-voice')
+    .addEventListener('click', openModifyVoiceForPara);
+  document.getElementById('para-ctx-save')
+    .addEventListener('click', saveParaCtxChanges);
+
+  // Right-click anywhere in the reading view
+  document.getElementById('reading-view').addEventListener('contextmenu', (e) => {
+    const pEl = e.target.closest('p[data-speaker]');
+    if (!pEl) return;
+    e.preventDefault();
+    openParaCtxMenu(e, pEl);
+  });
+
+  // Dismiss context menu when clicking outside it
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('para-ctx-menu');
+    if (menu.classList.contains('open') && !menu.contains(e.target)) {
+      closeParaCtxMenu();
+    }
+  });
 
   // Default speaking rate in tokens/second (matches the Zonos server default).
   const TTS_DEFAULT_RATE = 15;
@@ -1709,9 +2070,9 @@
       const data = await apiFetch('/tts/voices');
       const voices = data.voices || [];
 
-      // Rebuild dropdown
+      // Rebuild dropdown — exclude built-in presets (those are per-character)
       select.innerHTML = '<option value="">Default Voice</option>';
-      voices.forEach((v) => {
+      voices.filter((v) => !v.startsWith('preset-')).forEach((v) => {
         const opt = document.createElement('option');
         opt.value = v;
         opt.textContent = v;
@@ -2338,6 +2699,9 @@
       storyState.nextChapter = chapterNumber + 1;
       clearMsg('chapter-msg');
       document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
+      // Refresh character list — auto-extraction may have added new characters.
+      await loadCharacters();
+      await refreshCharacterVoiceMap();
     } catch (e) {
       showMsg('chapter-msg', e.message, 'error');
     } finally {
@@ -2371,12 +2735,7 @@
       // Update the raw content store so TTS can read emotion tags from the new content.
       sectionEl.dataset.rawContent = cleanContent;
       sectionEl.querySelectorAll('p').forEach((p) => p.remove());
-      const paragraphs = cleanContent.split(/\n{2,}/).map((s) => stripTTSTags(s.trim())).filter(Boolean);
-      paragraphs.forEach((text) => {
-        const p = document.createElement('p');
-        p.textContent = text;
-        sectionEl.appendChild(p);
-      });
+      renderChapterParagraphs(cleanContent, sectionEl);
 
       clearMsg('chapter-msg');
     } catch (e) {
@@ -2429,12 +2788,7 @@
       stopTTS();
       existing.dataset.rawContent = clean;
       existing.querySelectorAll('p').forEach((p) => p.remove());
-      const paragraphs = clean.split(/\n{2,}/).map((s) => stripTTSTags(s.trim())).filter(Boolean);
-      paragraphs.forEach((text) => {
-        const p = document.createElement('p');
-        p.textContent = text;
-        existing.appendChild(p);
-      });
+      renderChapterParagraphs(clean, existing);
       existing.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
@@ -2507,13 +2861,8 @@
     prebakeWrap.appendChild(prebakeLabel);
     section.appendChild(prebakeWrap);
 
-    // Split on blank lines to create paragraphs, stripping speaker/emotion tags from display.
-    const paragraphs = clean.split(/\n{2,}/).map((s) => stripTTSTags(s.trim())).filter(Boolean);
-    paragraphs.forEach((text) => {
-      const p = document.createElement('p');
-      p.textContent = text;
-      section.appendChild(p);
-    });
+    // Build paragraph elements with speaker/emotion metadata
+    renderChapterParagraphs(clean, section);
 
     // Insert in chapter-number order
     const siblings = readingView.querySelectorAll('.reading-chapter');
@@ -2835,7 +3184,7 @@
 
     const voiceEl = document.createElement('div');
     voiceEl.className = 'char-card-voice';
-    voiceEl.textContent = c.voiceId ? `🎙 ${c.voiceId}` : '🎙 No voice assigned';
+    voiceEl.textContent = formatVoiceId(c.voiceId);
 
     const delBtn = document.createElement('button');
     delBtn.className = 'btn-danger';
@@ -2860,9 +3209,16 @@
     const personality = document.getElementById('char-personality').value.trim();
     const backstory   = document.getElementById('char-backstory').value.trim();
     const speechStyle = document.getElementById('char-speech').value.trim();
-    const voiceId     = document.getElementById('char-voice').value;
+    let   voiceId     = document.getElementById('char-voice').value;
 
     if (!name) { showMsg('char-msg', 'Character name is required.', 'error'); return; }
+
+    // Auto-assign a built-in preset when no voice was selected
+    let autoAssigned = false;
+    if (!voiceId) {
+      voiceId      = pickCharacterPreset(gender, personality);
+      autoAssigned = true;
+    }
 
     const btn = document.getElementById('char-save-btn');
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Saving…';
@@ -2878,8 +3234,13 @@
         document.getElementById(id).value = '';
       });
       document.getElementById('char-gender').value = '';
-      document.getElementById('char-voice').value = '';
-      showMsg('char-msg', `Character "${name}" saved.`, 'success');
+      document.getElementById('char-voice').value  = '';
+
+      const presetLabel = PRESET_LABELS[voiceId];
+      const msg = autoAssigned && presetLabel
+        ? `Character "${name}" saved. Voice auto-assigned: ${presetLabel}.`
+        : `Character "${name}" saved.`;
+      showMsg('char-msg', msg, 'success');
       await loadCharacters();
       await refreshCharacterVoiceMap();
     } catch (e) {
@@ -2903,22 +3264,51 @@
   }
 
   /**
-   * Populate the character voice picker with the voices available from Zonos.
+   * Populate the character voice picker with voices from Zonos.
+   * User-uploaded voices are shown under "Custom Voices"; built-in presets
+   * (auto-generated at Zonos startup) are shown under "Built-in Presets".
    * Called when the character manager section is first shown.
    */
   async function populateCharVoicePicker() {
-    const select = document.getElementById('char-voice');
+    const select  = document.getElementById('char-voice');
     const current = select.value;
     select.innerHTML = '<option value="">No voice (use narrator voice)</option>';
+
+    // ── User-uploaded custom voices ────────────────────────────────────────
     try {
       const data = await fetch('/tts/voices').then((r) => r.ok ? r.json() : null).catch(() => null);
-      (data && data.voices ? data.voices : []).forEach((v) => {
-        const opt = document.createElement('option');
-        opt.value = v; opt.textContent = v;
-        select.appendChild(opt);
-      });
-      if (current) select.value = current;
+      const userVoices = (data && data.voices ? data.voices : [])
+        .filter((v) => !v.startsWith('preset-'));
+      if (userVoices.length) {
+        const grp = document.createElement('optgroup');
+        grp.label = 'Custom Voices';
+        userVoices.forEach((v) => {
+          const opt = document.createElement('option');
+          opt.value = v; opt.textContent = v;
+          grp.appendChild(opt);
+        });
+        select.appendChild(grp);
+      }
     } catch { /* Zonos offline */ }
+
+    // ── Built-in voice presets ─────────────────────────────────────────────
+    try {
+      const presetData = await fetch('/tts/voice-presets').then((r) => r.ok ? r.json() : null).catch(() => null);
+      const presets = (presetData && presetData.presets) ? presetData.presets : [];
+      if (presets.length) {
+        const grp = document.createElement('optgroup');
+        grp.label = 'Built-in Voice Presets';
+        presets.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.label + (p.ready ? '' : ' (generating…)');
+          grp.appendChild(opt);
+        });
+        select.appendChild(grp);
+      }
+    } catch { /* Zonos offline */ }
+
+    if (current) select.value = current;
   }
 
   // ── Voice Transcript Editor ───────────────────────────────────────────────
@@ -3101,13 +3491,8 @@
       const sectionEl = document.querySelector(`.reading-chapter[data-chapter="${transcriptChapterNum}"]`);
       if (sectionEl) {
         sectionEl.dataset.rawContent = content;
-        // Re-render clean paragraphs
         sectionEl.querySelectorAll('p').forEach((p) => p.remove());
-        content.split(/\n{2,}/).map((s) => stripTTSTags(s.trim())).filter(Boolean).forEach((text) => {
-          const p = document.createElement('p');
-          p.textContent = text;
-          sectionEl.appendChild(p);
-        });
+        renderChapterParagraphs(content, sectionEl);
       }
       showMsg('transcript-msg', 'Saved.', 'success');
       setTimeout(closeTranscriptEditor, 800);
@@ -3120,7 +3505,7 @@
 
   // Close modals on Escape key
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeSettings(); closeVoiceSettings(); closeTranscriptEditor(); stopTranscriptPreview(); }
+    if (e.key === 'Escape') { closeSettings(); closeVoiceSettings(); closeTranscriptEditor(); stopTranscriptPreview(); closeParaCtxMenu(); }
   });
 
   // Enter key shortcut for ask input
@@ -3132,6 +3517,15 @@
   loadPDFs();
   loadStoryList();
 </script>
+
+<!-- ── Paragraph edit context menu ──────────────────────────────────────── -->
+<div id="para-ctx-menu" role="dialog" aria-label="Edit paragraph speaker">
+  <div class="para-ctx-label" id="para-ctx-title">Paragraph Speaker</div>
+  <select id="para-ctx-speaker" aria-label="Assign speaker"></select>
+  <button class="para-ctx-btn" id="para-ctx-modify-voice">🎙 Modify Voice Profile</button>
+  <hr style="border:none;border-top:1px solid #eee;margin:4px 0 6px">
+  <button class="para-ctx-btn primary" id="para-ctx-save">💾 Save Chapter Changes</button>
+</div>
 
 <!-- ── Voice Transcript Editor modal ─────────────────────────────────────── -->
 <div class="modal-overlay" id="transcript-overlay" onclick="if(event.target===this){stopTranscriptPreview();closeTranscriptEditor();}">

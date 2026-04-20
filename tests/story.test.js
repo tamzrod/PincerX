@@ -435,3 +435,187 @@ describe('story.js — updateChapterContent()', () => {
     expect(() => storyModule.updateChapterContent(id, 99, 'content')).toThrow('Chapter 99 not found');
   });
 });
+
+// ── story.js — _extractNewCharacters() (via generateChapter) ────────────────
+
+describe('story.js — auto-character extraction (via generateChapter)', () => {
+  function writeStory(id, data = {}) {
+    fs.mkdirSync(STORIES_DIR, { recursive: true });
+    const defaults = {
+      id,
+      title: 'Test Story',
+      genre: 'fantasy',
+      tone: 'epic',
+      outline: 'A hero sets out on a quest.',
+      createdAt: new Date().toISOString(),
+      chapters: [],
+    };
+    fs.writeFileSync(
+      path.join(STORIES_DIR, `${id}.json`),
+      JSON.stringify({ ...defaults, ...data }, null, 2),
+      'utf8',
+    );
+  }
+
+  beforeEach(() => {
+    storyRag.listDocs.mockReturnValue([]);
+    storyRag.addDoc.mockImplementation(() => {});
+    storyRag.removeDoc.mockReturnValue(true);
+  });
+
+  it('auto-creates a character profile for a named speaker in chapter content', async () => {
+    writeStory('test-char-extract-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:Elena][emotion:neutral] She walked in.' }))
+      .mockResolvedValueOnce('Elena walked in.')
+      .mockResolvedValueOnce(JSON.stringify({ role: 'protagonist', gender: 'female', personality: 'brave' }));
+
+    await storyModule.generateChapter('test-char-extract-1234', 1);
+
+    expect(storyRag.addDoc).toHaveBeenCalledWith('test-char-extract-1234', expect.objectContaining({
+      type:        'character',
+      name:        'Elena',
+      role:        'protagonist',
+      gender:      'female',
+      personality: 'brave',
+      voiceId:     'preset-adult-female',
+    }));
+  });
+
+  it('skips generic speakers (narrator, male, female)', async () => {
+    writeStory('test-generic-speakers-1234');
+    ai.ask
+      .mockResolvedValueOnce(
+        JSON.stringify({ content: '[speaker:narrator] Narration. [speaker:male] Male line. [speaker:female] Female line.' }),
+      )
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-generic-speakers-1234', 1);
+
+    // Only the summary addDoc call — no character addDoc calls
+    expect(storyRag.addDoc).toHaveBeenCalledTimes(1);
+    expect(storyRag.addDoc).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ type: 'summary' }),
+    );
+  });
+
+  it('skips characters that already exist in the RAG store', async () => {
+    writeStory('test-skip-existing-1234');
+    storyRag.listDocs.mockImplementation((_, type) => {
+      if (type === 'character') {
+        return [{ id: 'char-elena', name: 'Elena', type: 'character', voiceId: 'my_voice' }];
+      }
+      return [];
+    });
+
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:Elena] She smiled.' }))
+      .mockResolvedValueOnce('Elena smiled.');
+
+    await storyModule.generateChapter('test-skip-existing-1234', 1);
+
+    // Only the summary addDoc, no character addDoc
+    expect(storyRag.addDoc).toHaveBeenCalledTimes(1);
+    expect(storyRag.addDoc).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ type: 'summary' }),
+    );
+  });
+
+  it('does not fail chapter generation when character AI call throws', async () => {
+    writeStory('test-char-extract-err-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:Marcus] He arrived.' }))
+      .mockResolvedValueOnce('Marcus arrived.')
+      .mockRejectedValueOnce(new Error('AI timeout'));
+
+    await expect(
+      storyModule.generateChapter('test-char-extract-err-1234', 1),
+    ).resolves.toHaveProperty('content');
+  });
+
+  it('assigns the correct voice preset based on gender and personality', async () => {
+    writeStory('test-voice-preset-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:Tommy] Hey!' }))
+      .mockResolvedValueOnce('Tommy spoke.')
+      .mockResolvedValueOnce(JSON.stringify({ role: 'sidekick', gender: 'male', personality: 'young, energetic' }));
+
+    await storyModule.generateChapter('test-voice-preset-1234', 1);
+
+    expect(storyRag.addDoc).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ voiceId: 'preset-young-boy' }),
+    );
+  });
+
+  it('passes aiOptions to the character-description AI call', async () => {
+    writeStory('test-char-opts-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:Zara] Hi there!' }))
+      .mockResolvedValueOnce('Zara spoke.')
+      .mockResolvedValueOnce(JSON.stringify({ role: 'hero', gender: 'female', personality: 'bold' }));
+
+    await storyModule.generateChapter('test-char-opts-1234', 1, { model: 'mistral' });
+
+    // Call 3 is the character-description call
+    expect(ai.ask).toHaveBeenNthCalledWith(3, expect.any(String), { model: 'mistral' });
+  });
+
+  it('does not duplicate a character seen multiple times in the same chapter', async () => {
+    writeStory('test-dedup-speakers-1234');
+    ai.ask
+      .mockResolvedValueOnce(
+        JSON.stringify({ content: '[speaker:Aria] First. [speaker:Aria] Second.' }),
+      )
+      .mockResolvedValueOnce('Aria spoke twice.')
+      // Only one character-description call expected
+      .mockResolvedValueOnce(JSON.stringify({ role: 'hero', gender: 'female', personality: 'brave' }));
+
+    await storyModule.generateChapter('test-dedup-speakers-1234', 1);
+
+    const charCalls = storyRag.addDoc.mock.calls.filter(
+      ([, doc]) => doc.type === 'character',
+    );
+    expect(charCalls).toHaveLength(1);
+    expect(charCalls[0][1]).toMatchObject({ name: 'Aria' });
+  });
+});
+
+// ── story.js — pickVoicePreset() ─────────────────────────────────────────────
+
+describe('story.js — pickVoicePreset()', () => {
+  it('returns preset-adult-female for female gender with no age hint', () => {
+    expect(storyModule.pickVoicePreset('female', '')).toBe('preset-adult-female');
+  });
+
+  it('returns preset-young-girl for female gender with young keyword', () => {
+    expect(storyModule.pickVoicePreset('female', 'young, curious')).toBe('preset-young-girl');
+  });
+
+  it('returns preset-elderly-female for female gender with elderly keyword', () => {
+    expect(storyModule.pickVoicePreset('female', 'elderly, wise')).toBe('preset-elderly-female');
+  });
+
+  it('returns preset-adult-male for male gender with no age hint', () => {
+    expect(storyModule.pickVoicePreset('male', '')).toBe('preset-adult-male');
+  });
+
+  it('returns preset-young-boy for male gender with child keyword', () => {
+    expect(storyModule.pickVoicePreset('male', 'child, playful')).toBe('preset-young-boy');
+  });
+
+  it('returns preset-elderly-male for male gender with senior keyword', () => {
+    expect(storyModule.pickVoicePreset('male', 'senior, stoic')).toBe('preset-elderly-male');
+  });
+
+  it('returns preset-adult-male as default for unspecified gender', () => {
+    expect(storyModule.pickVoicePreset('', '')).toBe('preset-adult-male');
+    expect(storyModule.pickVoicePreset(undefined, '')).toBe('preset-adult-male');
+  });
+
+  it('returns preset-young-girl for non-binary gender with young keyword', () => {
+    expect(storyModule.pickVoicePreset('non-binary', 'teen, shy')).toBe('preset-young-girl');
+  });
+});
