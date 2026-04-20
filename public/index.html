@@ -707,14 +707,26 @@
     <h2 id="settings-title">⚙ AI Configuration</h2>
 
     <div class="field-group">
-      <div class="field-row">
-        <label>Scheme &amp; Host</label>
-        <select id="cfg-scheme">
-          <option value="http">http://</option>
-          <option value="https">https://</option>
-        </select>
-        <input type="text" id="cfg-host" placeholder="192.168.1.10 or localhost" style="flex:1" />
-        <input type="text" id="cfg-port" placeholder="Port" style="width:80px" />
+      <label for="cfg-provider">Provider</label>
+      <select id="cfg-provider" onchange="onProviderChange()">
+        <option value="ollama">Ollama (Local)</option>
+        <option value="groq">Groq — free tier, no credit card needed</option>
+        <option value="openrouter">OpenRouter — free models available</option>
+      </select>
+      <p id="cfg-provider-note" style="font-size:11px;color:#555;margin-top:6px;padding:6px 8px;background:#f0f4ff;border-radius:4px;display:none"></p>
+    </div>
+
+    <div id="cfg-local-fields">
+      <div class="field-group">
+        <div class="field-row">
+          <label>Scheme &amp; Host</label>
+          <select id="cfg-scheme">
+            <option value="http">http://</option>
+            <option value="https">https://</option>
+          </select>
+          <input type="text" id="cfg-host" placeholder="192.168.1.10 or localhost" style="flex:1" />
+          <input type="text" id="cfg-port" placeholder="Port" style="width:80px" />
+        </div>
       </div>
     </div>
 
@@ -729,7 +741,7 @@
     </div>
 
     <div class="field-group">
-      <label for="cfg-apikey">API Key <span style="color:#aaa;font-weight:400">(leave blank for none / Ollama)</span></label>
+      <label for="cfg-apikey">API Key <span id="cfg-apikey-note" style="color:#aaa;font-weight:400">(leave blank for none / Ollama)</span></label>
       <input type="password" id="cfg-apikey" placeholder="sk-… or leave blank" autocomplete="off" />
     </div>
 

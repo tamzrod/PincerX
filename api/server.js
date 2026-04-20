@@ -66,7 +66,7 @@ function validateStringField(value, fieldName) {
 
 /**
  * GET /config
- * Returns the current AI configuration (baseUrl, model, and whether an API key is stored).
+ * Returns the current AI configuration (baseUrl, model, provider, and whether an API key is stored).
  */
 app.get('/config', (_req, res) => {
   let stored = {};
@@ -80,18 +80,20 @@ app.get('/config', (_req, res) => {
   return res.json({
     baseUrl: stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434',
     model: stored.model || process.env.AI_MODEL || 'llama3',
+    provider: stored.provider || process.env.AI_PROVIDER || 'ollama',
     hasApiKey: Boolean(stored.apiKey || process.env.AI_API_KEY),
   });
 });
 
 /**
  * POST /config
- * Body: { "baseUrl": "http://192.168.1.10:11434", "model": "llama3.2", "apiKey": "sk-..." }
+ * Body: { "baseUrl": "http://192.168.1.10:11434", "model": "llama3.2", "apiKey": "sk-...", "provider": "ollama" }
  * Saves AI configuration to data/ai-config.json.
  * Omit apiKey to keep the existing stored key; send an empty string to clear it.
+ * provider must be "ollama" or "openai".
  */
 app.post('/config', (req, res) => {
-  const { baseUrl, model, apiKey } = req.body;
+  const { baseUrl, model, apiKey, provider } = req.body;
 
   const urlErr = validateStringField(baseUrl, 'baseUrl');
   if (urlErr) return res.status(400).json({ error: urlErr });
@@ -101,6 +103,11 @@ app.post('/config', (req, res) => {
     new URL(baseUrl);
   } catch {
     return res.status(400).json({ error: 'baseUrl must be a valid URL (e.g. http://192.168.1.10:11434).' });
+  }
+
+  const VALID_PROVIDERS = ['ollama', 'openai'];
+  if (provider !== undefined && !VALID_PROVIDERS.includes(provider)) {
+    return res.status(400).json({ error: `provider must be one of: ${VALID_PROVIDERS.join(', ')}.` });
   }
 
   let config = {};
@@ -114,6 +121,10 @@ app.post('/config', (req, res) => {
 
   if (typeof model === 'string' && model.trim()) {
     config.model = model.trim();
+  }
+
+  if (typeof provider === 'string') {
+    config.provider = provider;
   }
 
   // Only update apiKey if the caller included it in the request body
@@ -131,40 +142,61 @@ app.post('/config', (req, res) => {
 });
 
 /**
- * GET /models?baseUrl=http://192.168.1.10:11434
- * Proxies a request to the Ollama-compatible backend's /api/tags endpoint
- * and returns the list of available model names.
+ * GET /models?baseUrl=http://192.168.1.10:11434&provider=ollama
+ * Proxies a request to the AI backend to list available models.
+ * For "ollama" provider: calls /api/tags (Ollama format).
+ * For "openai" provider: calls /models (OpenAI-compatible format).
  */
 app.get('/models', async (req, res) => {
-  let { baseUrl } = req.query;
-  if (!baseUrl) {
-    // Fall back to the currently configured baseUrl
+  let { baseUrl, provider } = req.query;
+
+  let stored = {};
+  if (!baseUrl || !provider) {
     try {
-      const stored = fs.existsSync(CONFIG_PATH)
+      stored = fs.existsSync(CONFIG_PATH)
         ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
         : {};
-      baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
-    } catch {
-      baseUrl = process.env.AI_BASE_URL || 'http://localhost:11434';
-    }
+    } catch { /* use defaults */ }
   }
 
-  let tagsUrl;
+  if (!baseUrl) {
+    baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
+  }
+  if (!provider) {
+    provider = stored.provider || process.env.AI_PROVIDER || 'ollama';
+  }
+
+  let modelsUrl;
   try {
-    tagsUrl = new URL('/api/tags', baseUrl).toString();
+    modelsUrl = new URL(provider === 'openai' ? '/models' : '/api/tags', baseUrl).toString();
   } catch {
     return res.status(400).json({ error: 'Invalid baseUrl.' });
   }
 
   try {
-    const response = await fetch(tagsUrl, { signal: AbortSignal.timeout(8000) });
+    const headers = {};
+    const apiKey = stored.apiKey || process.env.AI_API_KEY || '';
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+    const response = await fetch(modelsUrl, {
+      signal: AbortSignal.timeout(8000),
+      headers,
+    });
     if (!response.ok) {
       return res.status(502).json({ error: `Backend returned HTTP ${response.status}` });
     }
     const data = await response.json();
-    const models = Array.isArray(data.models)
-      ? data.models.map((m) => (typeof m === 'string' ? m : m.name)).filter(Boolean)
-      : [];
+
+    let models;
+    if (provider === 'openai') {
+      models = Array.isArray(data.data)
+        ? data.data.map((m) => (typeof m === 'string' ? m : m.id)).filter(Boolean)
+        : [];
+    } else {
+      models = Array.isArray(data.models)
+        ? data.models.map((m) => (typeof m === 'string' ? m : m.name)).filter(Boolean)
+        : [];
+    }
     return res.json({ models });
   } catch (e) {
     return res.status(502).json({ error: `Could not reach AI backend: ${e.message}` });
