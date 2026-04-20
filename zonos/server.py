@@ -177,6 +177,12 @@ def _ensure_prebuilt_voices() -> None:
             combined = torch.cat(all_wavs, dim=-1)
 
             with torch.inference_mode():
+                # Re-apply device placement before calling make_speaker_embedding.
+                # The speaker encoder contains sub-modules that initialise lazily
+                # (i.e. on their first forward pass) and may default to CPU; ensuring
+                # the whole model is on _DEVICE here moves those newly-created tensors
+                # before the embedding is computed.
+                _model.to(_DEVICE)
                 speaker = _model.make_speaker_embedding(
                     combined.to(_DEVICE), _SAMPLING_RATE
                 )

@@ -355,6 +355,8 @@ function ttsFetchError(e) {
 const TTS_MAX_CHARS = 50_000;  // ~8 000 words – more than enough for one chapter
 const TTS_TIMEOUT_MS = 180_000; // 3 min: Zonos on GPU generates ~real-time
 const PREBAKE_JOB_RETENTION_MS = 10 * 60 * 1000; // 10 min – then evict from memory
+const ZONOS_STARTUP_POLL_MS    =   3_000; // poll interval while waiting for Zonos
+const ZONOS_STARTUP_TIMEOUT_MS = 180_000; // give up waiting after 3 min
 
 // Chunk size used by both the frontend player and the server-side prebake —
 // must stay in sync so that cache keys computed on both sides match.
@@ -689,6 +691,29 @@ app.post('/tts/cached', (req, res) => {
 // Jobs live in memory (cleared on restart) but the WAV files they produce are
 // persisted in TTS_CACHE_DIR, so reloaded stories still get cache hits.
 
+/**
+ * Poll the Zonos /health endpoint until it responds with HTTP 200 or
+ * ZONOS_STARTUP_TIMEOUT_MS elapses.  Returns silently in either case so the
+ * caller can proceed (individual synthesis calls will still fail gracefully if
+ * Zonos is genuinely unavailable, but the common startup-race case is handled).
+ *
+ * Prevents a flood of "chunk failed: fetch failed" log messages when pincerx
+ * starts before the Zonos model has finished loading.
+ */
+async function _waitForZonos() {
+  const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
+  const deadline  = Date.now() + ZONOS_STARTUP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const resp = await fetch(`${zonosUrl}/health`, { signal: AbortSignal.timeout(5_000) });
+      if (resp.ok) return;
+    } catch {
+      // Not ready yet; fall through to sleep.
+    }
+    await new Promise((resolve) => setTimeout(resolve, ZONOS_STARTUP_POLL_MS).unref());
+  }
+}
+
 /** @type {Map<string, {total: number, done: number, errors: number, status: string}>} */
 const _prebakeJobs = new Map();
 
@@ -724,6 +749,11 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
   _prebakeJobs.set(jobId, job);
 
   (async () => {
+    // Wait for the Zonos sidecar to be reachable before processing chunks.
+    // This avoids flooding the log with "chunk failed: fetch failed" messages
+    // when pincerx starts before the Zonos model has finished loading.
+    await _waitForZonos();
+
     const generatedKeys = [];
     for (const chunk of chunks) {
       if (job.status === 'cancelled') break;
