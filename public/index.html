@@ -707,14 +707,33 @@
     <h2 id="settings-title">⚙ AI Configuration</h2>
 
     <div class="field-group">
-      <div class="field-row">
-        <label>Scheme &amp; Host</label>
-        <select id="cfg-scheme">
-          <option value="http">http://</option>
-          <option value="https">https://</option>
-        </select>
-        <input type="text" id="cfg-host" placeholder="192.168.1.10 or localhost" style="flex:1" />
-        <input type="text" id="cfg-port" placeholder="Port" style="width:80px" />
+      <label for="cfg-provider">Provider</label>
+      <select id="cfg-provider" onchange="onProviderChange()">
+        <option value="ollama">Ollama (Local)</option>
+        <option value="groq">Groq — free tier, no credit card needed</option>
+        <option value="openrouter">OpenRouter — free models available</option>
+      </select>
+      <p id="cfg-provider-note" style="font-size:11px;color:#555;margin-top:6px;padding:6px 8px;background:#f0f4ff;border-radius:4px;display:none"></p>
+    </div>
+
+    <div id="cfg-local-fields">
+      <div class="field-group">
+        <div class="field-row">
+          <label>Scheme &amp; Host</label>
+          <select id="cfg-scheme">
+            <option value="http">http://</option>
+            <option value="https">https://</option>
+          </select>
+          <input type="text" id="cfg-host" placeholder="192.168.1.10 or localhost" style="flex:1" />
+          <input type="text" id="cfg-port" placeholder="Port" style="width:80px" />
+        </div>
+      </div>
+    </div>
+
+    <div id="cfg-online-fields" style="display:none">
+      <div class="field-group">
+        <label for="cfg-online-url">API Base URL</label>
+        <input type="text" id="cfg-online-url" placeholder="https://api.groq.com/openai/v1" style="width:100%;box-sizing:border-box" autocomplete="off" />
       </div>
     </div>
 
@@ -729,7 +748,7 @@
     </div>
 
     <div class="field-group">
-      <label for="cfg-apikey">API Key <span style="color:#aaa;font-weight:400">(leave blank for none / Ollama)</span></label>
+      <label for="cfg-apikey">API Key <span id="cfg-apikey-note" style="color:#aaa;font-weight:400">(leave blank for none / Ollama)</span></label>
       <input type="password" id="cfg-apikey" placeholder="sk-… or leave blank" autocomplete="off" />
     </div>
 
@@ -1130,24 +1149,78 @@
 
   // ── Settings ──────────────────────────────────────────────────────────────
 
+  // Provider → preset base URL and helpful note text.
+  const PROVIDER_PRESETS = {
+    groq: {
+      url: 'https://api.groq.com/openai/v1',
+      note: 'Get a free API key at console.groq.com — no credit card required.',
+    },
+    openrouter: {
+      url: 'https://openrouter.ai/api/v1',
+      note: 'OpenRouter has free-tier models. Get an optional API key at openrouter.ai.',
+    },
+  };
+
+  // Cached set of preset URLs — used in onProviderChange to detect when
+  // the URL field still shows a preset value (so it can be replaced on switch).
+  const PRESET_URLS = new Set(Object.values(PROVIDER_PRESETS).map((p) => p.url));
+
+  function onProviderChange() {
+    const provider = document.getElementById('cfg-provider').value;
+    const localFields = document.getElementById('cfg-local-fields');
+    const onlineFields = document.getElementById('cfg-online-fields');
+    const note = document.getElementById('cfg-provider-note');
+    const urlInput = document.getElementById('cfg-online-url');
+
+    const preset = PROVIDER_PRESETS[provider];
+    if (preset) {
+      localFields.style.display = 'none';
+      onlineFields.style.display = '';
+      // Auto-fill when the field is empty or still showing another preset URL
+      if (!urlInput.value || PRESET_URLS.has(urlInput.value)) {
+        urlInput.value = preset.url;
+      }
+      note.textContent = preset.note;
+      note.style.display = '';
+    } else {
+      // Ollama (local)
+      localFields.style.display = '';
+      onlineFields.style.display = 'none';
+      note.style.display = 'none';
+    }
+  }
+
   async function openSettings() {
     clearMsg('cfg-msg');
     clearMsg('cfg-cache-msg');
     document.getElementById('settings-overlay').classList.add('open');
     try {
       const cfg = await apiFetch('/config');
-      let scheme = 'http';
-      let host = 'localhost';
-      let port = '11434';
-      try {
-        const parsed = new URL(cfg.baseUrl);
-        scheme = parsed.protocol.replace(':', '');
-        host = parsed.hostname;
-        port = parsed.port || (scheme === 'https' ? '443' : '80');
-      } catch { /* keep defaults */ }
-      document.getElementById('cfg-scheme').value = scheme;
-      document.getElementById('cfg-host').value = host;
-      document.getElementById('cfg-port').value = port;
+      const provider = cfg.provider || 'ollama';
+      const providerSelect = document.getElementById('cfg-provider');
+      providerSelect.value = provider;
+
+      const preset = PROVIDER_PRESETS[provider];
+      if (preset) {
+        document.getElementById('cfg-online-url').value = cfg.baseUrl || preset.url;
+      } else {
+        // Ollama — parse scheme/host/port
+        let scheme = 'http';
+        let host = 'localhost';
+        let port = '11434';
+        try {
+          const parsed = new URL(cfg.baseUrl);
+          scheme = parsed.protocol.replace(':', '');
+          host = parsed.hostname;
+          port = parsed.port || (scheme === 'https' ? '443' : '80');
+        } catch { /* keep defaults */ }
+        document.getElementById('cfg-scheme').value = scheme;
+        document.getElementById('cfg-host').value = host;
+        document.getElementById('cfg-port').value = port;
+      }
+
+      // Apply show/hide for local vs online fields
+      onProviderChange();
 
       // Seed the model dropdown with the currently configured model so it is
       // visible before the user clicks Detect.
@@ -1183,23 +1256,33 @@
 
   async function detectModels() {
     clearMsg('cfg-msg');
-    const scheme = document.getElementById('cfg-scheme').value;
-    const host = document.getElementById('cfg-host').value.trim();
-    const port = document.getElementById('cfg-port').value.trim();
+    const provider = document.getElementById('cfg-provider').value;
+    let baseUrl;
 
-    if (!host || !port) {
-      showMsg('cfg-msg', 'Enter the host and port first, then click Detect.', 'error');
-      return;
+    if (PROVIDER_PRESETS[provider]) {
+      baseUrl = document.getElementById('cfg-online-url').value.trim();
+      if (!baseUrl) {
+        showMsg('cfg-msg', 'Enter the API Base URL first, then click Detect.', 'error');
+        return;
+      }
+    } else {
+      const scheme = document.getElementById('cfg-scheme').value;
+      const host = document.getElementById('cfg-host').value.trim();
+      const port = document.getElementById('cfg-port').value.trim();
+      if (!host || !port) {
+        showMsg('cfg-msg', 'Enter the host and port first, then click Detect.', 'error');
+        return;
+      }
+      baseUrl = `${scheme}://${host}:${port}`;
     }
 
-    const baseUrl = `${scheme}://${host}:${port}`;
     const btn = document.getElementById('cfg-detect-btn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
     showMsg('cfg-msg', 'Detecting models…', 'loading');
 
     try {
-      const data = await apiFetch('/models?baseUrl=' + encodeURIComponent(baseUrl));
+      const data = await apiFetch('/models?baseUrl=' + encodeURIComponent(baseUrl) + '&provider=' + encodeURIComponent(provider));
       const models = data.models || [];
 
       if (models.length === 0) {
@@ -1228,27 +1311,39 @@
 
   async function saveSettings() {
     clearMsg('cfg-msg');
-    const scheme = document.getElementById('cfg-scheme').value;
-    const host = document.getElementById('cfg-host').value.trim();
-    const port = document.getElementById('cfg-port').value.trim();
+    const provider = document.getElementById('cfg-provider').value;
+    let baseUrl;
+
+    if (PROVIDER_PRESETS[provider]) {
+      baseUrl = document.getElementById('cfg-online-url').value.trim();
+      if (!baseUrl) {
+        showMsg('cfg-msg', 'Enter the API Base URL.', 'error');
+        return;
+      }
+    } else {
+      const scheme = document.getElementById('cfg-scheme').value;
+      const host = document.getElementById('cfg-host').value.trim();
+      const port = document.getElementById('cfg-port').value.trim();
+      if (!host) {
+        showMsg('cfg-msg', 'Host cannot be empty.', 'error');
+        return;
+      }
+      if (!port || isNaN(Number(port)) || Number(port) < 1 || Number(port) > 65535) {
+        showMsg('cfg-msg', 'Port must be a number between 1 and 65535.', 'error');
+        return;
+      }
+      baseUrl = `${scheme}://${host}:${port}`;
+    }
+
     const model = document.getElementById('cfg-model').value.trim();
     const apiKey = document.getElementById('cfg-apikey').value;
 
-    if (!host) {
-      showMsg('cfg-msg', 'Host cannot be empty.', 'error');
-      return;
-    }
-    if (!port || isNaN(Number(port)) || Number(port) < 1 || Number(port) > 65535) {
-      showMsg('cfg-msg', 'Port must be a number between 1 and 65535.', 'error');
-      return;
-    }
     if (!model) {
       showMsg('cfg-msg', 'Model name cannot be empty.', 'error');
       return;
     }
 
-    const baseUrl = `${scheme}://${host}:${port}`;
-    const body = { baseUrl, model };
+    const body = { baseUrl, model, provider };
     // Always include apiKey so the server knows the caller intends to update it
     body.apiKey = apiKey;
 
@@ -1341,6 +1436,10 @@
    *     stable and preventing sudden volume changes between paragraphs.
    *   - male/female character chunks use the emotion from their [emotion:X] tag.
    *
+   * After tag extraction, each character-voiced chunk is further split at
+   * dialogue/attribution boundaries (see splitDialogueFromAttribution) so that
+   * quoted speech and its narrative attribution are voiced by the correct speaker.
+   *
    * @param {string} rawText - Chapter content with optional [speaker:X][emotion:X] tags.
    * @param {string} [fallbackEmotion] - Preset used before the first tag is seen;
    *   defaults to voicePrefs.emotion_preset (or 'neutral' if that is unset).
@@ -1350,7 +1449,8 @@
     const rawChunks = splitIntoChunks(rawText);
     let currentEmotion = fallbackEmotion || voicePrefs.emotion_preset || 'neutral';
     let currentSpeaker = 'narrator';
-    return rawChunks.map((chunk) => {
+    const result = [];
+    for (const chunk of rawChunks) {
       let remaining = chunk;
       // Extract speaker tag first (it precedes the emotion tag in the new format)
       const speakerMatch = remaining.match(SPEAKER_TAG_RE);
@@ -1363,8 +1463,64 @@
       if (emotionMatch) currentEmotion = emotionMatch[1] || emotionMatch[2]; // group 1 = bracket, group 2 = quoted
       // Narrator always uses neutral emotion to prevent volume fluctuation
       const effectiveEmotion = currentSpeaker === 'narrator' ? 'neutral' : currentEmotion;
-      return { text: stripTTSTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
-    });
+      const baseChunk = { text: stripTTSTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
+      // Split character chunks at inline dialogue/attribution boundaries so
+      // quoted speech and unquoted attribution are voiced by the correct speaker.
+      for (const sub of splitDialogueFromAttribution(baseChunk)) {
+        result.push(sub);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Split a single chunk at inline dialogue/attribution boundaries.
+   *
+   * When an AI-generated paragraph mixes a character's quoted dialogue with a
+   * narrative attribution in the same sentence (e.g. "I see," she said softly.)
+   * the entire chunk would otherwise be read by the character voice, making the
+   * attribution sound wrong.  This function splits such chunks so that:
+   *   - quoted spans  → keep the chunk's original (character) speaker + emotion
+   *   - unquoted spans → switch to narrator / neutral
+   *
+   * Narrator-tagged chunks are returned unchanged because narration may
+   * legitimately contain quoted words without implying a speaker switch.
+   *
+   * Both straight double-quotes (") and curly double-quotes (\u201C\u201D) are
+   * recognised.
+   *
+   * @param {{text: string, emotion: string, speaker: string}} chunk
+   * @returns {Array<{text: string, emotion: string, speaker: string}>}
+   */
+  function splitDialogueFromAttribution(chunk) {
+    if (chunk.speaker === 'narrator') return [chunk];
+
+    // Matches a straight-quoted or curly-quoted span.
+    const QUOTE_RE = /"[^"]*"|\u201C[^\u201D]*\u201D/g;
+
+    const parts = [];
+    let lastIdx = 0;
+    let match;
+
+    while ((match = QUOTE_RE.exec(chunk.text)) !== null) {
+      // Unquoted attribution before this quote → narrator
+      const before = chunk.text.slice(lastIdx, match.index).trim();
+      if (before) {
+        parts.push({ text: before, emotion: 'neutral', speaker: 'narrator' });
+      }
+      // The quoted dialogue → keep character voice and emotion
+      parts.push({ text: match[0], emotion: chunk.emotion, speaker: chunk.speaker });
+      lastIdx = match.index + match[0].length;
+    }
+
+    // Trailing attribution after the last closing quote → narrator
+    const trailing = chunk.text.slice(lastIdx).trim();
+    if (trailing) {
+      parts.push({ text: trailing, emotion: 'neutral', speaker: 'narrator' });
+    }
+
+    // No split occurred (no quotes found) — return chunk unchanged
+    return parts.length > 0 ? parts : [chunk];
   }
 
   // ── Voice settings ────────────────────────────────────────────────────────

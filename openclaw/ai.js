@@ -85,15 +85,19 @@ function loadRuntimeConfig() {
  * Build a low-level http/https request and return the full response body.
  *
  * @param {string} method - HTTP method (e.g. "GET", "POST").
- * @param {string} baseUrl - Normalized base URL.
- * @param {string} endpointPath - Path to append (e.g. "/api/tags").
+ * @param {string} baseUrl - Normalized base URL (may include a path prefix such as /openai/v1).
+ * @param {string} endpointPath - Relative path to append (e.g. "api/tags", "chat/completions").
  * @param {string|null} [body] - Optional request body to send.
  * @param {object} [extraHeaders] - Additional headers.
  * @returns {Promise<string>} Raw response body.
  */
 function httpRequest(method, baseUrl, endpointPath, body = null, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
-    const url = new URL(endpointPath, baseUrl);
+    // Ensure the base URL ends with "/" so that relative endpoint paths
+    // are resolved correctly even when the base includes a path prefix
+    // (e.g. https://api.groq.com/openai/v1/chat/completions).
+    const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+    const url = new URL(endpointPath, base);
     const isHttps = url.protocol === 'https:';
     const transport = isHttps ? https : http;
 
@@ -128,10 +132,13 @@ function httpRequest(method, baseUrl, endpointPath, body = null, extraHeaders = 
 }
 
 /**
- * List available model names from an Ollama-compatible backend.
+ * List available model names from an Ollama-compatible or OpenAI-compatible backend.
  *
  * @param {object} [options]
- * @param {string} [options.baseUrl] - Base URL of the AI API.
+ * @param {string} [options.baseUrl]  - Base URL of the AI API.
+ * @param {string} [options.provider] - API format: "ollama" (default), "openai", "groq", or "openrouter".
+ *   "groq" and "openrouter" both use the OpenAI-compatible API format.
+ * @param {string} [options.apiKey]   - Bearer token sent when using the OpenAI format.
  * @returns {Promise<string[]>} Array of model name strings.
  */
 async function listModels(options = {}) {
@@ -139,16 +146,31 @@ async function listModels(options = {}) {
   const baseUrl = normalizeBaseUrl(
     options.baseUrl || runtimeConfig.baseUrl || DEFAULT_BASE_URL
   );
+  const provider = options.provider || runtimeConfig.provider || 'ollama';
+  const apiKey = options.apiKey || runtimeConfig.apiKey || DEFAULT_API_KEY;
+
+  // groq and openrouter both speak the OpenAI-compatible API.
+  const isOpenAI = provider === 'openai' || provider === 'groq' || provider === 'openrouter';
 
   let raw;
   try {
-    raw = await httpRequest('GET', baseUrl, '/api/tags');
+    if (isOpenAI) {
+      const extraHeaders = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+      raw = await httpRequest('GET', baseUrl, 'models', null, extraHeaders);
+    } else {
+      raw = await httpRequest('GET', baseUrl, 'api/tags');
+    }
   } catch (err) {
     throw new Error(`Failed to list models: ${err.message}`);
   }
 
   try {
     const parsed = JSON.parse(raw);
+    if (isOpenAI) {
+      return (parsed.data || [])
+        .map((m) => (typeof m === 'string' ? m : m.id))
+        .filter((id) => typeof id === 'string' && id.length > 0);
+    }
     return (parsed.models || []).map((m) => m.name).filter((name) => typeof name === 'string' && name.length > 0);
   } catch (err) {
     throw new Error(`Failed to parse model list: ${err.message}`);
@@ -156,13 +178,18 @@ async function listModels(options = {}) {
 }
 
 /**
- * Send a prompt to an Ollama-compatible AI backend and return the response text.
+ * Send a prompt to an Ollama-compatible or OpenAI-compatible AI backend and return the response text.
+ *
+ * Provider "ollama" (default): uses POST api/generate with { model, prompt, stream }.
+ * Provider "openai", "groq", or "openrouter": uses POST chat/completions with { model, messages, stream }
+ *   — compatible with Groq, OpenRouter, and any other OpenAI-API provider.
  *
  * @param {string} prompt - The prompt to send.
  * @param {object} [options]
  * @param {string} [options.baseUrl]    - Base URL of the AI API (defaults to AI_BASE_URL env var or http://localhost:11434).
  * @param {string} [options.model]      - Model name to use (defaults to AI_MODEL env var or llama3).
  * @param {string} [options.apiKey]     - API key sent as Bearer token (defaults to AI_API_KEY env var).
+ * @param {string} [options.provider]   - API format: "ollama" (default), "openai", "groq", or "openrouter".
  * @param {number} [options.timeoutMs]  - Request timeout in milliseconds (default: 30 000).
  * @returns {Promise<string>} The AI response text.
  */
@@ -173,16 +200,22 @@ function ask(prompt, options = {}) {
   );
   const model = options.model || runtimeConfig.model || DEFAULT_MODEL;
   const apiKey = options.apiKey || runtimeConfig.apiKey || DEFAULT_API_KEY;
+  const provider = options.provider || runtimeConfig.provider || 'ollama';
   const timeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
 
-  const body = JSON.stringify({
-    model,
-    prompt,
-    stream: false,
-  });
+  // groq and openrouter both speak the OpenAI-compatible chat/completions API.
+  const isOpenAI = provider === 'openai' || provider === 'groq' || provider === 'openrouter';
+  const endpointPath = isOpenAI ? 'chat/completions' : 'api/generate';
+  const bodyObj = isOpenAI
+    ? { model, messages: [{ role: 'user', content: prompt }], stream: false }
+    : { model, prompt, stream: false };
+  const body = JSON.stringify(bodyObj);
 
   return new Promise((resolve, reject) => {
-    const url = new URL('/api/generate', baseUrl);
+    // Ensure base ends with "/" so relative endpoint path is appended correctly
+    // even when the base URL includes a path prefix (e.g. /openai/v1).
+    const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+    const url = new URL(endpointPath, base);
     const isHttps = url.protocol === 'https:';
     const transport = isHttps ? https : http;
 
@@ -223,9 +256,23 @@ function ask(prompt, options = {}) {
           try {
             const parsed = JSON.parse(data);
             if (parsed.error) {
-              return reject(new Error(`AI error: ${parsed.error}`));
+              // Extract a readable string from the error value regardless of its type.
+              const raw = parsed.error;
+              let msg;
+              if (typeof raw === 'string') {
+                msg = raw;
+              } else if (raw !== null && typeof raw === 'object' && typeof raw.message === 'string') {
+                msg = raw.message;
+              } else {
+                msg = JSON.stringify(raw);
+              }
+              return reject(new Error(`AI error: ${msg}`));
             }
-            resolve(parsed.response || '');
+            if (isOpenAI) {
+              resolve(parsed.choices?.[0]?.message?.content || '');
+            } else {
+              resolve(parsed.response || '');
+            }
           } catch (err) {
             reject(new Error(`Failed to parse AI response: ${err.message}`));
           }

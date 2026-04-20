@@ -66,7 +66,7 @@ function validateStringField(value, fieldName) {
 
 /**
  * GET /config
- * Returns the current AI configuration (baseUrl, model, and whether an API key is stored).
+ * Returns the current AI configuration (baseUrl, model, provider, and whether an API key is stored).
  */
 app.get('/config', (_req, res) => {
   let stored = {};
@@ -80,18 +80,20 @@ app.get('/config', (_req, res) => {
   return res.json({
     baseUrl: stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434',
     model: stored.model || process.env.AI_MODEL || 'llama3',
+    provider: stored.provider || process.env.AI_PROVIDER || 'ollama',
     hasApiKey: Boolean(stored.apiKey || process.env.AI_API_KEY),
   });
 });
 
 /**
  * POST /config
- * Body: { "baseUrl": "http://192.168.1.10:11434", "model": "llama3.2", "apiKey": "sk-..." }
+ * Body: { "baseUrl": "http://192.168.1.10:11434", "model": "llama3.2", "apiKey": "sk-...", "provider": "ollama" }
  * Saves AI configuration to data/ai-config.json.
  * Omit apiKey to keep the existing stored key; send an empty string to clear it.
+ * provider must be "ollama" or "openai".
  */
 app.post('/config', (req, res) => {
-  const { baseUrl, model, apiKey } = req.body;
+  const { baseUrl, model, apiKey, provider } = req.body;
 
   const urlErr = validateStringField(baseUrl, 'baseUrl');
   if (urlErr) return res.status(400).json({ error: urlErr });
@@ -101,6 +103,11 @@ app.post('/config', (req, res) => {
     new URL(baseUrl);
   } catch {
     return res.status(400).json({ error: 'baseUrl must be a valid URL (e.g. http://192.168.1.10:11434).' });
+  }
+
+  const VALID_PROVIDERS = ['ollama', 'openai', 'groq', 'openrouter'];
+  if (provider !== undefined && !VALID_PROVIDERS.includes(provider)) {
+    return res.status(400).json({ error: `provider must be one of: ${VALID_PROVIDERS.join(', ')}.` });
   }
 
   let config = {};
@@ -114,6 +121,10 @@ app.post('/config', (req, res) => {
 
   if (typeof model === 'string' && model.trim()) {
     config.model = model.trim();
+  }
+
+  if (typeof provider === 'string') {
+    config.provider = provider;
   }
 
   // Only update apiKey if the caller included it in the request body
@@ -131,40 +142,66 @@ app.post('/config', (req, res) => {
 });
 
 /**
- * GET /models?baseUrl=http://192.168.1.10:11434
- * Proxies a request to the Ollama-compatible backend's /api/tags endpoint
- * and returns the list of available model names.
+ * GET /models?baseUrl=http://192.168.1.10:11434&provider=ollama
+ * Proxies a request to the AI backend to list available models.
+ * For "ollama" provider: calls /api/tags (Ollama format).
+ * For "openai" provider: calls /models (OpenAI-compatible format).
  */
 app.get('/models', async (req, res) => {
-  let { baseUrl } = req.query;
-  if (!baseUrl) {
-    // Fall back to the currently configured baseUrl
+  let { baseUrl, provider } = req.query;
+
+  let stored = {};
+  if (!baseUrl || !provider) {
     try {
-      const stored = fs.existsSync(CONFIG_PATH)
+      stored = fs.existsSync(CONFIG_PATH)
         ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
         : {};
-      baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
-    } catch {
-      baseUrl = process.env.AI_BASE_URL || 'http://localhost:11434';
-    }
+    } catch { /* use defaults */ }
   }
 
-  let tagsUrl;
+  if (!baseUrl) {
+    baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
+  }
+  if (!provider) {
+    provider = stored.provider || process.env.AI_PROVIDER || 'ollama';
+  }
+
+  const isOpenAI = provider === 'openai' || provider === 'groq' || provider === 'openrouter';
+
+  let modelsUrl;
   try {
-    tagsUrl = new URL('/api/tags', baseUrl).toString();
+    // Ensure base ends with "/" so the relative path appends correctly
+    // (important for providers like Groq with a path prefix: /openai/v1/).
+    const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+    modelsUrl = new URL(isOpenAI ? 'models' : 'api/tags', base).toString();
   } catch {
     return res.status(400).json({ error: 'Invalid baseUrl.' });
   }
 
   try {
-    const response = await fetch(tagsUrl, { signal: AbortSignal.timeout(8000) });
+    const headers = {};
+    const apiKey = stored.apiKey || process.env.AI_API_KEY || '';
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+    const response = await fetch(modelsUrl, {
+      signal: AbortSignal.timeout(8000),
+      headers,
+    });
     if (!response.ok) {
       return res.status(502).json({ error: `Backend returned HTTP ${response.status}` });
     }
     const data = await response.json();
-    const models = Array.isArray(data.models)
-      ? data.models.map((m) => (typeof m === 'string' ? m : m.name)).filter(Boolean)
-      : [];
+
+    let models;
+    if (isOpenAI) {
+      models = Array.isArray(data.data)
+        ? data.data.map((m) => (typeof m === 'string' ? m : m.id)).filter(Boolean)
+        : [];
+    } else {
+      models = Array.isArray(data.models)
+        ? data.models.map((m) => (typeof m === 'string' ? m : m.name)).filter(Boolean)
+        : [];
+    }
     return res.json({ models });
   } catch (e) {
     return res.status(502).json({ error: `Could not reach AI backend: ${e.message}` });
@@ -438,6 +475,10 @@ function splitIntoTTSChunks(text) {
  *     keeping the narration voice stable and preventing sudden volume changes.
  *   - male/female character chunks use the emotion from their [emotion:X] tag.
  *
+ * After tag extraction, each character-voiced chunk is further split at
+ * dialogue/attribution boundaries (see splitDialogueFromAttribution) so that
+ * quoted speech and its narrative attribution are voiced by the correct speaker.
+ *
  * @param {string} text - Chapter content, possibly containing [speaker:X] and [emotion:X] tags.
  * @param {string} [fallbackEmotion='neutral'] - Preset used before the first tag.
  * @returns {Array<{text: string, emotion: string, speaker: string}>}
@@ -446,7 +487,8 @@ function splitIntoTTSChunksWithEmotion(text, fallbackEmotion = 'neutral') {
   const rawChunks = splitIntoTTSChunks(text);
   let currentEmotion = fallbackEmotion;
   let currentSpeaker = 'narrator';
-  return rawChunks.map((chunk) => {
+  const result = [];
+  for (const chunk of rawChunks) {
     let remaining = chunk;
     // Extract speaker tag first (it precedes the emotion tag in the new format)
     const speakerMatch = remaining.match(SPEAKER_TAG_RE);
@@ -459,9 +501,67 @@ function splitIntoTTSChunksWithEmotion(text, fallbackEmotion = 'neutral') {
     if (emotionMatch) currentEmotion = emotionMatch[1] || emotionMatch[2]; // group 1 = bracket format, group 2 = quoted format
     // Narrator paragraphs always use neutral emotion to prevent volume fluctuation
     const effectiveEmotion = currentSpeaker === 'narrator' ? 'neutral' : currentEmotion;
-    return { text: stripTTSTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
-  });
+    const baseChunk = { text: stripTTSTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
+    // Split character chunks at inline dialogue/attribution boundaries so that
+    // quoted speech and unquoted attribution are voiced by the correct speaker.
+    for (const sub of splitDialogueFromAttribution(baseChunk)) {
+      result.push(sub);
+    }
+  }
+  return result;
 }
+
+/**
+ * Split a single chunk at inline dialogue/attribution boundaries.
+ *
+ * When an AI-generated paragraph mixes a character's quoted dialogue with a
+ * narrative attribution in the same sentence (e.g. "I see," she said softly.)
+ * the entire chunk would otherwise be read by the character voice, making the
+ * attribution sound wrong.  This function splits such chunks so that:
+ *   - quoted spans  → keep the chunk's original (character) speaker
+ *   - unquoted spans → switch to narrator/neutral
+ *
+ * Narrator-tagged chunks are returned unchanged because narration may
+ * legitimately contain quoted words without implying a speaker switch.
+ *
+ * Both straight double-quotes (") and curly double-quotes (" ") are recognised.
+ *
+ * @param {{text: string, emotion: string, speaker: string}} chunk
+ * @returns {Array<{text: string, emotion: string, speaker: string}>}
+ */
+function splitDialogueFromAttribution(chunk) {
+  if (chunk.speaker === 'narrator') return [chunk];
+
+  // Regex that matches a straight-quoted or curly-quoted span.
+  // The inner character class deliberately excludes the closing quote type
+  // to keep the match tight without needing look-ahead for nested quotes.
+  const QUOTE_RE = /"[^"]*"|\u201C[^\u201D]*\u201D/g;
+
+  const parts = [];
+  let lastIdx = 0;
+  let match;
+
+  while ((match = QUOTE_RE.exec(chunk.text)) !== null) {
+    // Any unquoted attribution text before this quote → narrator
+    const before = chunk.text.slice(lastIdx, match.index).trim();
+    if (before) {
+      parts.push({ text: before, emotion: 'neutral', speaker: 'narrator' });
+    }
+    // The quoted dialogue itself → keep the character voice and emotion
+    parts.push({ text: match[0], emotion: chunk.emotion, speaker: chunk.speaker });
+    lastIdx = match.index + match[0].length;
+  }
+
+  // Any trailing attribution text after the last closing quote → narrator
+  const trailing = chunk.text.slice(lastIdx).trim();
+  if (trailing) {
+    parts.push({ text: trailing, emotion: 'neutral', speaker: 'narrator' });
+  }
+
+  // If no split was made (no quotes found) return the chunk unchanged.
+  return parts.length > 0 ? parts : [chunk];
+}
+
 
 /**
  * Ensure that the WAV audio for *text* with the given voice settings is present
@@ -536,6 +636,41 @@ app.post('/tts', async (req, res) => {
       return res.status(502).json({ error: e.message });
     }
     return res.status(502).json({ error: ttsFetchError(e) });
+  }
+});
+
+/**
+ * POST /tts/cached
+ * Same body as POST /tts but only serves from the on-disk cache.
+ * Returns the cached WAV (200) if the audio has already been synthesised,
+ * or 204 No Content if it is not yet cached (without calling Zonos).
+ * Used by the frontend to play pre-generated audio chunks immediately
+ * while an ongoing prebake job is still generating the remaining chunks.
+ */
+app.post('/tts/cached', (req, res) => {
+  const { text, voice_id, speaking_rate, pitch_std, emotion_preset } = req.body;
+  const err = validateStringField(text, 'text');
+  if (err) return res.status(400).json({ error: err });
+
+  const trimmed = text.trim().slice(0, TTS_MAX_CHARS);
+  const voiceId = typeof voice_id === 'string' ? voice_id.trim() : '';
+  const emotionPreset = typeof emotion_preset === 'string' ? emotion_preset.trim() : '';
+
+  const cacheKey = ttsCacheKey(trimmed, voiceId, speaking_rate, pitch_std, emotionPreset);
+  const cachePath = path.join(TTS_CACHE_DIR, `${cacheKey}.wav`);
+
+  if (!fs.existsSync(cachePath)) {
+    return res.status(204).end();
+  }
+
+  try {
+    const buf = fs.readFileSync(cachePath);
+    res.set('Content-Type', 'audio/wav');
+    res.set('Content-Length', String(buf.length));
+    res.set('X-TTS-Cache', 'hit');
+    return res.send(buf);
+  } catch {
+    return res.status(204).end();
   }
 });
 

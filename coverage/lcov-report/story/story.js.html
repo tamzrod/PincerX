@@ -358,7 +358,25 @@
 <a name='L293'></a><a href='#L293'>293</a>
 <a name='L294'></a><a href='#L294'>294</a>
 <a name='L295'></a><a href='#L295'>295</a>
-<a name='L296'></a><a href='#L296'>296</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L296'></a><a href='#L296'>296</a>
+<a name='L297'></a><a href='#L297'>297</a>
+<a name='L298'></a><a href='#L298'>298</a>
+<a name='L299'></a><a href='#L299'>299</a>
+<a name='L300'></a><a href='#L300'>300</a>
+<a name='L301'></a><a href='#L301'>301</a>
+<a name='L302'></a><a href='#L302'>302</a>
+<a name='L303'></a><a href='#L303'>303</a>
+<a name='L304'></a><a href='#L304'>304</a>
+<a name='L305'></a><a href='#L305'>305</a>
+<a name='L306'></a><a href='#L306'>306</a>
+<a name='L307'></a><a href='#L307'>307</a>
+<a name='L308'></a><a href='#L308'>308</a>
+<a name='L309'></a><a href='#L309'>309</a>
+<a name='L310'></a><a href='#L310'>310</a>
+<a name='L311'></a><a href='#L311'>311</a>
+<a name='L312'></a><a href='#L312'>312</a>
+<a name='L313'></a><a href='#L313'>313</a>
+<a name='L314'></a><a href='#L314'>314</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
@@ -500,6 +518,24 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -798,9 +834,27 @@ async function <span class="fstat-no" title="function not covered" >generateChap
     'For narrator paragraphs, use ONLY [emotion:neutral] or [emotion:calm]. Reserve expressive emotions for character dialogue.',
     'The tags are invisible to readers and are used only by the audio narration system.',
     'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tags.',
-    'Example narrator: [speaker:narrator][emotion:neutral] The old house creaked as she stepped inside.',
-    'Example male character: [speaker:male][emotion:happy] "We finally made it!" Thomas shouted.',
-    'Example female character: [speaker:female][emotion:sad] "I\'m so sorry," Elena whispered softly.',
+    '',
+    'CRITICAL RULE — Never mix dialogue and attribution in the same paragraph:',
+    'When a character speaks AND the sentence contains a narrative attribution (e.g. "she said", "he murmured", "Alex whispered"),',
+    'you MUST split them into SEPARATE paragraphs: one [speaker:character] paragraph for the quoted speech only,',
+    'followed immediately by a [speaker:narrator] paragraph for the attribution and any following narration.',
+    '',
+    'Correct example (split into separate paragraphs):',
+    '[speaker:female][emotion:curious] "I should look into this."',
+    '[speaker:narrator][emotion:neutral] Alex murmured aloud, her voice barely audible over the rustling of papers.',
+    '[speaker:female][emotion:curious] "Maybe there\'s something important I\'m missing."',
+    '[speaker:narrator][emotion:neutral] She felt a mix of curiosity and trepidation, as if the future was whispering secrets.',
+    '',
+    'WRONG example (do NOT do this — dialogue and attribution mixed in one paragraph):',
+    '[speaker:female][emotion:curious] "I should look into this," Alex murmured aloud, her voice barely audible.',
+    '',
+    'Further examples:',
+    '[speaker:narrator][emotion:neutral] The old house creaked as she stepped inside.',
+    '[speaker:male][emotion:happy] "We finally made it!"',
+    '[speaker:narrator][emotion:neutral] Thomas shouted, punching the air.',
+    '[speaker:female][emotion:sad] "I\'m so sorry."',
+    '[speaker:narrator][emotion:neutral] Elena whispered softly, turning away.',
     '',
     'Do not include any explanation or text outside the JSON object.',
     '',
@@ -955,7 +1009,7 @@ function <span class="fstat-no" title="function not covered" >get(</span>storyId
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-20T00:42:31.812Z
+                at 2026-04-20T01:46:55.088Z
             </div>
         <script src="../prettify.js"></script>
         <script>
