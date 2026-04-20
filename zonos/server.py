@@ -140,6 +140,26 @@ def _ensure_prebuilt_voices() -> None:
     Errors for individual presets are logged as warnings and do not interrupt
     generation of the remaining presets.
     """
+    # Warm up the speaker encoder with a silent clip before the preset loop
+    # so that any lazily-initialised sub-modules (e.g. streaming buffers
+    # inside the encoder backbone) are created on _DEVICE rather than
+    # defaulting to CPU.  Without this warm-up the first forward pass through
+    # make_speaker_embedding silently materialises those buffers on CPU; the
+    # subsequent _model.to(_DEVICE) call inside the loop cannot see them in
+    # time, causing a "tensors on different devices" error for later presets.
+    try:
+        with torch.inference_mode():
+            _dummy = torch.zeros(1, _SAMPLING_RATE, device=_DEVICE)
+            _model.make_speaker_embedding(_dummy, _SAMPLING_RATE)
+            # Move any newly-created lazy buffers to the target device.
+            _model.to(_DEVICE)
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[Zonos] Warning: speaker encoder warm-up failed: {exc}. "
+            "Built-in voice preset generation may fail with a device-mismatch error.",
+            flush=True,
+        )
+
     for preset_id, spec in _VOICE_PRESETS.items():
         pt_path = _VOICES_DIR / f"{preset_id}.pt"
         if pt_path.exists():
@@ -177,12 +197,6 @@ def _ensure_prebuilt_voices() -> None:
             combined = torch.cat(all_wavs, dim=-1)
 
             with torch.inference_mode():
-                # Re-apply device placement before calling make_speaker_embedding.
-                # The speaker encoder contains sub-modules that initialise lazily
-                # (i.e. on their first forward pass) and may default to CPU; ensuring
-                # the whole model is on _DEVICE here moves those newly-created tensors
-                # before the embedding is computed.
-                _model.to(_DEVICE)
                 speaker = _model.make_speaker_embedding(
                     combined.to(_DEVICE), _SAMPLING_RATE
                 )
