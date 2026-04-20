@@ -129,6 +129,98 @@ describe('story.js — create()', () => {
     expect(() => new Date(result.createdAt)).not.toThrow();
     expect(new Date(result.createdAt).toISOString()).toBe(result.createdAt);
   });
+
+  it('stores initial characters in the RAG store when AI returns them', async () => {
+    storyRag.addDoc.mockImplementation(() => {});
+    ai.ask.mockResolvedValue(JSON.stringify({
+      outline: 'A hero journeys forth.',
+      characters: [
+        { name: 'Aria', role: 'protagonist', gender: 'female', personality: 'brave, curious', backstory: 'A young knight seeking justice.' },
+        { name: 'Mord', role: 'villain', gender: 'male', personality: 'cunning, ruthless', backstory: 'A warlord driven by greed.' },
+      ],
+      locations: [],
+    }));
+
+    const result = await storyModule.create('World Test', 'fantasy', 'epic');
+
+    const charCalls = storyRag.addDoc.mock.calls.filter(([, doc]) => doc.type === 'character');
+    expect(charCalls).toHaveLength(2);
+    expect(charCalls[0][0]).toBe(result.id);
+    expect(charCalls[0][1]).toMatchObject({ id: 'char-aria', type: 'character', name: 'Aria', role: 'protagonist', gender: 'female' });
+    expect(charCalls[1][1]).toMatchObject({ id: 'char-mord', type: 'character', name: 'Mord', role: 'villain', gender: 'male' });
+  });
+
+  it('stores initial locations as lore entries in the RAG store when AI returns them', async () => {
+    storyRag.addDoc.mockImplementation(() => {});
+    ai.ask.mockResolvedValue(JSON.stringify({
+      outline: 'Two kingdoms clash.',
+      characters: [],
+      locations: [
+        { title: 'Iron Keep', description: 'A fortress on a frozen cliff.' },
+        { title: 'The Sunken Market', description: 'An underground bazaar shrouded in mist.' },
+      ],
+    }));
+
+    const result = await storyModule.create('Lore Test', 'fantasy', 'dark');
+
+    const loreCalls = storyRag.addDoc.mock.calls.filter(([, doc]) => doc.type === 'lore');
+    expect(loreCalls).toHaveLength(2);
+    expect(loreCalls[0][0]).toBe(result.id);
+    expect(loreCalls[0][1]).toMatchObject({ id: 'lore-iron-keep', type: 'lore', title: 'Iron Keep' });
+    expect(loreCalls[1][1]).toMatchObject({ id: 'lore-the-sunken-market', type: 'lore', title: 'The Sunken Market' });
+  });
+
+  it('does not call addDoc when AI returns no characters or locations', async () => {
+    storyRag.addDoc.mockImplementation(() => {});
+    ai.ask.mockResolvedValue(JSON.stringify({ outline: 'Minimal outline.' }));
+
+    await storyModule.create('Minimal', 'drama', 'calm');
+
+    expect(storyRag.addDoc).not.toHaveBeenCalled();
+  });
+
+  it('assigns a voice preset to each initial character', async () => {
+    storyRag.addDoc.mockImplementation(() => {});
+    ai.ask.mockResolvedValue(JSON.stringify({
+      outline: 'An adventure begins.',
+      characters: [{ name: 'Lily', role: 'hero', gender: 'female', personality: 'young, energetic', backstory: '' }],
+      locations: [],
+    }));
+
+    await storyModule.create('Voice Test', 'adventure', 'light');
+
+    const charCall = storyRag.addDoc.mock.calls.find(([, doc]) => doc.type === 'character');
+    expect(charCall[1].voiceId).toBe('preset-young-girl');
+  });
+
+  it('ignores characters with missing or empty names', async () => {
+    storyRag.addDoc.mockImplementation(() => {});
+    ai.ask.mockResolvedValue(JSON.stringify({
+      outline: 'Some outline.',
+      characters: [
+        { name: '', role: 'unknown' },
+        { role: 'side' },
+        { name: 'Valid', role: 'hero', gender: 'male', personality: 'brave', backstory: '' },
+      ],
+      locations: [],
+    }));
+
+    await storyModule.create('Name Filter', 'mystery', 'tense');
+
+    const charCalls = storyRag.addDoc.mock.calls.filter(([, doc]) => doc.type === 'character');
+    expect(charCalls).toHaveLength(1);
+    expect(charCalls[0][1].name).toBe('Valid');
+  });
+
+  it('includes characters and locations request in the prompt', async () => {
+    ai.ask.mockResolvedValue(JSON.stringify({ outline: 'Details here.' }));
+
+    await storyModule.create('Prompt Check', 'fantasy', 'epic');
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('"characters"');
+    expect(prompt).toContain('"locations"');
+  });
 });
 
 // ── story.js — generateChapter() ────────────────────────────────────────────

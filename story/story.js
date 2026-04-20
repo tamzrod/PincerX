@@ -9,6 +9,8 @@ const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 
 /**
  * Generate a story outline using AI and persist it to disk.
+ * Also seeds the story's RAG store with an initial cast of characters and
+ * key locations extracted from the same AI response.
  *
  * @param {string} title   - The story title.
  * @param {string} genre   - The story genre (e.g. "fantasy", "thriller").
@@ -18,9 +20,11 @@ const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
  */
 async function create(title, genre, tone, aiOptions = {}) {
   const prompt = [
-    'You are a creative writing assistant. Generate a structured story outline.',
+    'You are a creative writing assistant. Generate a structured story outline with an initial world.',
     'Respond with ONLY a valid JSON object containing exactly these fields:',
     '  "outline": a detailed story outline as a single string (acts, chapters, or scenes)',
+    '  "characters": an array of initial characters, each with: "name" (string), "role" (e.g. protagonist/villain/supporting), "gender" (one of "male","female","non-binary",""), "personality" (comma-separated traits), "backstory" (1-2 sentences)',
+    '  "locations": an array of key locations/settings, each with: "title" (string), "description" (1-2 sentences)',
     '',
     'Do not include any explanation or text outside the JSON object.',
     '',
@@ -30,17 +34,56 @@ async function create(title, genre, tone, aiOptions = {}) {
   ].join('\n');
 
   const raw = await ai.ask(prompt, aiOptions);
-  const outline = parseOutline(raw);
+  const { outline, characters, locations } = parseCreateResponse(raw);
 
   const id = `${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
   const createdAt = new Date().toISOString();
-  const story = { id, title, genre, tone, outline, createdAt };
+  const storyObj = { id, title, genre, tone, outline, createdAt };
 
   fs.mkdirSync(STORIES_DIR, { recursive: true });
   const filename = path.basename(`${id}.json`);
-  fs.writeFileSync(path.join(STORIES_DIR, filename), JSON.stringify(story, null, 2), 'utf8');
+  fs.writeFileSync(path.join(STORIES_DIR, filename), JSON.stringify(storyObj, null, 2), 'utf8');
 
-  return story;
+  // Seed the story RAG store with the initial cast of characters.
+  for (const char of characters) {
+    const voiceId = pickVoicePreset(char.gender, char.personality);
+    const slug    = _slugify(char.name);
+    const charId  = `char-${slug}`;
+
+    const contentParts = [
+      `Name: ${char.name}`,
+      char.role        ? `Role: ${char.role}`               : '',
+      char.gender      ? `Gender: ${char.gender}`           : '',
+      char.personality ? `Personality: ${char.personality}` : '',
+      char.backstory   ? `Backstory: ${char.backstory}`     : '',
+    ].filter(Boolean);
+
+    storyRag.addDoc(id, {
+      id:          charId,
+      type:        'character',
+      name:        char.name,
+      role:        char.role,
+      gender:      char.gender,
+      personality: char.personality,
+      backstory:   char.backstory,
+      speechStyle: '',
+      voiceId,
+      content:     contentParts.join('. '),
+    });
+  }
+
+  // Seed the story RAG store with the initial locations as lore entries.
+  for (const loc of locations) {
+    const slug = _slugify(loc.title);
+    storyRag.addDoc(id, {
+      id:      `lore-${slug}`,
+      type:    'lore',
+      title:   loc.title,
+      content: loc.description,
+    });
+  }
+
+  return storyObj;
 }
 
 /** Minimum target word count included in the chapter generation prompt. */
@@ -212,13 +255,15 @@ function normalizeText(text) {
 }
 
 /**
- * Extract the outline string from the AI response.
- * Falls back to the raw response text if JSON parsing fails.
+ * Extract the outline, characters, and locations from the AI response for
+ * story creation.  Falls back to the raw response text as the outline (with
+ * empty characters and locations arrays) if JSON parsing fails or the outline
+ * field is absent.
  *
  * @param {string} raw - Raw string from the AI.
- * @returns {string}
+ * @returns {{ outline: string, characters: Array<object>, locations: Array<object> }}
  */
-function parseOutline(raw) {
+function parseCreateResponse(raw) {
   const match = raw.match(/\{[\s\S]*\}/);
   if (match) {
     const jsonStr = match[0];
@@ -226,7 +271,7 @@ function parseOutline(raw) {
     try {
       const parsed = JSON.parse(jsonStr);
       if (typeof parsed.outline === 'string' && parsed.outline.trim()) {
-        return normalizeText(parsed.outline.trim());
+        return _extractCreateFields(parsed);
       }
     } catch { /* try next */ }
     // Attempt 2: some models embed literal newlines inside JSON strings which
@@ -235,11 +280,46 @@ function parseOutline(raw) {
       const fixed = jsonStr.replace(/\r?\n/g, '\\n');
       const parsed = JSON.parse(fixed);
       if (typeof parsed.outline === 'string' && parsed.outline.trim()) {
-        return normalizeText(parsed.outline.trim());
+        return _extractCreateFields(parsed);
       }
     } catch { /* fall through */ }
   }
-  return normalizeText(raw.trim());
+  // Fallback: treat the entire raw response as the outline.
+  return { outline: normalizeText(raw.trim()), characters: [], locations: [] };
+}
+
+/**
+ * Extract and normalise the outline, characters, and locations fields from a
+ * successfully-parsed AI JSON object.
+ *
+ * @param {object} parsed
+ * @returns {{ outline: string, characters: Array<object>, locations: Array<object> }}
+ */
+function _extractCreateFields(parsed) {
+  const outline = normalizeText(parsed.outline.trim());
+
+  const characters = Array.isArray(parsed.characters)
+    ? parsed.characters
+        .filter((c) => c && typeof c.name === 'string' && c.name.trim())
+        .map((c) => ({
+          name:        c.name.trim(),
+          role:        typeof c.role        === 'string' ? c.role.trim()        : '',
+          gender:      typeof c.gender      === 'string' ? c.gender.trim()      : '',
+          personality: typeof c.personality === 'string' ? c.personality.trim() : '',
+          backstory:   typeof c.backstory   === 'string' ? c.backstory.trim()   : '',
+        }))
+    : [];
+
+  const locations = Array.isArray(parsed.locations)
+    ? parsed.locations
+        .filter((l) => l && typeof l.title === 'string' && l.title.trim())
+        .map((l) => ({
+          title:       l.title.trim(),
+          description: typeof l.description === 'string' ? l.description.trim() : '',
+        }))
+    : [];
+
+  return { outline, characters, locations };
 }
 
 /**
