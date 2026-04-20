@@ -8,6 +8,7 @@ Endpoints:
   → audio/wav
 
   GET  /voices                         → {"voices": [...]}
+  GET  /voices/presets                 → {"presets": [...]}
   POST /voices/upload?name=<id>        → multipart audio file → saved embedding
   DELETE /voices/{voice_id}            → removes saved embedding
 
@@ -21,6 +22,7 @@ import io
 import os
 import pathlib
 import re
+import threading
 
 import torch
 import torch._dynamo
@@ -76,6 +78,117 @@ _EMOTION_PRESETS: dict[str, list[float]] = {
     "energetic": [0.5, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.2],
     "angry":     [0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.2],
 }
+
+# ── Built-in voice presets ────────────────────────────────────────────────────
+# Each preset is synthesised once at startup (using the default speaker with
+# distinct prosody parameters) and its speaker embedding is saved to VOICES_DIR.
+# The resulting .pt file is then used for subsequent synthesis requests just
+# like any user-uploaded voice, providing differentiated voices for each
+# character archetype without requiring audio samples from the user.
+
+_VOICE_PRESETS: dict[str, dict] = {
+    "preset-young-girl":     {
+        "label":         "Young Girl (10–15 yrs)",
+        "speaking_rate": 18.0,
+        "pitch_std":     90.0,
+        "phrase":        "Oh wow, that sounds so exciting! I can't wait to find out what happens!",
+    },
+    "preset-young-boy":      {
+        "label":         "Young Boy (10–15 yrs)",
+        "speaking_rate": 17.0,
+        "pitch_std":     75.0,
+        "phrase":        "Hey, check this out! That is really cool and I want to try it too!",
+    },
+    "preset-adult-female":   {
+        "label":         "Adult Female (20–40 yrs)",
+        "speaking_rate": 15.0,
+        "pitch_std":     55.0,
+        "phrase":        "Good morning. I hope this day finds you well and everything goes smoothly.",
+    },
+    "preset-adult-male":     {
+        "label":         "Adult Male (20–40 yrs)",
+        "speaking_rate": 14.0,
+        "pitch_std":     35.0,
+        "phrase":        "We need to talk about what happened yesterday and figure out a plan.",
+    },
+    "preset-elderly-female": {
+        "label":         "Elderly Female",
+        "speaking_rate": 11.0,
+        "pitch_std":     40.0,
+        "phrase":        "In my time, things were quite different, dear. Let me tell you about it.",
+    },
+    "preset-elderly-male":   {
+        "label":         "Elderly Male",
+        "speaking_rate": 10.0,
+        "pitch_std":     25.0,
+        "phrase":        "I have seen many things in my long life and learned much along the way.",
+    },
+}
+
+
+def _ensure_prebuilt_voices() -> None:
+    """Generate and save speaker embeddings for all built-in voice presets.
+
+    For each preset whose .pt file does not yet exist, a short phrase is
+    synthesised using the model's default speaker (no reference audio) but
+    with the preset's distinctive prosody parameters.  The resulting audio is
+    then fed back into the speaker encoder to extract an embedding that
+    captures those prosodic characteristics.  The embedding is saved as
+    ``<preset-id>.pt`` in VOICES_DIR so subsequent synthesis requests can
+    reference it just like any user-uploaded voice.
+
+    Errors for individual presets are logged as warnings and do not interrupt
+    generation of the remaining presets.
+    """
+    for preset_id, spec in _VOICE_PRESETS.items():
+        pt_path = _VOICES_DIR / f"{preset_id}.pt"
+        if pt_path.exists():
+            continue
+        try:
+            emotion = _EMOTION_PRESETS["neutral"]
+            chunks  = _split_into_chunks(spec["phrase"])
+            all_wavs: list[torch.Tensor] = []
+
+            with torch.inference_mode():
+                for chunk in chunks:
+                    cond_dict = make_cond_dict(
+                        text=chunk,
+                        language="en-us",
+                        speaker=None,
+                        emotion=emotion,
+                        speaking_rate=spec["speaking_rate"],
+                        pitch_std=spec["pitch_std"],
+                        device=_DEVICE,
+                    )
+                    conditioning = _model.prepare_conditioning(cond_dict)
+                    codes = _model.generate(conditioning)
+                    wav   = _model.autoencoder.decode(codes).cpu()[0]
+                    all_wavs.append(wav)
+
+            combined = torch.cat(all_wavs, dim=-1)
+
+            with torch.inference_mode():
+                speaker = _model.make_speaker_embedding(
+                    combined.to(_DEVICE), _SAMPLING_RATE
+                )
+
+            torch.save(speaker.cpu(), pt_path)
+            print(f"[Zonos] Generated preset voice: {preset_id}", flush=True)
+
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"[Zonos] Warning: failed to generate preset '{preset_id}': {exc}",
+                flush=True,
+            )
+
+
+# Launch preset generation in a background thread so the server starts
+# immediately and presets become available once the thread finishes.
+threading.Thread(
+    target=_ensure_prebuilt_voices,
+    daemon=True,
+    name="prebuilt-voices",
+).start()
 
 # ── Text chunking ─────────────────────────────────────────────────────────────
 
@@ -169,6 +282,24 @@ def health() -> dict:
 def list_voices() -> dict:
     voices = [p.stem for p in _VOICES_DIR.glob("*.pt")]
     return {"voices": sorted(voices), "emotion_presets": list(_EMOTION_PRESETS.keys())}
+
+
+@app.get("/voices/presets")
+def list_voice_presets() -> dict:
+    """Return the built-in voice presets with human-readable labels.
+
+    The ``ready`` flag indicates whether the preset's speaker embedding (.pt
+    file) has already been generated by the background startup thread.
+    """
+    presets = [
+        {
+            "id":    preset_id,
+            "label": spec["label"],
+            "ready": (_VOICES_DIR / f"{preset_id}.pt").exists(),
+        }
+        for preset_id, spec in _VOICE_PRESETS.items()
+    ]
+    return {"presets": presets}
 
 
 @app.post("/voices/upload")

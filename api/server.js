@@ -784,6 +784,25 @@ app.get('/tts/voices', async (_req, res) => {
 });
 
 /**
+ * GET /tts/voice-presets
+ * Returns the built-in voice presets (with labels and ready status) from the
+ * Zonos sidecar.  These presets are auto-generated at sidecar startup and can
+ * be assigned to characters without uploading any audio samples.
+ */
+app.get('/tts/voice-presets', async (_req, res) => {
+  const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
+  try {
+    const response = await fetch(`${zonosUrl}/voices/presets`, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) {
+      return res.status(502).json({ error: `TTS service error: HTTP ${response.status}` });
+    }
+    return res.json(await response.json());
+  } catch (e) {
+    return res.status(502).json({ error: ttsFetchError(e) });
+  }
+});
+
+/**
  * DELETE /tts/cache
  * Removes all cached TTS audio files from data/tts-cache/.
  * Call this after re-uploading a voice embedding so that stale audio generated

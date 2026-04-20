@@ -46,6 +46,150 @@ async function create(title, genre, tone, aiOptions = {}) {
 /** Minimum target word count included in the chapter generation prompt. */
 const CHAPTER_MIN_WORDS = 700;
 
+/** Generic speaker names that are never real character profiles. */
+const GENERIC_SPEAKERS = new Set(['narrator', 'male', 'female']);
+
+/**
+ * Map a character's gender and optional personality description to the
+ * best-fit built-in voice preset.
+ *
+ * Preset IDs match those auto-created by the Zonos sidecar at startup.
+ *
+ * @param {string} gender      - 'male', 'female', 'non-binary', or '' for unspecified.
+ * @param {string} [personality] - Optional personality/description text used to
+ *   detect age hints (e.g. "young", "elderly").
+ * @returns {string} A preset voice ID.
+ */
+function pickVoicePreset(gender, personality = '') {
+  const g = (gender || '').toLowerCase();
+  const desc = (personality || '').toLowerCase();
+  const isYoung   = /\b(young|child|teen|youth|kid)\b/.test(desc);
+  const isElderly = /\b(old|elder|aged|elderly|senior)\b/.test(desc);
+
+  if (g === 'female' || g === 'non-binary') {
+    if (isYoung)   return 'preset-young-girl';
+    if (isElderly) return 'preset-elderly-female';
+    return 'preset-adult-female';
+  }
+  if (g === 'male') {
+    if (isYoung)   return 'preset-young-boy';
+    if (isElderly) return 'preset-elderly-male';
+    return 'preset-adult-male';
+  }
+  // Unspecified gender — default to adult-male as a neutral fallback.
+  return 'preset-adult-male';
+}
+
+/**
+ * Slugify a name to a safe document identifier.
+ * Mirrors the slugify() function in api/server.js.
+ *
+ * @param {string} str
+ * @returns {string}
+ */
+function _slugify(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+/**
+ * Extract unique named (non-generic) character names from chapter content.
+ * Returns every name found in [speaker:X] tags that is not narrator/male/female.
+ *
+ * @param {string} content
+ * @returns {string[]}
+ */
+function _extractSpeakerNames(content) {
+  const names = new Set();
+  const re = /\[speaker:([A-Za-z0-9_-]+)\]/g;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    const name = m[1];
+    if (!GENERIC_SPEAKERS.has(name.toLowerCase())) {
+      names.add(name);
+    }
+  }
+  return [...names];
+}
+
+/**
+ * After chapter generation, auto-create minimal character profiles for any
+ * new named speakers found in [speaker:X] tags.  Already-profiled characters
+ * (matched by lower-cased name) are skipped.  A small AI call is made for
+ * each new character to infer role, gender, and personality from the chapter
+ * text; errors are suppressed so chapter saving always succeeds.
+ *
+ * @param {string} storyId
+ * @param {string} content - Full chapter text with [speaker:X] tags.
+ * @param {object} aiOptions - Options forwarded to ai.ask().
+ */
+async function _extractNewCharacters(storyId, content, aiOptions) {
+  const names = _extractSpeakerNames(content);
+  if (!names.length) return;
+
+  const existing = storyRag.listDocs(storyId, 'character');
+  const existingNames = new Set(existing.map((c) => c.name.toLowerCase()));
+
+  for (const name of names) {
+    if (existingNames.has(name.toLowerCase())) continue;
+
+    try {
+      const descPrompt = [
+        `You are a creative writing assistant. Based on the following chapter, describe the character named "${name}" briefly.`,
+        'Respond with ONLY a valid JSON object with these fields:',
+        '  "role": their role in the story (e.g. protagonist, villain, mentor, supporting)',
+        '  "gender": one of "male", "female", "non-binary", or "" if unclear',
+        '  "personality": 2-3 personality traits as a comma-separated string',
+        '',
+        'Chapter excerpt:',
+        content.slice(0, 3000),
+      ].join('\n');
+
+      const raw = await ai.ask(descPrompt, aiOptions);
+
+      let profile = { role: '', gender: '', personality: '' };
+      try {
+        const match = raw.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          profile.role        = typeof parsed.role        === 'string' ? parsed.role.trim()        : '';
+          profile.gender      = typeof parsed.gender      === 'string' ? parsed.gender.trim()      : '';
+          profile.personality = typeof parsed.personality === 'string' ? parsed.personality.trim() : '';
+        }
+      } catch { /* use empty profile on parse failure */ }
+
+      const voiceId = pickVoicePreset(profile.gender, profile.personality);
+      const slug    = _slugify(name);
+      const charId  = `char-${slug}`;
+
+      const contentParts = [
+        `Name: ${name}`,
+        profile.role        ? `Role: ${profile.role}`               : '',
+        profile.gender      ? `Gender: ${profile.gender}`           : '',
+        profile.personality ? `Personality: ${profile.personality}` : '',
+      ].filter(Boolean);
+
+      storyRag.addDoc(storyId, {
+        id:          charId,
+        type:        'character',
+        name,
+        role:        profile.role,
+        gender:      profile.gender,
+        personality: profile.personality,
+        backstory:   '',
+        speechStyle: '',
+        voiceId,
+        content:     contentParts.join('. '),
+      });
+
+      // Keep existingNames up-to-date so duplicate names in the same chapter
+      // are only processed once.
+      existingNames.add(name.toLowerCase());
+    } catch (e) {
+      console.warn(`[story] Failed to auto-create character "${name}":`, e.message);
+    }
+  }
+}
+
 /** Default percentage of the chapter that should be character dialogue (0–100). */
 const DEFAULT_DIALOG_RATIO = 60;
 
@@ -321,6 +465,9 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   // Generate and store a summary of this chapter for future continuity context.
   await _storeChapterSummary(storyId, chapterNumber, content, aiOptions);
 
+  // Auto-create character profiles for any new named speakers in the chapter.
+  await _extractNewCharacters(storyId, content, aiOptions);
+
   return { storyId, chapterNumber, content };
 }
 
@@ -442,7 +589,7 @@ function deleteStory(storyId) {
   return { storyId };
 }
 
-module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get };
+module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get, pickVoicePreset };
 
 /**
  * Return summary metadata for every saved story, newest first.
