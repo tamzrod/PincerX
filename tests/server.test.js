@@ -5,6 +5,7 @@ jest.mock('../openclaw/rag');
 jest.mock('../openclaw/feedback');
 jest.mock('../ingest');
 jest.mock('../story/story');
+jest.mock('../story/story-rag');
 
 const request = require('supertest');
 const path = require('path');
@@ -13,6 +14,7 @@ const rag = require('../openclaw/rag');
 const feedback = require('../openclaw/feedback');
 const { ingest } = require('../ingest');
 const story = require('../story/story');
+const storyRag = require('../story/story-rag');
 
 // Import the app — must happen after jest.mock() calls
 let app;
@@ -22,6 +24,11 @@ beforeAll(() => {
 
 afterEach(() => {
   jest.clearAllMocks();
+  // Reset story-rag mocks to safe defaults after each test.
+  storyRag.listDocs.mockReturnValue([]);
+  storyRag.addDoc.mockImplementation(() => {});
+  storyRag.removeDoc.mockReturnValue(true);
+  storyRag.clearStory.mockImplementation(() => {});
 });
 
 // ─── GET /config + POST /config ───────────────────────────────────────────────
@@ -1168,5 +1175,263 @@ describe('POST /tts/cached', () => {
     const res = await request(app).post('/tts/cached').send({ text: 'Voice param test', speaking_rate: 20 });
     expect(res.status).toBe(204);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+// ─── POST /story/:id/character ────────────────────────────────────────────────
+
+describe('POST /story/:id/character', () => {
+  const validChar = {
+    name: 'Elena',
+    role: 'protagonist',
+    gender: 'female',
+    personality: 'curious',
+    backstory: 'A former detective.',
+    speechStyle: 'formal',
+    voiceId: 'elena_voice',
+  };
+
+  it('returns 201 with the character doc on valid input', async () => {
+    story.get = jest.fn().mockReturnValue({ id: 'abc-test' });
+
+    const res = await request(app)
+      .post('/story/abc-test/character')
+      .send(validChar);
+
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBe('char-elena');
+    expect(res.body.name).toBe('Elena');
+    expect(res.body.type).toBe('character');
+    expect(storyRag.addDoc).toHaveBeenCalledWith('abc-test', expect.objectContaining({ id: 'char-elena' }));
+  });
+
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app).post('/story/BAD_ID!/character').send(validChar);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid story id/i);
+  });
+
+  it('returns 400 when name is missing', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    const res = await request(app).post('/story/abc-test/character').send({ role: 'hero' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/name/i);
+  });
+
+  it('returns 400 when voiceId contains invalid characters', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    const res = await request(app)
+      .post('/story/abc-test/character')
+      .send({ name: 'Bob', voiceId: 'bad voice!' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/voiceId/i);
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: abc-test'); });
+    const res = await request(app).post('/story/abc-test/character').send(validChar);
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── GET /story/:id/characters ────────────────────────────────────────────────
+
+describe('GET /story/:id/characters', () => {
+  it('returns an array of character profiles', async () => {
+    story.get = jest.fn().mockReturnValue({ id: 'abc-test' });
+    storyRag.listDocs.mockReturnValue([
+      { id: 'char-elena', type: 'character', name: 'Elena', content: 'A' },
+    ]);
+
+    const res = await request(app).get('/story/abc-test/characters');
+
+    expect(res.status).toBe(200);
+    expect(res.body.characters).toHaveLength(1);
+    expect(res.body.characters[0].name).toBe('Elena');
+  });
+
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app).get('/story/INVALID!/characters');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: abc-test'); });
+    const res = await request(app).get('/story/abc-test/characters');
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── DELETE /story/:id/character/:charId ─────────────────────────────────────
+
+describe('DELETE /story/:id/character/:charId', () => {
+  it('removes the character and returns the charId', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    storyRag.removeDoc.mockReturnValue(true);
+
+    const res = await request(app).delete('/story/abc-test/character/char-elena');
+
+    expect(res.status).toBe(200);
+    expect(res.body.charId).toBe('char-elena');
+    expect(storyRag.removeDoc).toHaveBeenCalledWith('abc-test', 'char-elena');
+  });
+
+  it('returns 404 when the character does not exist', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    storyRag.removeDoc.mockReturnValue(false);
+
+    const res = await request(app).delete('/story/abc-test/character/char-ghost');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for an invalid character ID format', async () => {
+    const res = await request(app).delete('/story/abc-test/character/NOT_A_CHAR');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid character id/i);
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: abc-test'); });
+    const res = await request(app).delete('/story/abc-test/character/char-elena');
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── POST /story/:id/lore ─────────────────────────────────────────────────────
+
+describe('POST /story/:id/lore', () => {
+  it('returns 201 with the lore entry on valid input', async () => {
+    story.get = jest.fn().mockReturnValue({});
+
+    const res = await request(app)
+      .post('/story/abc-test/lore')
+      .send({ title: 'Shadowfall City', content: 'A crumbling metropolis.' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBe('lore-shadowfall-city');
+    expect(res.body.type).toBe('lore');
+    expect(res.body.title).toBe('Shadowfall City');
+    expect(storyRag.addDoc).toHaveBeenCalledWith('abc-test', expect.objectContaining({ id: 'lore-shadowfall-city' }));
+  });
+
+  it('returns 400 when title is missing', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    const res = await request(app)
+      .post('/story/abc-test/lore')
+      .send({ content: 'Some lore.' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/title/i);
+  });
+
+  it('returns 400 when content is missing', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    const res = await request(app)
+      .post('/story/abc-test/lore')
+      .send({ title: 'A Place' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/content/i);
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: abc-test'); });
+    const res = await request(app)
+      .post('/story/abc-test/lore')
+      .send({ title: 'T', content: 'C' });
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── GET /story/:id/lore ──────────────────────────────────────────────────────
+
+describe('GET /story/:id/lore', () => {
+  it('returns an array of lore entries', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    storyRag.listDocs.mockReturnValue([
+      { id: 'lore-city', type: 'lore', title: 'The City', content: 'Urban sprawl.' },
+    ]);
+
+    const res = await request(app).get('/story/abc-test/lore');
+
+    expect(res.status).toBe(200);
+    expect(res.body.lore).toHaveLength(1);
+    expect(res.body.lore[0].title).toBe('The City');
+  });
+
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app).get('/story/BAD!/lore');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: abc-test'); });
+    const res = await request(app).get('/story/abc-test/lore');
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── DELETE /story/:id/lore/:loreId ──────────────────────────────────────────
+
+describe('DELETE /story/:id/lore/:loreId', () => {
+  it('removes the lore entry and returns the loreId', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    storyRag.removeDoc.mockReturnValue(true);
+
+    const res = await request(app).delete('/story/abc-test/lore/lore-shadowfall-city');
+
+    expect(res.status).toBe(200);
+    expect(res.body.loreId).toBe('lore-shadowfall-city');
+    expect(storyRag.removeDoc).toHaveBeenCalledWith('abc-test', 'lore-shadowfall-city');
+  });
+
+  it('returns 404 when the lore entry does not exist', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    storyRag.removeDoc.mockReturnValue(false);
+
+    const res = await request(app).delete('/story/abc-test/lore/lore-ghost');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for an invalid lore ID format', async () => {
+    const res = await request(app).delete('/story/abc-test/lore/NOT_LORE');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid lore id/i);
+  });
+});
+
+// ─── GET /story/:id/character-voices ─────────────────────────────────────────
+
+describe('GET /story/:id/character-voices', () => {
+  it('returns a map of character name → voice_id for characters with voices', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    storyRag.listDocs.mockReturnValue([
+      { id: 'char-elena', type: 'character', name: 'Elena', voiceId: 'elena_voice' },
+      { id: 'char-thomas', type: 'character', name: 'Thomas', voiceId: '' }, // no voice
+    ]);
+
+    const res = await request(app).get('/story/abc-test/character-voices');
+
+    expect(res.status).toBe(200);
+    expect(res.body.voices).toEqual({ Elena: 'elena_voice' });
+  });
+
+  it('returns an empty voices object when no characters have voice IDs', async () => {
+    story.get = jest.fn().mockReturnValue({});
+    storyRag.listDocs.mockReturnValue([]);
+
+    const res = await request(app).get('/story/abc-test/character-voices');
+
+    expect(res.status).toBe(200);
+    expect(res.body.voices).toEqual({});
+  });
+
+  it('returns 400 for an invalid story ID', async () => {
+    const res = await request(app).get('/story/INVALID!/character-voices');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: abc-test'); });
+    const res = await request(app).get('/story/abc-test/character-voices');
+    expect(res.status).toBe(404);
   });
 });

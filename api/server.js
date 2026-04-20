@@ -10,6 +10,7 @@ const feedback = require('../openclaw/feedback');
 const ai = require('../openclaw/ai');
 const { ingest } = require('../ingest');
 const story = require('../story/story');
+const storyRag = require('../story/story-rag');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -397,10 +398,12 @@ const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 
 /**
  * Regex matching a speaker tag at the start of a chunk, used to identify
- * whether the paragraph is narrator prose or character dialogue and, in the
- * latter case, the character's gender.
+ * whether the paragraph is narrator prose or character dialogue.
+ * Accepts any alphanumeric identifier so that named character tags such as
+ * [speaker:Elena] are recognised alongside the legacy [speaker:male] /
+ * [speaker:female] format.
  */
-const SPEAKER_TAG_RE = /^\[speaker:(narrator|male|female)\]\s*/;
+const SPEAKER_TAG_RE = /^\[speaker:([A-Za-z0-9_-]+)\]\s*/;
 
 /**
  * Strip all speaker and emotion tags from *text*, returning clean prose suitable
@@ -691,9 +694,22 @@ const _prebakeJobs = new Map();
  * to select the TTS emotion on a per-chunk basis.  *emotionPreset* acts as
  * the fallback when no tag is present (e.g. for legacy content without tags).
  *
+ * When *characterVoiceMap* is provided, named character speakers (e.g.
+ * [speaker:Elena]) are synthesized using that character's specific Zonos
+ * voice_id rather than the shared narrator *voiceId*.  The narrator voice
+ * (and the legacy [speaker:male] / [speaker:female] tags) always use
+ * *voiceId* as the fallback.
+ *
+ * @param {string} chapterText
+ * @param {string} voiceId - Default (narrator) voice ID.
+ * @param {number|undefined} speakingRate
+ * @param {number|undefined} pitchStd
+ * @param {string} emotionPreset - Fallback emotion preset.
+ * @param {string} storyId
+ * @param {object} [characterVoiceMap] - Map of character name → Zonos voice_id.
  * @returns {string} jobId – pass to GET /tts-prebake/:jobId to poll progress.
  */
-function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPreset, storyId) {
+function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPreset, storyId, characterVoiceMap = {}) {
   const jobId = crypto.randomUUID();
   const chunks = splitIntoTTSChunksWithEmotion(chapterText, emotionPreset || 'neutral');
   const job = { total: chunks.length, done: 0, errors: 0, status: 'running' };
@@ -703,9 +719,22 @@ function startPrebakeJob(chapterText, voiceId, speakingRate, pitchStd, emotionPr
     const generatedKeys = [];
     for (const chunk of chunks) {
       if (job.status === 'cancelled') break;
-      const cacheKey = ttsCacheKey(chunk.text, voiceId, speakingRate, pitchStd, chunk.emotion);
+
+      // Resolve the effective voice for this chunk.  Named character speakers
+      // use their profile voice when available; narrator and generic male/female
+      // tags fall back to the caller-supplied voiceId.
+      const isGenericSpeaker = (
+        chunk.speaker === 'narrator' ||
+        chunk.speaker === 'male' ||
+        chunk.speaker === 'female'
+      );
+      const effectiveVoiceId = (!isGenericSpeaker && characterVoiceMap[chunk.speaker])
+        ? characterVoiceMap[chunk.speaker]
+        : voiceId;
+
+      const cacheKey = ttsCacheKey(chunk.text, effectiveVoiceId, speakingRate, pitchStd, chunk.emotion);
       try {
-        await _ensureAudioCached(chunk.text, voiceId, speakingRate, pitchStd, chunk.emotion);
+        await _ensureAudioCached(chunk.text, effectiveVoiceId, speakingRate, pitchStd, chunk.emotion);
         generatedKeys.push(cacheKey);
       } catch (e) {
         job.errors++;
@@ -836,6 +865,260 @@ app.delete('/tts/voice/:id', async (req, res) => {
     return res.json(await response.json());
   } catch (e) {
     return res.status(502).json({ error: ttsFetchError(e) });
+  }
+});
+
+/**
+ * Slugify a string for use as a doc ID fragment.
+ * Lowercases, replaces non-alphanumeric characters with dashes, and trims
+ * leading/trailing dashes.
+ *
+ * @param {string} str
+ * @returns {string}
+ */
+function slugify(str) {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+// ── Story character profiles ──────────────────────────────────────────────────
+
+/**
+ * POST /story/:id/character
+ * Body: { "name": "Elena", "role": "protagonist", "gender": "female",
+ *         "personality": "...", "backstory": "...", "speechStyle": "...",
+ *         "voiceId": "elena_voice" }
+ * Creates or replaces a character profile in the story's RAG store.
+ * The character is identified by the slugified form of their name.
+ */
+app.post('/story/:id/character', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  const { name, role, gender, personality, backstory, speechStyle, voiceId } = req.body;
+
+  const nameErr = validateStringField(name, 'name');
+  if (nameErr) return res.status(400).json({ error: nameErr });
+
+  if (voiceId !== undefined && voiceId !== '' && !/^[A-Za-z0-9_-]+$/.test(voiceId)) {
+    return res.status(400).json({ error: 'voiceId must be alphanumeric with underscores or dashes, or omitted.' });
+  }
+
+  try {
+    // Verify story exists.
+    story.get(id);
+  } catch (e) {
+    return res.status(404).json({ error: e.message });
+  }
+
+  const slug = slugify(name.trim());
+  const charId = `char-${slug}`;
+
+  // Build a flattened content string for keyword retrieval.
+  const contentParts = [
+    `Name: ${name.trim()}`,
+    role ? `Role: ${role}` : '',
+    gender ? `Gender: ${gender}` : '',
+    personality ? `Personality: ${personality}` : '',
+    backstory ? `Backstory: ${backstory}` : '',
+    speechStyle ? `Speech style: ${speechStyle}` : '',
+  ].filter(Boolean);
+
+  const doc = {
+    id: charId,
+    type: 'character',
+    name: name.trim(),
+    role: role || '',
+    gender: gender || '',
+    personality: personality || '',
+    backstory: backstory || '',
+    speechStyle: speechStyle || '',
+    voiceId: voiceId || '',
+    content: contentParts.join('. '),
+  };
+
+  try {
+    storyRag.addDoc(id, doc);
+    return res.status(201).json(doc);
+  } catch (e) {
+    return res.status(500).json({ error: `Failed to save character: ${e.message}` });
+  }
+});
+
+/**
+ * GET /story/:id/characters
+ * Returns all character profiles stored in the story's RAG store.
+ */
+app.get('/story/:id/characters', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id); // verify story exists
+    const characters = storyRag.listDocs(id, 'character');
+    return res.json({ characters });
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: `Failed to list characters: ${e.message}` });
+  }
+});
+
+/**
+ * DELETE /story/:id/character/:charId
+ * Removes a character profile from the story's RAG store.
+ * charId is the slugified character identifier (e.g. "char-elena").
+ */
+app.delete('/story/:id/character/:charId', (req, res) => {
+  const { id, charId } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  if (!charId || !/^char-[a-z0-9-]+$/.test(charId)) {
+    return res.status(400).json({ error: 'Invalid character ID format.' });
+  }
+  try {
+    story.get(id); // verify story exists
+    const removed = storyRag.removeDoc(id, charId);
+    if (!removed) {
+      return res.status(404).json({ error: `Character not found: ${charId}` });
+    }
+    return res.json({ charId });
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: `Failed to delete character: ${e.message}` });
+  }
+});
+
+// ── Story lore / world-building ───────────────────────────────────────────────
+
+/**
+ * POST /story/:id/lore
+ * Body: { "title": "Shadowfall City", "content": "A crumbling metropolis..." }
+ * Creates or replaces a lore entry in the story's RAG store.
+ * The entry is identified by the slugified form of its title.
+ */
+app.post('/story/:id/lore', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  const { title, content } = req.body;
+
+  const titleErr = validateStringField(title, 'title');
+  if (titleErr) return res.status(400).json({ error: titleErr });
+
+  const contentErr = validateStringField(content, 'content');
+  if (contentErr) return res.status(400).json({ error: contentErr });
+
+  try {
+    story.get(id); // verify story exists
+  } catch (e) {
+    return res.status(404).json({ error: e.message });
+  }
+
+  const slug = slugify(title.trim());
+  const loreId = `lore-${slug}`;
+
+  const doc = {
+    id: loreId,
+    type: 'lore',
+    title: title.trim(),
+    content: content.trim(),
+  };
+
+  try {
+    storyRag.addDoc(id, doc);
+    return res.status(201).json(doc);
+  } catch (e) {
+    return res.status(500).json({ error: `Failed to save lore entry: ${e.message}` });
+  }
+});
+
+/**
+ * GET /story/:id/lore
+ * Returns all lore entries stored in the story's RAG store.
+ */
+app.get('/story/:id/lore', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id); // verify story exists
+    const loreEntries = storyRag.listDocs(id, 'lore');
+    return res.json({ lore: loreEntries });
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: `Failed to list lore entries: ${e.message}` });
+  }
+});
+
+/**
+ * DELETE /story/:id/lore/:loreId
+ * Removes a lore entry from the story's RAG store.
+ * loreId is the slugified lore identifier (e.g. "lore-shadowfall-city").
+ */
+app.delete('/story/:id/lore/:loreId', (req, res) => {
+  const { id, loreId } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  if (!loreId || !/^lore-[a-z0-9-]+$/.test(loreId)) {
+    return res.status(400).json({ error: 'Invalid lore ID format.' });
+  }
+  try {
+    story.get(id); // verify story exists
+    const removed = storyRag.removeDoc(id, loreId);
+    if (!removed) {
+      return res.status(404).json({ error: `Lore entry not found: ${loreId}` });
+    }
+    return res.json({ loreId });
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: `Failed to delete lore entry: ${e.message}` });
+  }
+});
+
+/**
+ * GET /story/:id/character-voices
+ * Returns a map of character name → Zonos voice_id for characters that have a
+ * voice profile assigned.  The frontend can use this to resolve the correct
+ * voice_id when calling /tts for a named character speaker.
+ */
+app.get('/story/:id/character-voices', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id); // verify story exists
+    const characters = storyRag.listDocs(id, 'character');
+    const voiceMap = {};
+    for (const c of characters) {
+      if (c.name && c.voiceId) {
+        voiceMap[c.name] = c.voiceId;
+      }
+    }
+    return res.json({ voices: voiceMap });
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: `Failed to load character voices: ${e.message}` });
   }
 });
 
@@ -1026,7 +1309,17 @@ app.post('/story/:id/chapter/:num/tts-prebake', (req, res) => {
   const voiceId = typeof voice_id === 'string' ? voice_id.trim() : '';
   const emotionPreset = typeof emotion_preset === 'string' ? emotion_preset.trim() : '';
 
-  const jobId = startPrebakeJob(chapter.content, voiceId, speaking_rate, pitch_std, emotionPreset, id);
+  // Build a character name → Zonos voice_id map from the story's RAG profiles
+  // so that named character speakers are synthesized with their assigned voice.
+  const charDocs = storyRag.listDocs(id, 'character');
+  const characterVoiceMap = {};
+  for (const c of charDocs) {
+    if (c.name && c.voiceId) {
+      characterVoiceMap[c.name] = c.voiceId;
+    }
+  }
+
+  const jobId = startPrebakeJob(chapter.content, voiceId, speaking_rate, pitch_std, emotionPreset, id, characterVoiceMap);
   return res.json({ jobId, total: _prebakeJobs.get(jobId).total });
 });
 

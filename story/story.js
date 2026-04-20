@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const ai = require('../openclaw/ai');
+const storyRag = require('./story-rag');
 
 const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 
@@ -98,7 +99,100 @@ function parseOutline(raw) {
 }
 
 /**
+ * Build a RAG-enriched character context block from story character profiles.
+ *
+ * @param {Array<object>} characters - Character docs from the story RAG store.
+ * @returns {string} Formatted character context, or empty string when none exist.
+ */
+function buildCharacterContext(characters) {
+  if (!characters.length) return '';
+  const lines = ['Cast of Characters:'];
+  for (const c of characters) {
+    lines.push(`  ${c.name}${c.role ? ` (${c.role})` : ''}${c.gender ? `, ${c.gender}` : ''}`);
+    if (c.personality) lines.push(`    Personality: ${c.personality}`);
+    if (c.backstory) lines.push(`    Backstory: ${c.backstory}`);
+    if (c.speechStyle) lines.push(`    Speech style: ${c.speechStyle}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Build a RAG-enriched world context block from story lore entries.
+ *
+ * @param {Array<object>} loreEntries - Lore docs from the story RAG store.
+ * @returns {string} Formatted lore context, or empty string when none exist.
+ */
+function buildLoreContext(loreEntries) {
+  if (!loreEntries.length) return '';
+  const lines = ['World Context:'];
+  for (const entry of loreEntries) {
+    lines.push(`  [${entry.title}]`);
+    lines.push(`  ${entry.content}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Build the speaker-tag instruction line for the chapter prompt.
+ * Uses character names when character profiles are defined; falls back to the
+ * generic [speaker:male] / [speaker:female] format otherwise.
+ *
+ * @param {Array<object>} characters
+ * @returns {string}
+ */
+function buildSpeakerTagInstruction(characters) {
+  if (!characters.length) {
+    return 'Speaker tags: [speaker:narrator] for narrative prose, [speaker:male] for male character speech, [speaker:female] for female character speech.';
+  }
+  const examples = characters
+    .slice(0, 4)
+    .map((c) => `[speaker:${c.name}]`)
+    .join(', ');
+  return (
+    `Speaker tags: [speaker:narrator] for narrative prose, and use the character's exact name in the speaker tag for their dialogue (e.g., ${examples}). ` +
+    'For any unnamed characters not listed in the Cast above, use [speaker:male] or [speaker:female].'
+  );
+}
+
+/**
+ * Generate a brief summary of a chapter and store it in the story's RAG store.
+ * Errors are logged as warnings and do not propagate — chapter saving must not
+ * depend on summary generation succeeding.
+ *
+ * @param {string} storyId
+ * @param {number} chapterNumber
+ * @param {string} content - The generated chapter text.
+ * @param {object} aiOptions - Options forwarded to ai.ask().
+ */
+async function _storeChapterSummary(storyId, chapterNumber, content, aiOptions) {
+  const prompt = [
+    'You are a creative writing assistant. Write a brief summary of the following chapter.',
+    'The summary must be 2–4 sentences covering the key events, character moments, and plot developments.',
+    'Respond with ONLY the summary text — no JSON, no explanation.',
+    '',
+    `Chapter ${chapterNumber}:`,
+    content,
+  ].join('\n');
+
+  try {
+    const summary = await ai.ask(prompt, aiOptions);
+    storyRag.addDoc(storyId, {
+      id: `summary-${chapterNumber}`,
+      type: 'summary',
+      chapterNumber,
+      content: summary.trim(),
+    });
+  } catch (e) {
+    console.warn(`[story] Failed to generate summary for chapter ${chapterNumber}:`, e.message);
+  }
+}
+
+/**
  * Generate a chapter for an existing story and persist it to disk.
+ *
+ * Character profiles, lore entries, and chapter summaries stored in the
+ * story's RAG store are automatically injected as context so the AI can
+ * maintain consistency without the prompt growing unboundedly.
  *
  * @param {string} storyId       - The story ID (from the `id` field of a saved story).
  * @param {number} chapterNumber - 1-based chapter index to generate.
@@ -121,11 +215,34 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     : DEFAULT_DIALOG_RATIO;
   const narrationRatio = 100 - dialogRatio;
 
-  const prior = (storyData.chapters || [])
-    .filter((c) => c.number < chapterNumber)
-    .sort((a, b) => a.number - b.number)
-    .map((c) => `Chapter ${c.number}:\n${c.content}`)
-    .join('\n\n');
+  // ── RAG-enriched context ────────────────────────────────────────────────────
+  const characters = storyRag.listDocs(storyId, 'character');
+  const loreEntries = storyRag.listDocs(storyId, 'lore');
+
+  // Chapter summaries replace full prior-chapter text to keep the context window
+  // from growing unboundedly as the story progresses.  Fall back to full text
+  // for stories that pre-date the summary feature.
+  const allSummaries = storyRag.listDocs(storyId, 'summary')
+    .filter((d) => d.chapterNumber < chapterNumber)
+    .sort((a, b) => a.chapterNumber - b.chapterNumber);
+
+  let prior;
+  if (allSummaries.length > 0) {
+    prior = allSummaries
+      .map((d) => `Chapter ${d.chapterNumber} Summary:\n${d.content}`)
+      .join('\n\n');
+  } else {
+    // Fallback: full prior chapter text (original behaviour for existing stories).
+    prior = (storyData.chapters || [])
+      .filter((c) => c.number < chapterNumber)
+      .sort((a, b) => a.number - b.number)
+      .map((c) => `Chapter ${c.number}:\n${c.content}`)
+      .join('\n\n');
+  }
+
+  const characterContext = buildCharacterContext(characters);
+  const loreContext = buildLoreContext(loreEntries);
+  const speakerTagInstruction = buildSpeakerTagInstruction(characters);
 
   const prompt = [
     'You are a creative writing assistant. Write a detailed, immersive chapter of a story.',
@@ -138,7 +255,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     '',
     'IMPORTANT — Speaker and emotion tagging for text-to-speech:',
     'Begin every paragraph with a speaker tag immediately followed by an emotion tag, before the paragraph text.',
-    'Speaker tags: [speaker:narrator] for narrative prose, [speaker:male] for male character speech, [speaker:female] for female character speech.',
+    speakerTagInstruction,
     `Emotion tags: one of ${EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ')}.`,
     'For narrator paragraphs, use ONLY [emotion:neutral] or [emotion:calm]. Reserve expressive emotions for character dialogue.',
     'The tags are invisible to readers and are used only by the audio narration system.',
@@ -171,6 +288,8 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     `Genre: ${storyData.genre}`,
     `Tone: ${storyData.tone}`,
     `Outline:\n${storyData.outline}`,
+    characterContext ? `\n${characterContext}` : '',
+    loreContext ? `\n${loreContext}` : '',
     prior ? `\nPreviously written chapters:\n${prior}` : '',
     customPrompt ? `\nAdditional instructions: ${customPrompt}` : '',
     `\nNow write Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`,
@@ -190,6 +309,10 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   }
 
   fs.writeFileSync(filepath, JSON.stringify(storyData, null, 2), 'utf8');
+
+  // Generate and store a summary of this chapter for future continuity context.
+  await _storeChapterSummary(storyId, chapterNumber, content, aiOptions);
+
   return { storyId, chapterNumber, content };
 }
 
@@ -249,6 +372,11 @@ async function deleteChapter(storyId, chapterNumber) {
 
   storyData.chapters.splice(idx, 1);
   fs.writeFileSync(filepath, JSON.stringify(storyData, null, 2), 'utf8');
+
+  // Remove the chapter summary from the story RAG store so future chapter
+  // generation does not reference a summary for a deleted chapter.
+  storyRag.removeDoc(storyId, `summary-${chapterNumber}`);
+
   return { storyId, chapterNumber };
 }
 
@@ -267,6 +395,10 @@ function deleteStory(storyId) {
   }
 
   fs.unlinkSync(filepath);
+
+  // Remove all per-story RAG documents (character profiles, lore, summaries).
+  storyRag.clearStory(storyId);
+
   return { storyId };
 }
 
