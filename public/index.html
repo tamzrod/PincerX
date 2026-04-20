@@ -2662,10 +2662,10 @@
         [data.genre, data.tone].filter(Boolean).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' · ');
       // Remove any previously generated chapter nodes
       document.querySelectorAll('.reading-chapter').forEach((el) => el.remove());
-      // Show character manager section for new story
+      // Show character manager and load any characters generated with the outline
       document.getElementById('char-section').style.display = '';
-      document.getElementById('char-list').innerHTML = '';
-      storyCharacterVoiceMap = {};
+      await loadCharacters();
+      await refreshCharacterVoiceMap();
       // Refresh saved stories list so the new entry appears
       loadStoryList();
     } catch (e) {
