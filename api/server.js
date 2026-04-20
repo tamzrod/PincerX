@@ -152,13 +152,11 @@ app.get('/models', async (req, res) => {
   let { baseUrl, provider } = req.query;
 
   let stored = {};
-  if (!baseUrl || !provider) {
-    try {
-      stored = fs.existsSync(CONFIG_PATH)
-        ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
-        : {};
-    } catch { /* use defaults */ }
-  }
+  try {
+    stored = fs.existsSync(CONFIG_PATH)
+      ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
+      : {};
+  } catch { /* use defaults */ }
 
   if (!baseUrl) {
     baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
