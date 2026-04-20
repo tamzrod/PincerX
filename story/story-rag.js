@@ -37,7 +37,9 @@ function _assertValidStoryId(storyId) {
  * @returns {string}
  */
 function _docsPath(storyId) {
-  return path.join(STORIES_DIR, storyId, 'rag-docs.json');
+  // Use path.basename to strip any directory separators that might escape STORIES_DIR,
+  // mirroring the same defence used in story.js (path.basename(`${storyId}.json`)).
+  return path.join(STORIES_DIR, path.basename(storyId), 'rag-docs.json');
 }
 
 /**
@@ -62,7 +64,7 @@ function loadDocs(storyId) {
  * @param {Array<object>} docs
  */
 function saveDocs(storyId, docs) {
-  const dir = path.join(STORIES_DIR, storyId);
+  const dir = path.join(STORIES_DIR, path.basename(storyId));
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(_docsPath(storyId), JSON.stringify(docs, null, 2), 'utf8');
 }
@@ -166,9 +168,10 @@ function retrieve(storyId, query, topK = 5) {
  */
 function clearStory(storyId) {
   _assertValidStoryId(storyId);
-  const dir = path.join(STORIES_DIR, storyId);
+  const safeId = path.basename(storyId);
+  const dir = path.join(STORIES_DIR, safeId);
   if (!fs.existsSync(dir)) return;
-  const p = _docsPath(storyId);
+  const p = path.join(dir, 'rag-docs.json');
   if (fs.existsSync(p)) fs.unlinkSync(p);
   // Remove the directory only when empty.  Only ENOTEMPTY and ENOENT are
   // expected here; any other error is re-thrown.

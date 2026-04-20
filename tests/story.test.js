@@ -14,18 +14,17 @@ const storyModule = require('../story/story');
 const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 
 /**
- * Remove all files and subdirectories inside STORIES_DIR without deleting the
- * directory itself.  Handles the per-story RAG subdirectories created by
- * story-rag.js (data/stories/<storyId>/).
+ * Remove only the story `.json` files written by story.test.js from STORIES_DIR.
+ * Subdirectories (per-story RAG dirs created by story-rag.js) are managed by
+ * story-rag.test.js's own cleanup and must not be removed here — Jest runs
+ * test files in parallel workers that share the same filesystem, so removing
+ * subdirectories created by another worker would cause intermittent failures.
  */
 function cleanupStoriesDir() {
   if (!fs.existsSync(STORIES_DIR)) return;
   for (const entry of fs.readdirSync(STORIES_DIR, { withFileTypes: true })) {
-    const full = path.join(STORIES_DIR, entry.name);
-    if (entry.isDirectory()) {
-      fs.rmSync(full, { recursive: true, force: true });
-    } else {
-      fs.unlinkSync(full);
+    if (entry.isFile() && entry.name.endsWith('.json')) {
+      fs.unlinkSync(path.join(STORIES_DIR, entry.name));
     }
   }
 }

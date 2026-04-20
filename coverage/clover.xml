@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1776651969457" clover="3.2.0">
-  <project timestamp="1776651969457" name="All files">
-    <metrics statements="928" coveredstatements="775" conditionals="637" coveredconditionals="431" methods="139" coveredmethods="115" elements="1704" coveredelements="1321" complexity="0" loc="928" ncloc="928" packages="3" files="6" classes="6"/>
+<coverage generated="1776652248370" clover="3.2.0">
+  <project timestamp="1776652248370" name="All files">
+    <metrics statements="929" coveredstatements="776" conditionals="637" coveredconditionals="431" methods="139" coveredmethods="115" elements="1705" coveredelements="1322" complexity="0" loc="929" ncloc="929" packages="3" files="6" classes="6"/>
     <package name="api">
       <metrics statements="566" coveredstatements="453" conditionals="404" coveredconditionals="263" methods="56" coveredmethods="45"/>
       <file name="server.js" path="/home/runner/work/PincerX/PincerX/api/server.js">
@@ -758,62 +758,63 @@
       </file>
     </package>
     <package name="story">
-      <metrics statements="191" coveredstatements="166" conditionals="97" coveredconditionals="67" methods="45" coveredmethods="34"/>
+      <metrics statements="192" coveredstatements="167" conditionals="97" coveredconditionals="67" methods="45" coveredmethods="34"/>
       <file name="story-rag.js" path="/home/runner/work/PincerX/PincerX/story/story-rag.js">
-        <metrics statements="53" coveredstatements="52" conditionals="24" coveredconditionals="19" methods="18" coveredmethods="18"/>
+        <metrics statements="54" coveredstatements="53" conditionals="24" coveredconditionals="19" methods="18" coveredmethods="18"/>
         <line num="3" count="3" type="stmt"/>
         <line num="4" count="3" type="stmt"/>
         <line num="6" count="3" type="stmt"/>
         <line num="14" count="3" type="stmt"/>
         <line num="24" count="79" type="cond" truecount="2" falsecount="0"/>
         <line num="29" count="3" type="stmt"/>
-        <line num="40" count="129" type="stmt"/>
-        <line num="51" count="73" type="stmt"/>
-        <line num="52" count="73" type="stmt"/>
-        <line num="54" count="25" type="stmt"/>
-        <line num="65" count="54" type="stmt"/>
-        <line num="66" count="54" type="stmt"/>
+        <line num="42" count="127" type="stmt"/>
+        <line num="53" count="73" type="stmt"/>
+        <line num="54" count="73" type="stmt"/>
+        <line num="56" count="25" type="stmt"/>
         <line num="67" count="54" type="stmt"/>
-        <line num="78" count="53" type="stmt"/>
-        <line num="79" count="53" type="stmt"/>
+        <line num="68" count="54" type="stmt"/>
+        <line num="69" count="54" type="stmt"/>
         <line num="80" count="53" type="stmt"/>
-        <line num="81" count="53" type="cond" truecount="2" falsecount="0"/>
-        <line num="82" count="2" type="stmt"/>
-        <line num="84" count="51" type="stmt"/>
-        <line num="86" count="53" type="stmt"/>
-        <line num="98" count="3" type="stmt"/>
-        <line num="99" count="3" type="stmt"/>
+        <line num="81" count="53" type="stmt"/>
+        <line num="82" count="53" type="stmt"/>
+        <line num="83" count="53" type="cond" truecount="2" falsecount="0"/>
+        <line num="84" count="2" type="stmt"/>
+        <line num="86" count="51" type="stmt"/>
+        <line num="88" count="53" type="stmt"/>
         <line num="100" count="3" type="stmt"/>
-        <line num="101" count="3" type="cond" truecount="2" falsecount="0"/>
-        <line num="102" count="1" type="stmt"/>
-        <line num="103" count="1" type="stmt"/>
+        <line num="101" count="3" type="stmt"/>
+        <line num="102" count="3" type="stmt"/>
+        <line num="103" count="3" type="cond" truecount="2" falsecount="0"/>
         <line num="104" count="1" type="stmt"/>
-        <line num="116" count="11" type="stmt"/>
-        <line num="117" count="10" type="stmt"/>
-        <line num="118" count="12" type="cond" truecount="2" falsecount="0"/>
-        <line num="132" count="7" type="stmt"/>
-        <line num="133" count="7" type="stmt"/>
+        <line num="105" count="1" type="stmt"/>
+        <line num="106" count="1" type="stmt"/>
+        <line num="118" count="11" type="stmt"/>
+        <line num="119" count="10" type="stmt"/>
+        <line num="120" count="12" type="cond" truecount="2" falsecount="0"/>
         <line num="134" count="7" type="stmt"/>
-        <line num="138" count="16" type="stmt"/>
-        <line num="140" count="7" type="cond" truecount="2" falsecount="0"/>
-        <line num="142" count="6" type="stmt"/>
-        <line num="143" count="15" type="stmt"/>
-        <line num="147" count="15" type="stmt"/>
-        <line num="148" count="39" type="cond" truecount="2" falsecount="0"/>
-        <line num="149" count="39" type="stmt"/>
-        <line num="151" count="15" type="stmt"/>
-        <line num="154" count="6" type="stmt"/>
-        <line num="155" count="15" type="stmt"/>
-        <line num="156" count="7" type="stmt"/>
-        <line num="158" count="8" type="stmt"/>
-        <line num="168" count="5" type="stmt"/>
-        <line num="169" count="3" type="stmt"/>
-        <line num="170" count="3" type="cond" truecount="2" falsecount="0"/>
-        <line num="171" count="2" type="stmt"/>
-        <line num="172" count="2" type="cond" truecount="1" falsecount="1"/>
-        <line num="175" count="2" type="stmt"/>
-        <line num="176" count="0" type="cond" truecount="0" falsecount="4"/>
-        <line num="180" count="3" type="stmt"/>
+        <line num="135" count="7" type="stmt"/>
+        <line num="136" count="7" type="stmt"/>
+        <line num="140" count="16" type="stmt"/>
+        <line num="142" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="144" count="6" type="stmt"/>
+        <line num="145" count="15" type="stmt"/>
+        <line num="149" count="15" type="stmt"/>
+        <line num="150" count="39" type="cond" truecount="2" falsecount="0"/>
+        <line num="151" count="39" type="stmt"/>
+        <line num="153" count="15" type="stmt"/>
+        <line num="156" count="6" type="stmt"/>
+        <line num="157" count="15" type="stmt"/>
+        <line num="158" count="7" type="stmt"/>
+        <line num="160" count="8" type="stmt"/>
+        <line num="170" count="5" type="stmt"/>
+        <line num="171" count="3" type="stmt"/>
+        <line num="172" count="3" type="stmt"/>
+        <line num="173" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="174" count="2" type="stmt"/>
+        <line num="175" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="178" count="2" type="stmt"/>
+        <line num="179" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="183" count="3" type="stmt"/>
       </file>
       <file name="story.js" path="/home/runner/work/PincerX/PincerX/story/story.js">
         <metrics statements="138" coveredstatements="114" conditionals="73" coveredconditionals="48" methods="27" coveredmethods="16"/>
