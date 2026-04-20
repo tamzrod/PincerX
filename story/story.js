@@ -45,6 +45,9 @@ async function create(title, genre, tone, aiOptions = {}) {
 /** Minimum target word count included in the chapter generation prompt. */
 const CHAPTER_MIN_WORDS = 700;
 
+/** Default percentage of the chapter that should be character dialogue (0–100). */
+const DEFAULT_DIALOG_RATIO = 60;
+
 /**
  * Valid emotion presets understood by the Zonos TTS sidecar.
  * These must match the keys in _EMOTION_PRESETS in zonos/server.py.
@@ -113,6 +116,11 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
 
   const storyData = JSON.parse(fs.readFileSync(filepath, 'utf8'));
 
+  const dialogRatio = (typeof aiOptions.dialogRatio === 'number')
+    ? Math.max(0, Math.min(100, Math.round(aiOptions.dialogRatio)))
+    : DEFAULT_DIALOG_RATIO;
+  const narrationRatio = 100 - dialogRatio;
+
   const prior = (storyData.chapters || [])
     .filter((c) => c.number < chapterNumber)
     .sort((a, b) => a.number - b.number)
@@ -125,14 +133,19 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
     '',
     'The chapter must be substantial: at least ' + CHAPTER_MIN_WORDS + ' words with vivid descriptions, meaningful dialogue, and strong pacing.',
+    `Aim for approximately ${dialogRatio}% character dialogue and ${narrationRatio}% narration/description.`,
+    'Dialogue lines and narrative description should each form their own paragraphs where possible.',
     '',
-    'IMPORTANT — Emotion tagging for text-to-speech:',
-    'Begin every paragraph with an emotion tag on the same line, immediately before the paragraph text.',
-    `The tag must be one of: ${EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ')}.`,
-    'Choose the tag that best matches the mood of that paragraph.',
+    'IMPORTANT — Speaker and emotion tagging for text-to-speech:',
+    'Begin every paragraph with a speaker tag immediately followed by an emotion tag, before the paragraph text.',
+    'Speaker tags: [speaker:narrator] for narrative prose, [speaker:male] for male character speech, [speaker:female] for female character speech.',
+    `Emotion tags: one of ${EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ')}.`,
+    'For narrator paragraphs, use ONLY [emotion:neutral] or [emotion:calm]. Reserve expressive emotions for character dialogue.',
     'The tags are invisible to readers and are used only by the audio narration system.',
-    'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tag.',
-    'Example: [emotion:sad] The old house creaked as she stepped inside, memories flooding back.',
+    'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tags.',
+    'Example narrator: [speaker:narrator][emotion:neutral] The old house creaked as she stepped inside.',
+    'Example male character: [speaker:male][emotion:happy] "We finally made it!" Thomas shouted.',
+    'Example female character: [speaker:female][emotion:sad] "I\'m so sorry," Elena whispered softly.',
     '',
     'Do not include any explanation or text outside the JSON object.',
     '',

@@ -851,6 +851,11 @@
         <p style="color:#666;font-size:13px;margin-bottom:10px;">Generate chapters one at a time. Each chapter builds on the outline and all previously generated chapters.</p>
         <label for="chapter-custom-prompt">Custom instructions (optional)</label>
         <textarea id="chapter-custom-prompt" placeholder="e.g. Focus on the protagonist's inner conflict, add a plot twist…" style="min-height:70px;margin-bottom:8px;"></textarea>
+        <label>Dialogue Ratio <span style="color:#aaa;font-weight:400">(higher = more character speech)</span></label>
+        <div class="slider-row" style="margin-bottom:12px">
+          <input type="range" id="chapter-dialog-ratio" min="0" max="100" step="5" value="60" oninput="document.getElementById('chapter-dialog-ratio-val').textContent=this.value+'%'" />
+          <span class="slider-val" id="chapter-dialog-ratio-val">60%</span>
+        </div>
         <div class="row">
           <button class="btn-primary" id="chapter-btn" onclick="generateNextChapter()">Generate Chapter 1</button>
         </div>
@@ -1296,38 +1301,60 @@
   // replacement in stripEmotionTags() uses the unanchored forms.
   const EMOTION_TAG_RE = /^(?:\[emotion:([a-z]+)\]|"emotion:([a-z]+)")\s*/;
 
+  // Matches a speaker tag at the start of a chunk string, identifying whether
+  // the paragraph is narrator prose or character dialogue (and the gender).
+  const SPEAKER_TAG_RE = /^\[speaker:(narrator|male|female)\]\s*/;
+
   /**
-   * Remove all emotion tags from *text* so they are never shown to readers.
-   * Handles both [emotion:X] (square-bracket) and "emotion:X" (quoted) formats.
+   * Remove all speaker and emotion tags from *text* so they are never shown
+   * to readers.  Handles [speaker:X], [emotion:X] (square-bracket) and
+   * "emotion:X" (quoted) formats.
    *
    * @param {string} text
    * @returns {string}
    */
   function stripEmotionTags(text) {
     return text
+      .replace(/\[speaker:(narrator|male|female)\]\s*/g, '')
       .replace(/\[emotion:[a-z]+\]\s*/g, '')
       .replace(/"emotion:[a-z]+"\s*/g, '');
   }
 
   /**
-   * Like splitIntoChunks() but returns { text, emotion } objects instead of
-   * plain strings.  The emotion is extracted from the leading [emotion:X] tag
-   * of each chunk (if present) and cascades to subsequent chunks until a new
-   * tag appears.  The stripped text is placed in the `text` property of each
-   * returned object so the TTS service receives clean prose via `chunk.text`.
+   * Like splitIntoChunks() but returns { text, emotion, speaker } objects.
+   * The speaker and emotion are extracted from leading [speaker:X] and
+   * [emotion:X] tags of each chunk (if present) and cascade to subsequent
+   * chunks until new tags appear.  The stripped text is placed in the `text`
+   * property so the TTS service receives clean prose via `chunk.text`.
    *
-   * @param {string} rawText - Chapter content with optional [emotion:X] tags.
+   * Speaker rules applied here:
+   *   - narrator chunks always receive emotion "neutral", keeping narration
+   *     stable and preventing sudden volume changes between paragraphs.
+   *   - male/female character chunks use the emotion from their [emotion:X] tag.
+   *
+   * @param {string} rawText - Chapter content with optional [speaker:X][emotion:X] tags.
    * @param {string} [fallbackEmotion] - Preset used before the first tag is seen;
    *   defaults to voicePrefs.emotion_preset (or 'neutral' if that is unset).
-   * @returns {Array<{text: string, emotion: string}>}
+   * @returns {Array<{text: string, emotion: string, speaker: string}>}
    */
   function splitIntoChunksWithEmotion(rawText, fallbackEmotion) {
     const rawChunks = splitIntoChunks(rawText);
     let currentEmotion = fallbackEmotion || voicePrefs.emotion_preset || 'neutral';
+    let currentSpeaker = 'narrator';
     return rawChunks.map((chunk) => {
-      const match = chunk.match(EMOTION_TAG_RE);
-      if (match) currentEmotion = match[1] || match[2]; // group 1 = bracket format, group 2 = quoted format (alternation ensures only one captures)
-      return { text: stripEmotionTags(chunk), emotion: currentEmotion };
+      let remaining = chunk;
+      // Extract speaker tag first (it precedes the emotion tag in the new format)
+      const speakerMatch = remaining.match(SPEAKER_TAG_RE);
+      if (speakerMatch) {
+        currentSpeaker = speakerMatch[1];
+        remaining = remaining.slice(speakerMatch[0].length);
+      }
+      // Extract emotion tag
+      const emotionMatch = remaining.match(EMOTION_TAG_RE);
+      if (emotionMatch) currentEmotion = emotionMatch[1] || emotionMatch[2]; // group 1 = bracket, group 2 = quoted
+      // Narrator always uses neutral emotion to prevent volume fluctuation
+      const effectiveEmotion = currentSpeaker === 'narrator' ? 'neutral' : currentEmotion;
+      return { text: stripEmotionTags(remaining), emotion: effectiveEmotion, speaker: currentSpeaker };
     });
   }
 
@@ -1681,8 +1708,12 @@
   /**
    * Read *chunks* aloud using the browser's built-in speech synthesis.
    * This is the fallback when the Zonos TTS sidecar is unavailable.
+   * Each chunk may carry a `speaker` field ('narrator', 'male', 'female');
+   * narrator chunks always use the narrator voice while character chunks use
+   * the user-selected voice type.  This ensures gender detection applies only
+   * to character dialogue, not narration.
    *
-   * @param {Array<{text: string}>} chunks
+   * @param {Array<{text: string, speaker?: string}>} chunks
    * @param {HTMLButtonElement} btn - The "Read" button to update.
    */
   function speakWithBrowserTTS(chunks, btn) {
@@ -1692,15 +1723,19 @@
     btn.classList.remove('loading');
     btn.classList.add('speaking');
 
-    const voice = pickBrowserVoice(voicePrefs.voice_type || 'narrator');
-
     let index = 0;
     function speakNext() {
       if (isTTSCancelled(btn) || index >= chunks.length) {
         if (!isTTSCancelled(btn)) stopTTS();
         return;
       }
-      const utterance = new SpeechSynthesisUtterance(chunks[index].text);
+      const chunk = chunks[index];
+      // Use narrator voice for narrator paragraphs; user-selected type for characters.
+      const chunkVoiceType = (chunk.speaker && chunk.speaker !== 'narrator')
+        ? (voicePrefs.voice_type || 'narrator')
+        : 'narrator';
+      const voice = pickBrowserVoice(chunkVoiceType);
+      const utterance = new SpeechSynthesisUtterance(chunk.text);
       if (voice) utterance.voice = voice;
       utterance.lang = voice ? voice.lang : 'en-US';
       utterance.rate = zonosRateToSpeechRate(voicePrefs.speaking_rate || 15);
@@ -1795,6 +1830,9 @@
       if (activeTTSObjectURL) URL.revokeObjectURL(activeTTSObjectURL);
       activeTTSObjectURL = url;
       activeTTSAudio = new Audio(url);
+      // Pin volume to prevent sudden loudness changes between chunks
+      // (different emotion presets can produce different output levels in Zonos).
+      activeTTSAudio.volume = 1.0;
 
       btn.textContent = '⏹ Stop';
       btn.classList.remove('loading');
@@ -1945,12 +1983,13 @@
     clearMsg('chapter-msg');
     const chapterNumber = storyState.nextChapter;
     const customPrompt = document.getElementById('chapter-custom-prompt').value.trim();
+    const dialogRatio = Number(document.getElementById('chapter-dialog-ratio').value);
 
     setLoading('chapter-btn', true, `Generate Chapter ${chapterNumber}`);
     showMsg('chapter-msg', `Generating Chapter ${chapterNumber}…`, 'loading');
 
     try {
-      const body = { chapterNumber };
+      const body = { chapterNumber, dialogRatio };
       if (customPrompt) body.customPrompt = customPrompt;
 
       const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
@@ -1978,13 +2017,14 @@
     if (!storyState.id) return;
     clearMsg('chapter-msg');
     const customPrompt = document.getElementById('chapter-custom-prompt').value.trim();
+    const dialogRatio = Number(document.getElementById('chapter-dialog-ratio').value);
 
     // Disable action buttons in this chapter while regenerating
     sectionEl.querySelectorAll('button').forEach((b) => { b.disabled = true; });
     showMsg('chapter-msg', `Regenerating Chapter ${chapterNumber}…`, 'loading');
 
     try {
-      const body = { chapterNumber };
+      const body = { chapterNumber, dialogRatio };
       if (customPrompt) body.customPrompt = customPrompt;
 
       const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
