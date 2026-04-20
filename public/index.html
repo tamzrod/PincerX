@@ -534,6 +534,80 @@
       color: #888;
       font-family: system-ui, sans-serif;
     }
+
+    .tts-prebake-label.done {
+      color: #1e7e45;
+      font-weight: 600;
+    }
+
+    /* ── Global Zonos activity status bar ─────────────────────────────────── */
+
+    .zonos-status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #1a1a2e;
+      color: #e8eaf0;
+      font-size: 12px;
+      font-family: system-ui, sans-serif;
+      padding: 7px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 200;
+      transform: translateY(100%);
+      transition: transform 0.3s ease;
+      box-shadow: 0 -2px 10px rgba(0,0,0,.25);
+    }
+
+    .zonos-status-bar.visible {
+      transform: translateY(0);
+    }
+
+    .zonos-pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4a6cf7;
+      flex-shrink: 0;
+      animation: zonos-pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes zonos-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.35; transform: scale(0.65); }
+    }
+
+    .zonos-status-text {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .zonos-status-progress {
+      color: rgba(255,255,255,.55);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .zonos-mini-bar {
+      width: 90px;
+      height: 3px;
+      background: rgba(255,255,255,.15);
+      border-radius: 2px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .zonos-mini-fill {
+      height: 100%;
+      background: #4a6cf7;
+      border-radius: 2px;
+      transition: width 0.5s ease;
+      width: 0%;
+    }
   </style>
 </head>
 <body>
@@ -651,6 +725,13 @@
     </div>
 
     <div class="msg" id="cfg-msg"></div>
+
+    <div class="field-group" style="border-top:1px solid #eee;padding-top:14px;margin-top:6px">
+      <h3 style="margin-bottom:6px">TTS Cache</h3>
+      <p style="font-size:12px;color:#666;margin-bottom:8px">Clears all pre-generated audio files. Use this if voices or settings have changed and audio sounds wrong.</p>
+      <button class="btn-danger" id="cfg-clear-cache-btn" type="button" onclick="clearTTSCache()">🗑 Clear TTS Cache</button>
+      <div class="msg" id="cfg-cache-msg"></div>
+    </div>
 
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeSettings()">Cancel</button>
@@ -1037,6 +1118,7 @@
 
   async function openSettings() {
     clearMsg('cfg-msg');
+    clearMsg('cfg-cache-msg');
     document.getElementById('settings-overlay').classList.add('open');
     try {
       const cfg = await apiFetch('/config');
@@ -1171,6 +1253,20 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Save';
+    }
+  }
+
+  async function clearTTSCache() {
+    const btn = document.getElementById('cfg-clear-cache-btn');
+    btn.disabled = true;
+    showMsg('cfg-cache-msg', 'Clearing cache…', 'loading');
+    try {
+      const data = await apiFetch('/tts/cache', { method: 'DELETE' });
+      showMsg('cfg-cache-msg', data.message || 'Cache cleared.', 'success');
+    } catch (e) {
+      showMsg('cfg-cache-msg', e.message, 'error');
+    } finally {
+      btn.disabled = false;
     }
   }
 
@@ -1497,8 +1593,6 @@
   let activeTTSAudio = null;         // currently playing HTMLAudioElement
   let activeTTSObjectURL = null;     // blob URL; revoked after playback to free memory
   let activeTTSController = null;    // AbortController for the current chunk /tts fetch
-  let activeTTSPrefetchCtrl = null;  // AbortController for the background prefetch fetch
-  let activeTTSPrefetched = null;    // pre-fetched Blob for the next chunk
   let activeTTSQueue = [];           // remaining sentence chunks to synthesize
 
   // Returns true when the given button is no longer the active TTS target,
@@ -1510,11 +1604,6 @@
       activeTTSController.abort();
       activeTTSController = null;
     }
-    if (activeTTSPrefetchCtrl) {
-      activeTTSPrefetchCtrl.abort();
-      activeTTSPrefetchCtrl = null;
-    }
-    activeTTSPrefetched = null;
     activeTTSQueue = [];
     if (activeTTSAudio) {
       activeTTSAudio.pause();
@@ -1671,33 +1760,6 @@
     return chunks.length ? chunks : [text];
   }
 
-  // Fires off a background prefetch for the next chunk so it is ready as soon
-  // as the current chunk finishes playing, eliminating the gap between chunks.
-  function prefetchNextChunk(chunk, btn) {
-    if (activeTTSPrefetchCtrl || activeTTSPrefetched) return; // already in-flight or ready
-    const ctrl = new AbortController();
-    activeTTSPrefetchCtrl = ctrl;
-    const body = { text: chunk.text, speaking_rate: voicePrefs.speaking_rate,
-      pitch_std: voicePrefs.pitch_std, emotion_preset: chunk.emotion || voicePrefs.emotion_preset };
-    if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
-    fetch('/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body), signal: ctrl.signal })
-      .then((r) => {
-        if (!r.ok) {
-          console.warn(`[TTS] Prefetch chunk failed: HTTP ${r.status}`);
-          return null;
-        }
-        return r.blob();
-      })
-      .then((blob) => {
-        if (blob && !isTTSCancelled(btn) && activeTTSPrefetchCtrl === ctrl) {
-          activeTTSPrefetched = blob;
-        }
-      })
-      .catch((e) => { if (e.name !== 'AbortError') console.warn('[TTS] Prefetch error:', e.message); })
-      .finally(() => { if (activeTTSPrefetchCtrl === ctrl) activeTTSPrefetchCtrl = null; });
-  }
-
   // Fetches and plays the next chunk in activeTTSQueue, then recurses.
   async function playNextChunk(btn) {
     if (isTTSCancelled(btn) || activeTTSQueue.length === 0) {
@@ -1709,34 +1771,25 @@
 
     try {
       let blob;
-      if (activeTTSPrefetched) {
-        // Consume the pre-fetched result for this chunk.
-        blob = activeTTSPrefetched;
-        activeTTSPrefetched = null;
-      } else {
-        // Nothing pre-fetched – fetch synchronously now.
-        activeTTSController = new AbortController();
-        const body = { text: chunk.text, speaking_rate: voicePrefs.speaking_rate,
-          pitch_std: voicePrefs.pitch_std, emotion_preset: chunk.emotion || voicePrefs.emotion_preset };
-        if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
-        const response = await fetch('/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: activeTTSController.signal,
-        });
-        activeTTSController = null;
-        if (isTTSCancelled(btn)) return;
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || `HTTP ${response.status}`);
-        }
-        blob = await response.blob();
-        if (isTTSCancelled(btn)) return;
+      // Fetch the current chunk from Zonos (one request at a time).
+      activeTTSController = new AbortController();
+      const body = { text: chunk.text, speaking_rate: voicePrefs.speaking_rate,
+        pitch_std: voicePrefs.pitch_std, emotion_preset: chunk.emotion || voicePrefs.emotion_preset };
+      if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
+      const response = await fetch('/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: activeTTSController.signal,
+      });
+      activeTTSController = null;
+      if (isTTSCancelled(btn)) return;
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${response.status}`);
       }
-
-      // Start prefetching the next chunk while this one plays.
-      if (activeTTSQueue.length > 0) prefetchNextChunk(activeTTSQueue[0], btn);
+      blob = await response.blob();
+      if (isTTSCancelled(btn)) return;
 
       const url = URL.createObjectURL(blob);
       if (activeTTSObjectURL) URL.revokeObjectURL(activeTTSObjectURL);
@@ -1807,6 +1860,9 @@
     // Cancel any in-progress prebake polls
     for (const intervalId of chapterPrebakeJobs.values()) { clearInterval(intervalId); }
     chapterPrebakeJobs.clear();
+    // Clear all chapters from the global Zonos tracker and hide the status bar.
+    _zonosPrebakeChapters.clear();
+    updateZonosBar();
     storyState.id = null;
     storyState.title = null;
     storyState.genre = null;
@@ -2092,6 +2148,43 @@
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // ── Global Zonos activity tracker ────────────────────────────────────────
+  // Keyed by chapter number; value is { done, total } from the latest poll.
+  const _zonosPrebakeChapters = new Map();
+
+  /**
+   * Recompute the global Zonos status bar from the current state of all active
+   * prebake chapters.  Call this whenever any chapter's progress changes.
+   */
+  function updateZonosBar() {
+    const bar      = document.getElementById('zonos-status-bar');
+    const textEl   = document.getElementById('zonos-status-text');
+    const progEl   = document.getElementById('zonos-status-progress');
+    const fillEl   = document.getElementById('zonos-mini-fill');
+    if (!bar) return;
+
+    let totalChunks = 0;
+    let doneChunks  = 0;
+    for (const { done, total } of _zonosPrebakeChapters.values()) {
+      totalChunks += total;
+      doneChunks  += done;
+    }
+
+    if (totalChunks === 0) {
+      bar.classList.remove('visible');
+      return;
+    }
+
+    const pct = totalChunks > 0 ? Math.round((doneChunks / totalChunks) * 100) : 0;
+    const chapCount = _zonosPrebakeChapters.size;
+    textEl.textContent = chapCount === 1
+      ? '🎙 Zonos is preparing audio…'
+      : `🎙 Zonos is preparing audio for ${chapCount} chapters…`;
+    progEl.textContent = `${doneChunks} / ${totalChunks} chunks`;
+    fillEl.style.width = `${pct}%`;
+    bar.classList.add('visible');
+  }
+
   // ── TTS prebake (background audio pre-synthesis) ──────────────────────────
 
   /**
@@ -2134,6 +2227,10 @@
       const { jobId, total } = data;
       if (!jobId) return;
 
+      // Register this chapter in the global activity tracker.
+      _zonosPrebakeChapters.set(chapterNumber, { done: 0, total });
+      updateZonosBar();
+
       wrapEl.style.display = '';
       labelEl.textContent = `🎙 Preparing audio… 0 / ${total}`;
       fillEl.style.width = '0%';
@@ -2148,19 +2245,29 @@
           fillEl.style.width = `${pct}%`;
           labelEl.textContent = `🎙 Preparing audio… ${status.done} / ${status.total}`;
 
+          // Update global tracker.
+          _zonosPrebakeChapters.set(chapterNumber, { done: status.done, total: status.total });
+          updateZonosBar();
+
           if (status.status === 'complete') {
             stopPolling();
             fillEl.style.width = '100%';
+            // Unregister from the global tracker once this chapter is done.
+            _zonosPrebakeChapters.delete(chapterNumber);
+            updateZonosBar();
             if (status.errors >= status.total) {
               // All chunks failed — hide bar silently (Zonos likely unavailable)
               wrapEl.style.display = 'none';
             } else {
-              labelEl.textContent = '🎙 Audio ready — click Read to play instantly';
-              setTimeout(() => { wrapEl.style.display = 'none'; }, 5000);
+              labelEl.textContent = '✅ Audio ready — click Read to play instantly';
+              labelEl.classList.add('done');
+              setTimeout(() => { wrapEl.style.display = 'none'; labelEl.classList.remove('done'); }, 5000);
             }
           }
         } catch {
           stopPolling();
+          _zonosPrebakeChapters.delete(chapterNumber);
+          updateZonosBar();
           wrapEl.style.display = 'none';
         }
       }, 2000);
@@ -2250,6 +2357,8 @@
       stopTTS();
       for (const [, intervalId] of chapterPrebakeJobs) { clearInterval(intervalId); }
       chapterPrebakeJobs.clear();
+      _zonosPrebakeChapters.clear();
+      updateZonosBar();
 
       // Reset story state
       storyState.id = data.id;
@@ -2309,5 +2418,13 @@
   loadPDFs();
   loadStoryList();
 </script>
+
+<!-- ── Global Zonos activity status bar ──────────────────────────────────── -->
+<div id="zonos-status-bar" class="zonos-status-bar" role="status" aria-live="polite" aria-atomic="true">
+  <span class="zonos-pulse" aria-hidden="true"></span>
+  <span id="zonos-status-text" class="zonos-status-text">🎙 Zonos is preparing audio…</span>
+  <span id="zonos-status-progress" class="zonos-status-progress"></span>
+  <div class="zonos-mini-bar" aria-hidden="true"><div id="zonos-mini-fill" class="zonos-mini-fill"></div></div>
+</div>
 </body>
 </html>
