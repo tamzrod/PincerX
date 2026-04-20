@@ -17,6 +17,10 @@ services:
       context: ../zonos
     ports:
       - "8000:8000"
+    environment:
+      # Optional: pass a Hugging Face token so model downloads are authenticated
+      # (higher rate limits, more reliable).  Set HF_TOKEN in deploy/.env.
+      HF_TOKEN: ${HF_TOKEN:-}
     deploy:
       resources:
         reservations:

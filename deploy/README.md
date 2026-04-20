@@ -37,6 +37,7 @@ docker build --platform linux/arm64 -t pincerx .
 | `AI_BASE_URL` | Base URL of the LLM API              | `http://host.docker.internal:11434` |
 | `AI_MODEL`    | Model name to use                    | `llama3.2`, `gpt-4o`             |
 | `AI_API_KEY`  | API key (leave empty for local Ollama) | `sk-...`                       |
+| `HF_TOKEN`    | Hugging Face token (optional)        | `hf_...`                         |
 
 Copy the example file and edit it before starting any compose stack:
 
@@ -170,9 +171,21 @@ caches them in the `zonos_cache` Docker volume.  Subsequent starts are fast.
 | Variable    | Description                        | Default                    |
 |-------------|------------------------------------|----------------------------|
 | `ZONOS_URL` | URL of the Zonos sidecar           | `http://localhost:8000`    |
+| `HF_TOKEN`  | Hugging Face token (optional)      | *(unset)*                  |
 
 Set `ZONOS_URL=http://zonos:8000` when running inside Docker Compose (the
 overlay sets this automatically on the `pincerx` service).
+
+`HF_TOKEN` is optional but recommended: without it the model download from
+Hugging Face runs in the anonymous "guest" lane, which can be throttled or
+interrupted.  Get a free token (no credit card needed) at
+<https://huggingface.co/settings/tokens> and add it to `deploy/.env`:
+
+```
+HF_TOKEN=hf_your_token_here
+```
+
+The Zonos overlay reads the variable from `deploy/.env` automatically.
 
 ### Running Zonos without Docker
 
