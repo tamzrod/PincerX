@@ -2109,6 +2109,10 @@
       existing.dataset.rawContent = clean;
       existing.querySelectorAll('p').forEach((p) => p.remove());
       const paragraphs = clean.split(/\n{2,}/).map((s) => stripTTSTags(s.trim())).filter(Boolean);
+      paragraphs.forEach((text) => {
+        const p = document.createElement('p');
+        p.textContent = text;
+        existing.appendChild(p);
       });
       existing.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
