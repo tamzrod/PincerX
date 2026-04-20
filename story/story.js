@@ -356,6 +356,38 @@ function parseChapterContent(raw) {
 }
 
 /**
+ * Update the content of an existing chapter in a story on disk.
+ * Only the `content` field of the chapter is changed; `number` and `createdAt`
+ * are preserved.
+ *
+ * @param {string} storyId       - The story ID.
+ * @param {number} chapterNumber - 1-based chapter number to update.
+ * @param {string} content       - New chapter content (may include speaker/emotion tags).
+ * @returns {{ storyId: string, chapterNumber: number, content: string }}
+ */
+function updateChapterContent(storyId, chapterNumber, content) {
+  const filename = path.basename(`${storyId}.json`);
+  const filepath = path.join(STORIES_DIR, filename);
+
+  if (!fs.existsSync(filepath)) {
+    throw new Error(`Story not found: ${storyId}`);
+  }
+
+  const storyData = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+
+  if (!storyData.chapters) storyData.chapters = [];
+  const idx = storyData.chapters.findIndex((c) => c.number === chapterNumber);
+  if (idx < 0) {
+    throw new Error(`Chapter ${chapterNumber} not found in story: ${storyId}`);
+  }
+
+  storyData.chapters[idx] = { ...storyData.chapters[idx], content };
+  fs.writeFileSync(filepath, JSON.stringify(storyData, null, 2), 'utf8');
+
+  return { storyId, chapterNumber, content };
+}
+
+/**
  * Delete a chapter from an existing story on disk.
  *
  * @param {string} storyId       - The story ID.
@@ -410,7 +442,7 @@ function deleteStory(storyId) {
   return { storyId };
 }
 
-module.exports = { create, generateChapter, deleteChapter, deleteStory, list, get };
+module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get };
 
 /**
  * Return summary metadata for every saved story, newest first.
