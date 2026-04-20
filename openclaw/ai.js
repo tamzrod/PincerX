@@ -256,13 +256,16 @@ function ask(prompt, options = {}) {
           try {
             const parsed = JSON.parse(data);
             if (parsed.error) {
-              // Extract a readable string from the error — some APIs return an object
+              // Extract a readable string from the error value regardless of its type.
               const raw = parsed.error;
-              const msg = typeof raw === 'string'
-                ? raw
-                : (raw !== null && typeof raw === 'object' && typeof raw.message === 'string'
-                  ? raw.message
-                  : JSON.stringify(raw));
+              let msg;
+              if (typeof raw === 'string') {
+                msg = raw;
+              } else if (raw !== null && typeof raw === 'object' && typeof raw.message === 'string') {
+                msg = raw.message;
+              } else {
+                msg = JSON.stringify(raw);
+              }
               return reject(new Error(`AI error: ${msg}`));
             }
             if (isOpenAI) {

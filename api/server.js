@@ -166,9 +166,10 @@ app.get('/models', async (req, res) => {
     provider = stored.provider || process.env.AI_PROVIDER || 'ollama';
   }
 
+  const isOpenAI = provider === 'openai' || provider === 'groq' || provider === 'openrouter';
+
   let modelsUrl;
   try {
-    const isOpenAI = provider === 'openai' || provider === 'groq' || provider === 'openrouter';
     // Ensure base ends with "/" so the relative path appends correctly
     // (important for providers like Groq with a path prefix: /openai/v1/).
     const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';

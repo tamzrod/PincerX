@@ -1161,6 +1161,10 @@
     },
   };
 
+  // Cached set of preset URLs — used in onProviderChange to detect when
+  // the URL field still shows a preset value (so it can be replaced on switch).
+  const PRESET_URLS = new Set(Object.values(PROVIDER_PRESETS).map((p) => p.url));
+
   function onProviderChange() {
     const provider = document.getElementById('cfg-provider').value;
     const localFields = document.getElementById('cfg-local-fields');
@@ -1172,8 +1176,8 @@
     if (preset) {
       localFields.style.display = 'none';
       onlineFields.style.display = '';
-      if (!urlInput.value || Object.values(PROVIDER_PRESETS).some((p) => p.url === urlInput.value)) {
-        // Only auto-fill if the field is empty or currently showing another preset URL
+      // Auto-fill when the field is empty or still showing another preset URL
+      if (!urlInput.value || PRESET_URLS.has(urlInput.value)) {
         urlInput.value = preset.url;
       }
       note.textContent = preset.note;
