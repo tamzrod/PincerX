@@ -144,4 +144,14 @@ paragraphs).
 - The first startup downloads the `Zyphra/Zonos-v0.1-transformer` model
   weights from Hugging Face (~several GB).  Subsequent starts are fast.
 - Without a GPU the model still works but synthesis is slower.
+- **Hugging Face token (recommended):** without one, downloads run in the
+  anonymous "guest" lane and may be throttled or interrupted.  Get a free token
+  (no credit card needed) at <https://huggingface.co/settings/tokens> and set it
+  before starting the server:
+  ```bash
+  export HF_TOKEN=hf_your_token_here
+  uvicorn server:app --host 0.0.0.0 --port 8000
+  ```
+  When using Docker Compose, add `HF_TOKEN=hf_your_token_here` to
+  `deploy/.env` — the overlay passes it through automatically.
 - See `example.sh` in this directory for a full `curl` walkthrough.
