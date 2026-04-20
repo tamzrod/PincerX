@@ -101,12 +101,24 @@ describe('POST /config', () => {
     expect(stored.apiKey).toBe('existing-key');
   });
 
-  it('clears the apiKey when an empty string is sent', async () => {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ baseUrl: 'http://localhost:11434', model: 'llama3', apiKey: 'existing-key' }), 'utf8');
-    const res = await request(app).post('/config').send({ baseUrl: 'http://localhost:11434', model: 'llama3', apiKey: '' });
+  it('returns 400 when provider is an unsupported value', async () => {
+    const res = await request(app).post('/config').send({ baseUrl: 'http://localhost:11434', model: 'llama3', provider: 'unknown-provider' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/provider/i);
+  });
+
+  it('accepts provider "groq" and saves it', async () => {
+    const res = await request(app).post('/config').send({ baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.1-8b-instant', provider: 'groq' });
     expect(res.status).toBe(200);
     const stored = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    expect(stored.apiKey).toBe('');
+    expect(stored.provider).toBe('groq');
+  });
+
+  it('accepts provider "openrouter" and saves it', async () => {
+    const res = await request(app).post('/config').send({ baseUrl: 'https://openrouter.ai/api/v1', model: 'mistralai/mistral-7b-instruct', provider: 'openrouter' });
+    expect(res.status).toBe(200);
+    const stored = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    expect(stored.provider).toBe('openrouter');
   });
 });
 

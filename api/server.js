@@ -105,7 +105,7 @@ app.post('/config', (req, res) => {
     return res.status(400).json({ error: 'baseUrl must be a valid URL (e.g. http://192.168.1.10:11434).' });
   }
 
-  const VALID_PROVIDERS = ['ollama', 'openai'];
+  const VALID_PROVIDERS = ['ollama', 'openai', 'groq', 'openrouter'];
   if (provider !== undefined && !VALID_PROVIDERS.includes(provider)) {
     return res.status(400).json({ error: `provider must be one of: ${VALID_PROVIDERS.join(', ')}.` });
   }
@@ -168,7 +168,11 @@ app.get('/models', async (req, res) => {
 
   let modelsUrl;
   try {
-    modelsUrl = new URL(provider === 'openai' ? '/models' : '/api/tags', baseUrl).toString();
+    const isOpenAI = provider === 'openai' || provider === 'groq' || provider === 'openrouter';
+    // Ensure base ends with "/" so the relative path appends correctly
+    // (important for providers like Groq with a path prefix: /openai/v1/).
+    const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+    modelsUrl = new URL(isOpenAI ? 'models' : 'api/tags', base).toString();
   } catch {
     return res.status(400).json({ error: 'Invalid baseUrl.' });
   }
@@ -188,7 +192,7 @@ app.get('/models', async (req, res) => {
     const data = await response.json();
 
     let models;
-    if (provider === 'openai') {
+    if (isOpenAI) {
       models = Array.isArray(data.data)
         ? data.data.map((m) => (typeof m === 'string' ? m : m.id)).filter(Boolean)
         : [];

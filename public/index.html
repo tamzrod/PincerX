@@ -730,6 +730,13 @@
       </div>
     </div>
 
+    <div id="cfg-online-fields" style="display:none">
+      <div class="field-group">
+        <label for="cfg-online-url">API Base URL</label>
+        <input type="text" id="cfg-online-url" placeholder="https://api.groq.com/openai/v1" style="width:100%;box-sizing:border-box" autocomplete="off" />
+      </div>
+    </div>
+
     <div class="field-group">
       <label for="cfg-model">Model</label>
       <div style="display:flex;gap:8px;align-items:center">
@@ -1142,24 +1149,74 @@
 
   // ── Settings ──────────────────────────────────────────────────────────────
 
+  // Provider → preset base URL and helpful note text.
+  const PROVIDER_PRESETS = {
+    groq: {
+      url: 'https://api.groq.com/openai/v1',
+      note: 'Get a free API key at console.groq.com — no credit card required.',
+    },
+    openrouter: {
+      url: 'https://openrouter.ai/api/v1',
+      note: 'OpenRouter has free-tier models. Get an optional API key at openrouter.ai.',
+    },
+  };
+
+  function onProviderChange() {
+    const provider = document.getElementById('cfg-provider').value;
+    const localFields = document.getElementById('cfg-local-fields');
+    const onlineFields = document.getElementById('cfg-online-fields');
+    const note = document.getElementById('cfg-provider-note');
+    const urlInput = document.getElementById('cfg-online-url');
+
+    const preset = PROVIDER_PRESETS[provider];
+    if (preset) {
+      localFields.style.display = 'none';
+      onlineFields.style.display = '';
+      if (!urlInput.value || Object.values(PROVIDER_PRESETS).some((p) => p.url === urlInput.value)) {
+        // Only auto-fill if the field is empty or currently showing another preset URL
+        urlInput.value = preset.url;
+      }
+      note.textContent = preset.note;
+      note.style.display = '';
+    } else {
+      // Ollama (local)
+      localFields.style.display = '';
+      onlineFields.style.display = 'none';
+      note.style.display = 'none';
+    }
+  }
+
   async function openSettings() {
     clearMsg('cfg-msg');
     clearMsg('cfg-cache-msg');
     document.getElementById('settings-overlay').classList.add('open');
     try {
       const cfg = await apiFetch('/config');
-      let scheme = 'http';
-      let host = 'localhost';
-      let port = '11434';
-      try {
-        const parsed = new URL(cfg.baseUrl);
-        scheme = parsed.protocol.replace(':', '');
-        host = parsed.hostname;
-        port = parsed.port || (scheme === 'https' ? '443' : '80');
-      } catch { /* keep defaults */ }
-      document.getElementById('cfg-scheme').value = scheme;
-      document.getElementById('cfg-host').value = host;
-      document.getElementById('cfg-port').value = port;
+      const provider = cfg.provider || 'ollama';
+      const providerSelect = document.getElementById('cfg-provider');
+      providerSelect.value = provider;
+
+      const preset = PROVIDER_PRESETS[provider];
+      if (preset) {
+        document.getElementById('cfg-online-url').value = cfg.baseUrl || preset.url;
+      } else {
+        // Ollama — parse scheme/host/port
+        let scheme = 'http';
+        let host = 'localhost';
+        let port = '11434';
+        try {
+          const parsed = new URL(cfg.baseUrl);
+          scheme = parsed.protocol.replace(':', '');
+          host = parsed.hostname;
+          port = parsed.port || (scheme === 'https' ? '443' : '80');
+        } catch { /* keep defaults */ }
+        document.getElementById('cfg-scheme').value = scheme;
+        document.getElementById('cfg-host').value = host;
+        document.getElementById('cfg-port').value = port;
+      }
+
+      // Apply show/hide for local vs online fields
+      onProviderChange();
 
       // Seed the model dropdown with the currently configured model so it is
       // visible before the user clicks Detect.
@@ -1195,23 +1252,33 @@
 
   async function detectModels() {
     clearMsg('cfg-msg');
-    const scheme = document.getElementById('cfg-scheme').value;
-    const host = document.getElementById('cfg-host').value.trim();
-    const port = document.getElementById('cfg-port').value.trim();
+    const provider = document.getElementById('cfg-provider').value;
+    let baseUrl;
 
-    if (!host || !port) {
-      showMsg('cfg-msg', 'Enter the host and port first, then click Detect.', 'error');
-      return;
+    if (PROVIDER_PRESETS[provider]) {
+      baseUrl = document.getElementById('cfg-online-url').value.trim();
+      if (!baseUrl) {
+        showMsg('cfg-msg', 'Enter the API Base URL first, then click Detect.', 'error');
+        return;
+      }
+    } else {
+      const scheme = document.getElementById('cfg-scheme').value;
+      const host = document.getElementById('cfg-host').value.trim();
+      const port = document.getElementById('cfg-port').value.trim();
+      if (!host || !port) {
+        showMsg('cfg-msg', 'Enter the host and port first, then click Detect.', 'error');
+        return;
+      }
+      baseUrl = `${scheme}://${host}:${port}`;
     }
 
-    const baseUrl = `${scheme}://${host}:${port}`;
     const btn = document.getElementById('cfg-detect-btn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
     showMsg('cfg-msg', 'Detecting models…', 'loading');
 
     try {
-      const data = await apiFetch('/models?baseUrl=' + encodeURIComponent(baseUrl));
+      const data = await apiFetch('/models?baseUrl=' + encodeURIComponent(baseUrl) + '&provider=' + encodeURIComponent(provider));
       const models = data.models || [];
 
       if (models.length === 0) {
@@ -1240,27 +1307,39 @@
 
   async function saveSettings() {
     clearMsg('cfg-msg');
-    const scheme = document.getElementById('cfg-scheme').value;
-    const host = document.getElementById('cfg-host').value.trim();
-    const port = document.getElementById('cfg-port').value.trim();
+    const provider = document.getElementById('cfg-provider').value;
+    let baseUrl;
+
+    if (PROVIDER_PRESETS[provider]) {
+      baseUrl = document.getElementById('cfg-online-url').value.trim();
+      if (!baseUrl) {
+        showMsg('cfg-msg', 'Enter the API Base URL.', 'error');
+        return;
+      }
+    } else {
+      const scheme = document.getElementById('cfg-scheme').value;
+      const host = document.getElementById('cfg-host').value.trim();
+      const port = document.getElementById('cfg-port').value.trim();
+      if (!host) {
+        showMsg('cfg-msg', 'Host cannot be empty.', 'error');
+        return;
+      }
+      if (!port || isNaN(Number(port)) || Number(port) < 1 || Number(port) > 65535) {
+        showMsg('cfg-msg', 'Port must be a number between 1 and 65535.', 'error');
+        return;
+      }
+      baseUrl = `${scheme}://${host}:${port}`;
+    }
+
     const model = document.getElementById('cfg-model').value.trim();
     const apiKey = document.getElementById('cfg-apikey').value;
 
-    if (!host) {
-      showMsg('cfg-msg', 'Host cannot be empty.', 'error');
-      return;
-    }
-    if (!port || isNaN(Number(port)) || Number(port) < 1 || Number(port) > 65535) {
-      showMsg('cfg-msg', 'Port must be a number between 1 and 65535.', 'error');
-      return;
-    }
     if (!model) {
       showMsg('cfg-msg', 'Model name cannot be empty.', 'error');
       return;
     }
 
-    const baseUrl = `${scheme}://${host}:${port}`;
-    const body = { baseUrl, model };
+    const body = { baseUrl, model, provider };
     // Always include apiKey so the server knows the caller intends to update it
     body.apiKey = apiKey;
 

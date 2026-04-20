@@ -106,6 +106,16 @@ describe('OpenClaw ai.js', () => {
       await expect(ai.ask('prompt')).rejects.toThrow('AI error: model not found');
     });
 
+    it('extracts message from an error object returned by the AI', async () => {
+      mockHttpRequest({ error: { message: 'rate limit exceeded', code: 429 } });
+      await expect(ai.ask('prompt')).rejects.toThrow('AI error: rate limit exceeded');
+    });
+
+    it('falls back to JSON.stringify when error object has no message field', async () => {
+      mockHttpRequest({ error: { code: 'unknown' } });
+      await expect(ai.ask('prompt')).rejects.toThrow('AI error: {"code":"unknown"}');
+    });
+
     it('rejects when the response body is not valid JSON', async () => {
       const mockRes = Object.assign(new EventEmitter(), { statusCode: 200 });
       const mockReq = Object.assign(new EventEmitter(), {
