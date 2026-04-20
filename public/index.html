@@ -1593,8 +1593,6 @@
   let activeTTSAudio = null;         // currently playing HTMLAudioElement
   let activeTTSObjectURL = null;     // blob URL; revoked after playback to free memory
   let activeTTSController = null;    // AbortController for the current chunk /tts fetch
-  let activeTTSPrefetchCtrl = null;  // AbortController for the background prefetch fetch
-  let activeTTSPrefetched = null;    // pre-fetched Blob for the next chunk
   let activeTTSQueue = [];           // remaining sentence chunks to synthesize
 
   // Returns true when the given button is no longer the active TTS target,
@@ -1606,11 +1604,6 @@
       activeTTSController.abort();
       activeTTSController = null;
     }
-    if (activeTTSPrefetchCtrl) {
-      activeTTSPrefetchCtrl.abort();
-      activeTTSPrefetchCtrl = null;
-    }
-    activeTTSPrefetched = null;
     activeTTSQueue = [];
     if (activeTTSAudio) {
       activeTTSAudio.pause();
@@ -1767,33 +1760,6 @@
     return chunks.length ? chunks : [text];
   }
 
-  // Fires off a background prefetch for the next chunk so it is ready as soon
-  // as the current chunk finishes playing, eliminating the gap between chunks.
-  function prefetchNextChunk(chunk, btn) {
-    if (activeTTSPrefetchCtrl || activeTTSPrefetched) return; // already in-flight or ready
-    const ctrl = new AbortController();
-    activeTTSPrefetchCtrl = ctrl;
-    const body = { text: chunk.text, speaking_rate: voicePrefs.speaking_rate,
-      pitch_std: voicePrefs.pitch_std, emotion_preset: chunk.emotion || voicePrefs.emotion_preset };
-    if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
-    fetch('/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body), signal: ctrl.signal })
-      .then((r) => {
-        if (!r.ok) {
-          console.warn(`[TTS] Prefetch chunk failed: HTTP ${r.status}`);
-          return null;
-        }
-        return r.blob();
-      })
-      .then((blob) => {
-        if (blob && !isTTSCancelled(btn) && activeTTSPrefetchCtrl === ctrl) {
-          activeTTSPrefetched = blob;
-        }
-      })
-      .catch((e) => { if (e.name !== 'AbortError') console.warn('[TTS] Prefetch error:', e.message); })
-      .finally(() => { if (activeTTSPrefetchCtrl === ctrl) activeTTSPrefetchCtrl = null; });
-  }
-
   // Fetches and plays the next chunk in activeTTSQueue, then recurses.
   async function playNextChunk(btn) {
     if (isTTSCancelled(btn) || activeTTSQueue.length === 0) {
@@ -1805,34 +1771,25 @@
 
     try {
       let blob;
-      if (activeTTSPrefetched) {
-        // Consume the pre-fetched result for this chunk.
-        blob = activeTTSPrefetched;
-        activeTTSPrefetched = null;
-      } else {
-        // Nothing pre-fetched – fetch synchronously now.
-        activeTTSController = new AbortController();
-        const body = { text: chunk.text, speaking_rate: voicePrefs.speaking_rate,
-          pitch_std: voicePrefs.pitch_std, emotion_preset: chunk.emotion || voicePrefs.emotion_preset };
-        if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
-        const response = await fetch('/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: activeTTSController.signal,
-        });
-        activeTTSController = null;
-        if (isTTSCancelled(btn)) return;
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || `HTTP ${response.status}`);
-        }
-        blob = await response.blob();
-        if (isTTSCancelled(btn)) return;
+      // Fetch the current chunk from Zonos (one request at a time).
+      activeTTSController = new AbortController();
+      const body = { text: chunk.text, speaking_rate: voicePrefs.speaking_rate,
+        pitch_std: voicePrefs.pitch_std, emotion_preset: chunk.emotion || voicePrefs.emotion_preset };
+      if (voicePrefs.voice_id) body.voice_id = voicePrefs.voice_id;
+      const response = await fetch('/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: activeTTSController.signal,
+      });
+      activeTTSController = null;
+      if (isTTSCancelled(btn)) return;
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${response.status}`);
       }
-
-      // Start prefetching the next chunk while this one plays.
-      if (activeTTSQueue.length > 0) prefetchNextChunk(activeTTSQueue[0], btn);
+      blob = await response.blob();
+      if (isTTSCancelled(btn)) return;
 
       const url = URL.createObjectURL(blob);
       if (activeTTSObjectURL) URL.revokeObjectURL(activeTTSObjectURL);
