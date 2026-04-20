@@ -702,7 +702,7 @@ app.post('/tts/cached', (req, res) => {
  */
 async function _waitForZonos() {
   const zonosUrl = process.env.ZONOS_URL || 'http://localhost:8000';
-  const deadline  = Date.now() + ZONOS_STARTUP_TIMEOUT_MS;
+  const deadline = Date.now() + ZONOS_STARTUP_TIMEOUT_MS;
   while (Date.now() < deadline) {
     try {
       const resp = await fetch(`${zonosUrl}/health`, { signal: AbortSignal.timeout(5_000) });
