@@ -3,16 +3,26 @@
 /**
  * Story Coherence Engine
  * 
- * A lightweight layer for validating narrative consistency, inspired by KDE Beta/Gamma
- * reasoning patterns. Provides context detection, boundary checking, causal validation,
- * and confidence scoring for creative storytelling.
+ * =============================================================================
+ * PROVENANCE: This module adapts concepts from KDE engines
+ * Source: https://github.com/tamzrod/kde
  * 
- * Key Concepts:
- * - Context: The conditions under which a story element is valid/true
- * - Boundary: When a rule, trait, or development stops being valid
- * - Confidence: How certain the coherence check is (0-1 scale)
- * - Evidence: The reasoning that led to the confidence score
- * - Causal Chain: How events connect through motivation and consequence
+ * KDE-ENGINE-002 (Beta) concepts:
+ *   - Context Detection: Conditions under which a story element is valid
+ *   - Boundary Detection: When a rule/trait stops being true
+ *   - Confidence & Evidence: Attached to every coherence check
+ * 
+ * KDE-ENGINE-003 (Gamma) concepts:
+ *   - Causal Mechanism: How events connect through motivation and consequence
+ *   - Intervention Thinking: "What if" analysis grounded in story rules
+ * =============================================================================
+ * 
+ * This lightweight layer validates narrative consistency for creative storytelling.
+ * It asks the core KDE-style questions:
+ *   - Beta: "Under what conditions is this true? When does it stop being true?"
+ *   - Gamma: "How does X cause Y? What happens if we change X?"
+ * 
+ * @see docs/KDE-INHERITANCE.md for detailed mapping
  */
 
 const ai = require('../lib/ai');
@@ -34,7 +44,18 @@ const GENERIC_SPEAKERS = new Set(['narrator', 'male', 'female']);
  * @property {string} level - 'high', 'medium', or 'low'
  * @property {string[]} warnings - List of potential issues
  * @property {string[]} suggestions - How to address issues
- * @property {string} evidence - Brief explanation of the check
+ * @property {string} evidence - Brief explanation of the check (KDE-ENGINE-002 Beta: Evidence)
+ * @property {string[]} boundaries - Explicit boundary conditions (KDE-ENGINE-002 Beta: Boundary Detection)
+ * @property {string} mechanism - Causal mechanism explanation (KDE-ENGINE-003 Gamma: Causal Mechanism)
+ */
+
+/**
+ * Causal mechanism result object
+ * @typedef {Object} CausalMechanism
+ * @property {string} chain - The causal chain connecting events
+ * @property {string} motivation - Character motivation driving the cause
+ * @property {string} consequence - What this cause sets up next
+ * @property {string[]} gaps - Missing causal links or logical jumps
  */
 
 /**
@@ -60,7 +81,9 @@ async function checkChapter(storyId, chapterContent, options = {}, aiOptions = {
 
   const warnings = [];
   const suggestions = [];
+  const boundaries = [];
   let confidence = 1.0;
+  let mechanism = '';
   let evidenceParts = [];
 
   // Gather story context
@@ -68,7 +91,7 @@ async function checkChapter(storyId, chapterContent, options = {}, aiOptions = {
   const lore = storyRag.listDocs(storyId, 'lore');
   const summaries = storyRag.listDocs(storyId, 'summary');
 
-  // 1. Character Consistency Check
+  // 1. Character Consistency Check (KDE-ENGINE-002 Beta: Context + Boundary Detection)
   if (opts.checkCharacters && characters.length > 0) {
     const charResult = await checkCharacterConsistency(storyId, chapterContent, characters, aiOptions);
     if (!charResult.isConsistent) {
@@ -77,9 +100,13 @@ async function checkChapter(storyId, chapterContent, options = {}, aiOptions = {
       confidence *= charResult.confidence;
       evidenceParts.push(`Characters: ${charResult.evidence}`);
     }
+    // Aggregate boundaries from character check
+    if (charResult.boundaries) {
+      boundaries.push(...charResult.boundaries);
+    }
   }
 
-  // 2. Lore/World Rules Check
+  // 2. Lore/World Rules Check (KDE-ENGINE-002 Beta: Context + Boundary Detection)
   if (opts.checkLore && lore.length > 0) {
     const loreResult = await checkLoreConsistency(storyId, chapterContent, lore, aiOptions);
     if (!loreResult.isConsistent) {
@@ -88,9 +115,13 @@ async function checkChapter(storyId, chapterContent, options = {}, aiOptions = {
       confidence *= loreResult.confidence;
       evidenceParts.push(`Lore: ${loreResult.evidence}`);
     }
+    // Aggregate boundaries from lore check
+    if (loreResult.boundaries) {
+      boundaries.push(...loreResult.boundaries);
+    }
   }
 
-  // 3. Causal Logic Check
+  // 3. Causal Logic Check (KDE-ENGINE-003 Gamma: Causal Mechanism)
   if (opts.checkCausality && summaries.length > 0) {
     const causalResult = await checkCausalLogic(storyId, chapterContent, summaries, aiOptions);
     if (!causalResult.isConsistent) {
@@ -98,6 +129,10 @@ async function checkChapter(storyId, chapterContent, options = {}, aiOptions = {
       suggestions.push(...causalResult.suggestions);
       confidence *= causalResult.confidence;
       evidenceParts.push(`Causality: ${causalResult.evidence}`);
+    }
+    // Capture causal mechanism explanation
+    if (causalResult.mechanism) {
+      mechanism = causalResult.mechanism;
     }
   }
 
@@ -111,16 +146,20 @@ async function checkChapter(storyId, chapterContent, options = {}, aiOptions = {
     level,
     warnings,
     suggestions: suggestions.length > 0 ? suggestions : ['No issues detected'],
-    evidence: evidenceParts.join('; ') || 'Chapter appears consistent'
+    evidence: evidenceParts.join('; ') || 'Chapter appears consistent',
+    boundaries: boundaries.length > 0 ? boundaries : undefined,
+    mechanism: mechanism || undefined
   };
 }
 
 /**
  * Check if character actions in the chapter are consistent with their profiles.
+ * (KDE-ENGINE-002 Beta: Context Detection + Boundary Detection)
  */
 async function checkCharacterConsistency(storyId, content, characters, aiOptions) {
   const warnings = [];
   const suggestions = [];
+  const boundaries = [];
 
   // Extract speakers from chapter
   const speakers = extractSpeakers(content);
@@ -147,6 +186,13 @@ async function checkCharacterConsistency(storyId, content, characters, aiOptions
           suggestions.push(`Consider: ${issue.suggestion}`);
         }
       }
+      
+      // Extract boundary conditions from response
+      if (result.boundaries && result.boundaries.length > 0) {
+        for (const boundary of result.boundaries) {
+          boundaries.push(`${char.name}: ${boundary}`);
+        }
+      }
     } catch {
       // AI call failed - be conservative
       warnings.push(`${speaker}: Could not verify consistency (AI unavailable)`);
@@ -164,16 +210,21 @@ async function checkCharacterConsistency(storyId, content, characters, aiOptions
     suggestions,
     evidence: warnings.length === 0 
       ? 'All character actions align with established personalities' 
-      : `${warnings.length} character inconsistency(ies) detected`
+      : `${warnings.length} character inconsistency(ies) detected`,
+    boundaries: boundaries.length > 0 ? boundaries : undefined
   };
 }
 
 /**
  * Check if the chapter respects established world/lore rules.
+ * (KDE-ENGINE-002 Beta: Context Detection + Boundary Detection)
+ * 
+ * Asks: "Under what conditions is this rule valid? When does it stop being true?"
  */
 async function checkLoreConsistency(storyId, content, lore, aiOptions) {
   const warnings = [];
   const suggestions = [];
+  const boundaries = [];
 
   // Build lore context
   const loreContext = lore.map(l => `[${l.title}]: ${l.content}`).join('\n');
@@ -182,6 +233,11 @@ async function checkLoreConsistency(storyId, content, lore, aiOptions) {
     'You are a creative writing assistant checking for world consistency.',
     'Review the chapter against the established world rules and flag any violations.',
     '',
+    'KDE-BETA CORE QUESTIONS (Boundary Detection):',
+    '- Under what conditions is each world rule valid?',
+    '- When does each rule stop being true? (explicit boundary)',
+    '- What would cause this rule to break or change?',
+    '',
     'World Rules:',
     loreContext,
     '',
@@ -189,8 +245,9 @@ async function checkLoreConsistency(storyId, content, lore, aiOptions) {
     content.slice(0, 2000), // Limit content for check
     '',
     'Respond with ONLY a valid JSON object:',
-    '{ "violations": [{"rule": "rule name", "description": "what was violated", "suggestion": "how to fix"}], "confidence": 0.0-1.0 }',
+    '{ "violations": [{"rule": "rule name", "description": "what was violated", "suggestion": "how to fix"}], "boundaries": [{"rule": "rule name", "boundary": "when this rule stops being true"}], "confidence": 0.0-1.0 }',
     'If no violations, set violations to [] and confidence to 1.0.',
+    'Always include boundaries - they are key for understanding when rules change.',
   ].join('\n');
 
   try {
@@ -201,6 +258,13 @@ async function checkLoreConsistency(storyId, content, lore, aiOptions) {
       for (const v of result.violations) {
         warnings.push(`World rule "${v.rule}": ${v.description}`);
         suggestions.push(`Suggestion: ${v.suggestion}`);
+      }
+    }
+    
+    // Extract boundaries
+    if (result.boundaries && result.boundaries.length > 0) {
+      for (const b of result.boundaries) {
+        boundaries.push(`${b.rule}: ${b.boundary}`);
       }
     }
   } catch {
@@ -218,16 +282,21 @@ async function checkLoreConsistency(storyId, content, lore, aiOptions) {
     suggestions,
     evidence: warnings.length === 0 
       ? 'Chapter respects all established world rules' 
-      : `${warnings.length} world rule violation(s) detected`
+      : `${warnings.length} world rule violation(s) detected`,
+    boundaries: boundaries.length > 0 ? boundaries : undefined
   };
 }
 
 /**
  * Check causal logic - do events follow logically from previous chapters?
+ * (KDE-ENGINE-003 Gamma: Causal Mechanism)
+ * 
+ * Asks: "How does X cause Y? What consequence does this set up?"
  */
 async function checkCausalLogic(storyId, content, summaries, aiOptions) {
   const warnings = [];
   const suggestions = [];
+  let mechanism = '';
 
   // Build chapter history
   const history = summaries
@@ -238,10 +307,18 @@ async function checkCausalLogic(storyId, content, summaries, aiOptions) {
   const prompt = [
     'You are a creative writing assistant checking for narrative continuity.',
     'Verify that events in the new chapter follow logically from previous chapters.',
+    '',
+    'KDE-GAMMA CORE QUESTIONS (Causal Mechanism):',
+    '- How does event X cause event Y? (trace the causal chain)',
+    '- What is the character motivation driving each action?',
+    '- What consequence does each cause set up?',
+    '- Are there causal gaps (effects without mechanisms)?',
+    '',
     'Look for:',
     '- Unresolved plot threads from earlier chapters',
     '- New events that contradict established facts',
     '- Character changes without proper motivation',
+    '- Missing causal links between events',
     '',
     'Previous chapters:',
     history.slice(0, 2000),
@@ -250,8 +327,9 @@ async function checkCausalLogic(storyId, content, summaries, aiOptions) {
     content.slice(0, 1500),
     '',
     'Respond with ONLY a valid JSON object:',
-    '{ "issues": [{"type": "type", "description": "what is inconsistent", "suggestion": "fix"}], "confidence": 0.0-1.0 }',
+    '{ "issues": [{"type": "type", "description": "what is inconsistent", "suggestion": "fix"}], "mechanism": "Explain how the key events connect causally: motivation -> action -> consequence", "confidence": 0.0-1.0 }',
     'If no issues, set issues to [] and confidence to 1.0.',
+    'Include a mechanism explanation even when consistent - it helps writers understand the causal flow.',
   ].join('\n');
 
   try {
@@ -263,6 +341,11 @@ async function checkCausalLogic(storyId, content, summaries, aiOptions) {
         warnings.push(`Continuity: ${issue.description}`);
         suggestions.push(`Suggestion: ${issue.suggestion}`);
       }
+    }
+    
+    // Capture causal mechanism explanation
+    if (result.mechanism) {
+      mechanism = result.mechanism;
     }
   } catch {
     warnings.push('Could not verify continuity (AI unavailable)');
@@ -279,7 +362,8 @@ async function checkCausalLogic(storyId, content, summaries, aiOptions) {
     suggestions,
     evidence: warnings.length === 0 
       ? 'Chapter follows logically from story history' 
-      : `${warnings.length} continuity issue(s) detected`
+      : `${warnings.length} continuity issue(s) detected`,
+    mechanism: mechanism || undefined
   };
 }
 
@@ -340,7 +424,9 @@ function validateCharacterProfile(character) {
 
 /**
  * Generate intervention/thought experiment: "What if" analysis.
- * Explores alternative story directions while staying grounded.
+ * (KDE-ENGINE-003 Gamma: Intervention Thinking)
+ * 
+ * Asks: "What happens if we change X? How does that affect Y?"
  * 
  * @param {string} storyId - The story ID
  * @param {string} question - What-if question
@@ -361,19 +447,28 @@ async function whatIf(storyId, question, aiOptions = {}) {
 
   const prompt = [
     'You are a creative writing consultant exploring story alternatives.',
+    '',
+    'KDE-GAMMA CORE QUESTIONS (Intervention Thinking):',
+    '- What happens if we change X? (intervention)',
+    '- How does that affect Y? (ripple effect)',
+    '- What new causal chains emerge?',
+    '- What story rules get bent or broken?',
+    '',
     'Ground your analysis in established story rules, then explore possibilities.',
     '',
     'Story Context:',
     context,
     '',
-    'Question to explore:',
+    'Intervention question to explore:',
     question,
     '',
     'Respond with ONLY a valid JSON object:',
     '{',
-    '  "premise": "Is this premise consistent with the story world? (yes/no/maybe)",',
+    '  "premise": "Is this intervention consistent with the story world? (yes/no/maybe)",',
+    '  "mechanism": "How does this change ripple through the story? (causal chain)",',
     '  "consequences": ["likely consequence 1", "consequence 2"],',
-    '  "characterImpact": "How might key characters respond?",',
+    '  "characterImpact": "How might key characters respond to this change?",',
+    '  "boundaries": ["When does this intervention break down?", "What are the limits?"],',
     '  "risks": ["potential story problem 1"],',
     '  "opportunities": ["story opportunity 1"],',
     '  "confidence": 0.0-1.0',
@@ -416,11 +511,16 @@ function extractSpeakers(content) {
 
 /**
  * Build prompt for character consistency checking.
+ * (KDE-ENGINE-002 Beta: Asks "When does this trait stop being true?")
  */
 function buildCharacterCheckPrompt(character, content) {
   return [
     'You are a creative writing assistant checking character consistency.',
     'Evaluate if the chapter maintains consistency with this character profile.',
+    '',
+    'KDE-BETA CORE QUESTIONS:',
+    '- Under what conditions is this character\'s behavior valid?',
+    '- When does this character trait stop being true? (Boundary Detection)',
     '',
     'Character Profile:',
     `Name: ${character.name}`,
@@ -437,10 +537,11 @@ function buildCharacterCheckPrompt(character, content) {
     '- Dialogue inconsistent with speech style or character voice',
     '- Decisions that don\'t align with character motivations',
     '- Relationships with other characters that have changed without explanation',
+    '- BOUNDARIES: Under what conditions would this character act differently?',
     '',
     'Respond with ONLY a valid JSON object:',
-    '{ "issues": [{"description": "what is inconsistent", "suggestion": "how to fix"}], "confidence": 0.0-1.0 }',
-    'If no issues, set issues to [] and confidence to 1.0.',
+    '{ "issues": [{"description": "what is inconsistent", "suggestion": "how to fix"}], "boundaries": ["boundary condition 1", "when trait X stops being true"], "confidence": 0.0-1.0 }',
+    'If no issues, set issues to [] and confidence to 1.0. Include boundaries if the character has specific boundary conditions.',
   ].join('\n');
 }
 

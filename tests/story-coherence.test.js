@@ -116,7 +116,7 @@ describe('checkChapter()', () => {
     storyRag.listDocs.mockReset();
   });
 
-  it('returns a valid coherence result structure', async () => {
+  it('returns a valid coherence result structure with KDE fields', async () => {
     storyRag.listDocs.mockReturnValue([]);
 
     const result = await coherence.checkChapter(mockStoryId, mockContent);
@@ -127,7 +127,51 @@ describe('checkChapter()', () => {
     expect(result).toHaveProperty('warnings');
     expect(result).toHaveProperty('suggestions');
     expect(result).toHaveProperty('evidence');
+    expect(result).toHaveProperty('boundaries'); // KDE-Beta
+    expect(result).toHaveProperty('mechanism'); // KDE-Gamma
     expect(['high', 'medium', 'low']).toContain(result.level);
+  });
+
+  it('returns boundaries when provided by checks', async () => {
+    storyRag.listDocs.mockReturnValue([
+      { id: 'char-elena', name: 'Elena', type: 'character', personality: 'brave', role: 'hero' }
+    ]);
+
+    // Return boundaries in the response
+    ai.ask.mockResolvedValue(JSON.stringify({ 
+      issues: [], 
+      boundaries: ['Elena: Acts bravely only when others are threatened'],
+      confidence: 1.0 
+    }));
+
+    const result = await coherence.checkChapter(mockStoryId, mockContent, {
+      checkCharacters: true
+    });
+
+    expect(result.boundaries).toBeDefined();
+    expect(result.boundaries.length).toBeGreaterThan(0);
+  });
+
+  it('returns mechanism when provided by causal check', async () => {
+    storyRag.listDocs.mockReturnValue([
+      { id: 'summary-1', type: 'summary', content: 'Chapter 1 summary' }
+    ]);
+
+    // Return mechanism in the response
+    ai.ask.mockResolvedValue(JSON.stringify({ 
+      issues: [], 
+      mechanism: 'Elena discovers map (cause) -> she decides to investigate (action) -> confrontation with guard (consequence)',
+      confidence: 1.0 
+    }));
+
+    // Disable character and lore checks to isolate causal check
+    const result = await coherence.checkChapter(mockStoryId, mockContent, {
+      checkCharacters: false,
+      checkLore: false,
+      checkCausality: true
+    });
+
+    expect(result.mechanism).toBeDefined();
   });
 
   it('checks characters when provided', async () => {
@@ -221,11 +265,13 @@ describe('whatIf()', () => {
     ]);
   });
 
-  it('returns what-if analysis result', async () => {
+  it('returns what-if analysis result with mechanism (KDE-Gamma)', async () => {
     ai.ask.mockResolvedValue(JSON.stringify({
       premise: 'yes',
+      mechanism: 'Elena turns evil -> kingdom loses protector -> chaos ensues',
       consequences: ['Elena would face a moral dilemma', 'The kingdom would be divided'],
       characterImpact: 'Elena struggles with her new nature',
+      boundaries: ['Only possible if Elena witnesses betrayal'],
       risks: ['Story becomes too dark'],
       opportunities: ['Explore Elena\'s darker side'],
       confidence: 0.8
@@ -236,8 +282,10 @@ describe('whatIf()', () => {
     expect(result.success).toBe(true);
     expect(result.question).toBe('What if Elena turned evil?');
     expect(result.answer).toHaveProperty('premise');
+    expect(result.answer).toHaveProperty('mechanism'); // KDE-Gamma
     expect(result.answer).toHaveProperty('consequences');
     expect(result.answer).toHaveProperty('characterImpact');
+    expect(result.answer).toHaveProperty('boundaries'); // KDE-Beta
   });
 
   it('handles AI failure', async () => {
