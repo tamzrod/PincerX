@@ -11,7 +11,7 @@ beforeEach(() => {
   // Suppress startup log noise in tests
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'error').mockImplementation(() => {});
-  ai = require('../openclaw/ai');
+  ai = require('../lib/ai');
 });
 
 afterEach(() => {
@@ -54,7 +54,7 @@ function mockHttpRequestError(errorMessage) {
   return mockReq;
 }
 
-describe('OpenClaw ai.js', () => {
+describe('AI Transport (lib/ai.js)', () => {
   describe('ask()', () => {
     it('returns the response string from a successful AI call', async () => {
       mockHttpRequest({ response: 'Hello from AI' });
@@ -232,7 +232,7 @@ describe('normalizeBaseUrl()', () => {
     jest.resetModules();
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'error').mockImplementation(() => {});
-    ({ normalizeBaseUrl } = require('../openclaw/ai'));
+    ({ normalizeBaseUrl } = require('../lib/ai'));
   });
 
   it('returns a valid URL unchanged', () => {

@@ -1,16 +1,16 @@
 'use strict';
 
 // Mock ai.js so no real HTTP calls are made
-jest.mock('../openclaw/ai');
+jest.mock('../lib/ai');
 
-const ai = require('../openclaw/ai');
-const feedback = require('../openclaw/feedback');
+const ai = require('../lib/ai');
+const feedback = require('../lib/feedback');
 
 afterEach(() => {
   jest.clearAllMocks();
 });
 
-describe('OpenClaw feedback.js — analyze()', () => {
+describe('Feedback analysis (lib/feedback.js) — analyze()', () => {
   it('returns structured JSON for a positive sentiment response', async () => {
     ai.ask.mockResolvedValue(JSON.stringify({
       sentiment: 'positive',

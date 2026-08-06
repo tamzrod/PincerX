@@ -1,8 +1,8 @@
 'use strict';
 
-// Mock OpenClaw modules so integration tests don't call real AI
-jest.mock('../openclaw/rag');
-jest.mock('../openclaw/feedback');
+// Mock core modules so integration tests don't call real AI
+jest.mock('../lib/rag');
+jest.mock('../lib/feedback');
 jest.mock('../ingest');
 jest.mock('../story/story');
 jest.mock('../story/story-rag');
@@ -10,8 +10,8 @@ jest.mock('../story/story-rag');
 const request = require('supertest');
 const path = require('path');
 const fs = require('fs');
-const rag = require('../openclaw/rag');
-const feedback = require('../openclaw/feedback');
+const rag = require('../lib/rag');
+const feedback = require('../lib/feedback');
 const { ingest } = require('../ingest');
 const story = require('../story/story');
 const storyRag = require('../story/story-rag');
@@ -182,12 +182,12 @@ describe('POST /ask', () => {
     expect(res.body.error).toMatch(/query/i);
   });
 
-  it('returns 502 when OpenClaw rag throws an error', async () => {
+  it('returns 502 when RAG throws an error', async () => {
     rag.ask.mockRejectedValue(new Error('AI unavailable'));
 
     const res = await request(app).post('/ask').send({ query: 'What is AI?' });
     expect(res.status).toBe(502);
-    expect(res.body.error).toMatch(/OpenClaw RAG error/);
+    expect(res.body.error).toMatch(/RAG error/);
     expect(res.body.error).toMatch(/AI unavailable/);
   });
 });
@@ -251,12 +251,12 @@ describe('POST /analyze', () => {
     expect(res.body.error).toMatch(/text/i);
   });
 
-  it('returns 502 when OpenClaw feedback throws an error', async () => {
+  it('returns 502 when feedback analysis throws an error', async () => {
     feedback.analyze.mockRejectedValue(new Error('parse failure'));
 
     const res = await request(app).post('/analyze').send({ text: 'some text' });
     expect(res.status).toBe(502);
-    expect(res.body.error).toMatch(/OpenClaw Feedback error/);
+    expect(res.body.error).toMatch(/Analysis error/);
     expect(res.body.error).toMatch(/parse failure/);
   });
 });

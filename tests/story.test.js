@@ -1,13 +1,13 @@
 'use strict';
 
 // Mock ai.js so no real HTTP calls are made
-jest.mock('../openclaw/ai');
+jest.mock('../lib/ai');
 // Mock story-rag.js so tests do not touch the filesystem for RAG docs
 jest.mock('../story/story-rag');
 
 const path = require('path');
 const fs = require('fs');
-const ai = require('../openclaw/ai');
+const ai = require('../lib/ai');
 const storyRag = require('../story/story-rag');
 const storyModule = require('../story/story');
 

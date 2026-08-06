@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Generated test coverage
+coverage/
+
+# PDF uploads (user content)
+pdfs/*.pdf
+!pdfs/.gitkeep
+
+# Local data files
+data/stories/
+data/tts-cache/
+data/docs.json
+data/ai-config.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*

@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const ai = require('../openclaw/ai');
+const ai = require('../lib/ai');
 const storyRag = require('./story-rag');
 
 const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');

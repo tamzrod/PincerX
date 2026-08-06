@@ -1,16 +1,16 @@
 'use strict';
 
 // Mock ai.js before requiring rag.js so no real HTTP calls are made
-jest.mock('../openclaw/ai');
+jest.mock('../lib/ai');
 
-const ai = require('../openclaw/ai');
-const rag = require('../openclaw/rag');
+const ai = require('../lib/ai');
+const rag = require('../lib/rag');
 
 afterEach(() => {
   jest.clearAllMocks();
 });
 
-describe('OpenClaw rag.js — retrieve()', () => {
+describe('RAG (lib/rag.js) — retrieve()', () => {
   it('returns documents ranked by keyword relevance', () => {
     const results = rag.retrieve('machine learning artificial intelligence');
     expect(results.length).toBeGreaterThan(0);
@@ -50,7 +50,7 @@ describe('OpenClaw rag.js — retrieve()', () => {
   });
 });
 
-describe('OpenClaw rag.js — ask()', () => {
+describe('RAG (lib/rag.js) — ask()', () => {
   it('calls ai.ask with grounded prompt and returns answer + sources', async () => {
     ai.ask.mockResolvedValue('Machine learning lets systems learn from data.');
 

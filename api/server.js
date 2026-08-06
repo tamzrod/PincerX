@@ -5,9 +5,9 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
-const rag = require('../openclaw/rag');
-const feedback = require('../openclaw/feedback');
-const ai = require('../openclaw/ai');
+const rag = require('../lib/rag');
+const feedback = require('../lib/feedback');
+const ai = require('../lib/ai');
 const { ingest } = require('../ingest');
 const story = require('../story/story');
 const storyRag = require('../story/story-rag');
@@ -237,7 +237,7 @@ app.post('/ask', async (req, res) => {
     const result = await rag.ask(query.trim());
     return res.json(result);
   } catch (e) {
-    return res.status(502).json({ error: `OpenClaw RAG error: ${e.message}` });
+    return res.status(502).json({ error: `RAG error: ${e.message}` });
   }
 });
 
@@ -255,7 +255,7 @@ app.post('/analyze', async (req, res) => {
     const result = await feedback.analyze(text.trim());
     return res.json(result);
   } catch (e) {
-    return res.status(502).json({ error: `OpenClaw Feedback error: ${e.message}` });
+    return res.status(502).json({ error: `Analysis error: ${e.message}` });
   }
 });
 

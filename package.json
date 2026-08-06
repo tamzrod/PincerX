@@ -1,7 +1,7 @@
 {
   "name": "pincerx",
   "version": "1.0.0",
-  "description": "PincerX API layer powered by OpenClaw core engine",
+  "description": "A local creative storytelling system with character tracking, lore management, and multi-voice TTS narration",
   "main": "api/server.js",
   "scripts": {
     "start": "node api/server.js",
@@ -15,7 +15,7 @@
     ],
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
-      "openclaw/**/*.js",
+      "lib/**/*.js",
       "api/**/*.js",
       "story/**/*.js"
     ]

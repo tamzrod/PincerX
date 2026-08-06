@@ -806,11 +806,11 @@
 </head>
 <body>
 
-<header>PincerX Dashboard<button class="settings-btn" onclick="openVoiceSettings()" style="margin-right:8px">🎙 Voice</button><button class="settings-btn" onclick="openSettings()">⚙ Settings</button></header>
+<header>PincerX — Creative Storytelling<button class="settings-btn" onclick="openVoiceSettings()" style="margin-right:8px">🎙 Voice</button><button class="settings-btn" onclick="openSettings()">⚙ Settings</button></header>
 
 <nav class="tab-bar" role="tablist" aria-label="Application pages">
-  <button class="tab-btn active" id="tab-docs" role="tab" aria-selected="true" aria-controls="page-docs" onclick="switchTab('docs')">📄 Document Management</button>
-  <button class="tab-btn" id="tab-story" role="tab" aria-selected="false" aria-controls="page-story" onclick="switchTab('story')">✍️ Story Writer</button>
+  <button class="tab-btn active" id="tab-story" role="tab" aria-selected="true" aria-controls="page-story" onclick="switchTab('story')">✍️ Story Writer</button>
+  <button class="tab-btn" id="tab-docs" role="tab" aria-selected="false" aria-controls="page-docs" onclick="switchTab('docs')">📚 Knowledge Base</button>
 </nav>
 
 <!-- Voice Settings modal -->
@@ -953,13 +953,13 @@
   </div>
 </div>
 
-<!-- ── Page 1: Document Management ─────────────────────────────────────── -->
-<div class="page active" id="page-docs" role="tabpanel" aria-labelledby="tab-docs">
+<!-- ── Page 1: Knowledge Base (demoted from story focus) ───────────────── -->
+<div class="page" id="page-docs" role="tabpanel" aria-labelledby="tab-docs">
   <div class="layout">
 
-    <!-- LEFT: PDF Management -->
+    <!-- LEFT: PDF/Knowledge Management -->
     <aside class="panel">
-      <h2>📄 PDF Management</h2>
+      <h2>📚 Knowledge Base</h2>
 
       <div class="section">
         <h3>Upload PDF</h3>
@@ -1022,7 +1022,7 @@
 </div>
 
 <!-- ── Page 2: Story Writer ─────────────────────────────────────────────── -->
-<div class="page" id="page-story" role="tabpanel" aria-labelledby="tab-story">
+<div class="page active" id="page-story" role="tabpanel" aria-labelledby="tab-story">
   <div class="layout">
 
     <!-- LEFT: Controls -->
