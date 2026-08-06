@@ -4,9 +4,10 @@
 
 PincerX is a local creative storytelling system that generates stories with AI, maintains character profiles and lore, and renders narratives with multi-voice TTS narration via Zonos.
 
-The application is organized into three functional areas:
+The application is organized into four functional areas:
 
 - **Story Engine** (`story/`) — story creation, chapter generation, character extraction, and voice assignment
+- **Story Coherence** (`story/story-coherence.js`) — narrative consistency validation
 - **Core Libraries** (`lib/`) — AI transport, document retrieval, and text analysis
 - **HTTP API** (`api/server.js`) — Express endpoints for all client interactions
 
@@ -22,6 +23,7 @@ All AI inference is delegated to a local [Ollama](https://ollama.com/) backend (
 │                  api/server.js                          │
 │                                                         │
 │   Story endpoints ──────────────► story.js             │
+│   Coherence endpoints ─────────► story-coherence.js    │
 │   TTS endpoints ────────────────► Zonos sidecar       │
 │   Config endpoints ─────────────► lib/ai.js            │
 │   (Legacy RAG) ────────────────► lib/rag.js           │
@@ -63,7 +65,8 @@ PincerX/
 │   └── feedback.js       # Text analysis (sentiment, suggestions)
 ├── story/
 │   ├── story.js          # Story creation, chapter generation
-│   └── story-rag.js      # Per-story knowledge store (characters, lore)
+│   ├── story-rag.js      # Per-story knowledge store (characters, lore)
+│   └── story-coherence.js # Narrative consistency validation
 ├── zonos/
 │   ├── server.py         # Zonos TTS sidecar (Python)
 │   ├── Dockerfile
@@ -110,6 +113,23 @@ Per-story document storage for:
 - **Summaries** — Auto-generated chapter summaries for continuity
 
 Uses keyword-based retrieval for context during chapter generation.
+
+### `story/story-coherence.js` — Story Coherence Engine
+
+A lightweight layer for validating narrative consistency, inspired by KDE Beta/Gamma reasoning patterns.
+
+**Key Concepts:**
+- **Context Detection**: Determines under what conditions a story element is valid
+- **Boundary Detection**: Defines when rules or traits stop being applicable
+- **Confidence & Evidence**: Attaches confidence levels to coherence checks
+- **Causal Mechanism**: Explains how events connect through motivation and consequence
+- **Intervention Thinking**: Supports "what if" analysis while staying grounded
+
+**Key functions:**
+- `checkChapter(storyId, content, options)` — Validates chapter consistency with characters, lore, and continuity
+- `validateCharacterProfile(character)` — Checks character profile internal consistency
+- `whatIf(storyId, question)` — Explores alternative story directions
+- `getStoryHealth(storyId)` — Provides a quick story health summary
 
 ### `lib/rag.js` — Generic Document Retrieval
 
@@ -165,6 +185,15 @@ Legacy module for PDF-based question answering. Maintained for backward compatib
 | POST | `/config` | Update AI configuration |
 | GET | `/models` | List available AI models |
 
+### Coherence & Story Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/story/:id/coherence/health` | Get story health summary |
+| POST | `/story/:id/coherence/check` | Check chapter coherence |
+| POST | `/story/:id/coherence/validate-character` | Validate character profile |
+| POST | `/story/:id/coherence/whatif` | Explore "what if" scenarios |
+
 ### Legacy Endpoints (Demoted)
 
 These endpoints remain for backward compatibility but are not emphasized in the UI:
@@ -219,6 +248,7 @@ Tests are located in `tests/` and run with `npm test` (Jest).
 | `tests/feedback.test.js` | Text analysis and sentiment detection |
 | `tests/story.test.js` | Story creation, chapter generation, character extraction |
 | `tests/story-rag.test.js` | Per-story knowledge store operations |
+| `tests/story-coherence.test.js` | Story coherence validation |
 | `tests/server.test.js` | API endpoint integration tests |
 
 **Design principles:**

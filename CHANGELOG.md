@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.1.0] - 2025-01-15
+
+### Added
+
+- **Story Coherence Engine** (`story/story-coherence.js`): A lightweight layer for validating narrative consistency
+  - Character consistency checking against established personalities
+  - World rule/lore adherence validation
+  - Narrative continuity checks against previous chapters
+  - "What if" analysis for exploring alternative story directions
+  - Character profile validation for internal consistency
+
+- **Coherence API endpoints**:
+  - `GET /story/:id/coherence/health` - Story health summary
+  - `POST /story/:id/coherence/check` - Chapter coherence validation
+  - `POST /story/:id/coherence/validate-character` - Character profile validation
+  - `POST /story/:id/coherence/whatif` - "What if" scenario exploration
+
+- **Coherence tests** (`tests/story-coherence.test.js`): 16 tests for coherence functions
+
 ## [2.0.0] - 2025-01-15
 
 ### Changed

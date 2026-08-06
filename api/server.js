@@ -11,6 +11,7 @@ const ai = require('../lib/ai');
 const { ingest } = require('../ingest');
 const story = require('../story/story');
 const storyRag = require('../story/story-rag');
+const coherence = require('../story/story-coherence');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1427,6 +1428,132 @@ app.get('/tts-prebake/:jobId', (req, res) => {
     return res.json({ total: 0, done: 0, errors: 0, status: 'complete' });
   }
   return res.json({ total: job.total, done: job.done, errors: job.errors, status: job.status });
+});
+
+// ─── Coherence Endpoints ────────────────────────────────────────────────────
+
+/**
+ * GET /story/:id/coherence/health
+ * Get a quick health summary of the story's coherence state.
+ * Checks character profile consistency and story structure.
+ */
+app.get('/story/:id/coherence/health', (req, res) => {
+  const { id } = req.params;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  try {
+    // Verify story exists
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  // This is async but we need to handle it properly
+  coherence.getStoryHealth(id)
+    .then((health) => res.json(health))
+    .catch((e) => res.status(502).json({ error: `Coherence check error: ${e.message}` }));
+});
+
+/**
+ * POST /story/:id/coherence/check
+ * Body: { "chapterContent": "...", "options": { "checkCharacters": true, "checkLore": true, "checkCausality": true } }
+ * Check a chapter's coherence with established story elements.
+ */
+app.post('/story/:id/coherence/check', async (req, res) => {
+  const { id } = req.params;
+  const { chapterContent, options } = req.body;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  const contentErr = validateStringField(chapterContent, 'chapterContent');
+  if (contentErr) return res.status(400).json({ error: contentErr });
+
+  try {
+    // Verify story exists
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  try {
+    const result = await coherence.checkChapter(id, chapterContent, options || {});
+    return res.json(result);
+  } catch (e) {
+    return res.status(502).json({ error: `Coherence check error: ${e.message}` });
+  }
+});
+
+/**
+ * POST /story/:id/coherence/validate-character
+ * Body: { "name": "...", "role": "...", "gender": "...", "personality": "...", "backstory": "..." }
+ * Validate a character profile for internal consistency.
+ */
+app.post('/story/:id/coherence/validate-character', (req, res) => {
+  const { id } = req.params;
+  const { name, role, gender, personality, backstory } = req.body;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  try {
+    // Verify story exists
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const character = { name, role, gender, personality, backstory };
+  const result = coherence.validateCharacterProfile(character);
+  return res.json(result);
+});
+
+/**
+ * POST /story/:id/coherence/whatif
+ * Body: { "question": "What if the hero turned evil?" }
+ * Explore alternative story directions while staying grounded in established rules.
+ */
+app.post('/story/:id/coherence/whatif', async (req, res) => {
+  const { id } = req.params;
+  const { question } = req.body;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  const err = validateStringField(question, 'question');
+  if (err) return res.status(400).json({ error: err });
+
+  try {
+    // Verify story exists
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  try {
+    const result = await coherence.whatIf(id, question.trim());
+    return res.json(result);
+  } catch (e) {
+    return res.status(502).json({ error: `What-if analysis error: ${e.message}` });
+  }
 });
 
 if (require.main === module) {

@@ -45,6 +45,7 @@ docker compose -f docker-compose.zonos.yml up
 - **Lore system** — Maintain world details, locations, and plot elements
 - **Multi-voice TTS** — Hear stories performed with distinct character voices
 - **Voice transcript editor** — Fine-tune speaker and emotion for each paragraph
+- **Story coherence engine** — Validate character consistency, world rules, and narrative continuity
 
 ## Project Structure
 
@@ -52,6 +53,7 @@ docker compose -f docker-compose.zonos.yml up
 ├── api/server.js      # Express HTTP API
 ├── lib/                # Core modules (AI transport, RAG, feedback)
 ├── story/              # Story engine (creation, chapters, characters)
+│   └── story-coherence.js # Narrative consistency validation
 ├── zonos/              # TTS sidecar (Python)
 ├── public/index.html   # Web UI
 └── data/stories/       # Persisted story files
@@ -77,6 +79,56 @@ npm test
 
 # Run tests with coverage
 npm run test:report
+```
+
+## Story Coherence Engine
+
+PincerX includes a lightweight coherence layer for validating narrative consistency:
+
+### What it does
+
+- **Character consistency** — Checks if character actions align with established personalities
+- **World rule adherence** — Validates that chapters respect established lore and world rules
+- **Narrative continuity** — Ensures events follow logically from previous chapters
+- **"What if" analysis** — Explores alternative story directions grounded in established rules
+
+### How to use
+
+The coherence engine is available via API:
+
+```bash
+# Get story health summary
+curl http://localhost:3000/story/{id}/coherence/health
+
+# Check a chapter's coherence
+curl -X POST http://localhost:3000/story/{id}/coherence/check \
+  -H "Content-Type: application/json" \
+  -d '{"chapterContent": "[speaker:Elena]..."}'
+
+# Validate a character profile
+curl -X POST http://localhost:3000/story/{id}/coherence/validate-character \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Elena", "role": "hero", "personality": "brave, curious"}'
+
+# Explore "what if" scenarios
+curl -X POST http://localhost:3000/story/{id}/coherence/whatif \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What if Elena turned evil?"}'
+```
+
+### Response format
+
+Coherence checks return:
+
+```json
+{
+  "isConsistent": true,
+  "confidence": 0.85,
+  "level": "high",
+  "warnings": [],
+  "suggestions": ["No issues detected"],
+  "evidence": "All character actions align with established personalities"
+}
 ```
 
 ## License
