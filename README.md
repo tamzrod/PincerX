@@ -2,6 +2,8 @@
 
 A local creative storytelling system. Give it a title, genre, and tone, and it generates an outline, creates a cast of characters, and writes chapters. Each story maintains a living knowledge store of characters and lore. You can read the narrative or hear it performed with distinct character voices via Zonos TTS.
 
+> **Note:** The "Legacy PDF Tools" (Knowledge Base tab) is a deprecated feature for global PDF-based Q&A. Per-story **Story Knowledge** is the primary knowledge system for creative writing.
+
 ## Quick Start
 
 ### 1. Start Ollama
@@ -52,7 +54,12 @@ docker compose -f docker-compose.zonos.yml up
 ```
 ├── api/server.js      # Express HTTP API
 ├── lib/                # Core modules (AI transport, RAG, feedback)
+│   ├── ai.js          # LLM HTTP transport (Ollama/OpenAI compatible)
+│   ├── rag.js         # Legacy PDF Q&A (deprecated)
+│   └── feedback.js    # Text analysis
 ├── story/              # Story engine (creation, chapters, characters)
+│   ├── story.js       # Story creation and chapter generation
+│   ├── story-rag.js  # Per-story knowledge store (Story Knowledge)
 │   └── story-coherence.js # Narrative consistency validation
 ├── zonos/              # TTS sidecar (Python)
 ├── public/index.html   # Web UI

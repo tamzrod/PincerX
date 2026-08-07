@@ -29,8 +29,43 @@
       grid-template-columns: 340px 1fr;
       gap: 20px;
       padding: 20px;
-      max-width: 1200px;
+      max-width: 1600px;
       margin: 0 auto;
+    }
+
+    /* Story Writer layout: left sidebar + right workspace */
+    .story-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+      padding: 16px;
+      max-width: 1600px;
+      margin: 0 auto;
+      align-items: start;
+    }
+
+    .story-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .story-workspace {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      min-height: 600px;
+    }
+
+    /* Workspace panels use full width */
+    .story-sub-panel {
+      width: 100%;
+    }
+
+    @media (max-width: 900px) {
+      .story-layout { grid-template-columns: 1fr; }
+      .story-sidebar { flex-direction: row; flex-wrap: wrap; }
     }
 
     @media (max-width: 760px) {
@@ -1077,7 +1112,6 @@
 
 <nav class="tab-bar" role="tablist" aria-label="Application pages">
   <button class="tab-btn active" id="tab-story" role="tab" aria-selected="true" aria-controls="page-story" onclick="switchTab('story')">✍️ Story Writer</button>
-  <button class="tab-btn" id="tab-docs" role="tab" aria-selected="false" aria-controls="page-docs" onclick="switchTab('docs')">📚 Knowledge Base</button>
 </nav>
 
 <!-- Voice Settings modal -->
@@ -1213,6 +1247,12 @@
       <div class="msg" id="cfg-cache-msg"></div>
     </div>
 
+    <div class="field-group" style="border-top:1px solid #eee;padding-top:14px;margin-top:6px">
+      <h3 style="margin-bottom:6px">📄 Legacy PDF Tools</h3>
+      <p style="font-size:12px;color:#666;margin-bottom:8px">Upload PDFs to query or analyze text. This is a legacy feature — Story Knowledge is now stored per-story.</p>
+      <button class="btn-secondary" onclick="closeSettings();switchTab('docs')">Open PDF Tools</button>
+    </div>
+
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeSettings()">Cancel</button>
       <button class="btn-primary" id="cfg-save-btn" onclick="saveSettings()">Save</button>
@@ -1220,13 +1260,14 @@
   </div>
 </div>
 
-<!-- ── Page 1: Knowledge Base (demoted from story focus) ───────────────── -->
+<!-- ── Legacy PDF Tools Page ───────────────────────────────────────────── -->
 <div class="page" id="page-docs" role="tabpanel" aria-labelledby="tab-docs">
   <div class="layout">
 
     <!-- LEFT: PDF/Knowledge Management -->
     <aside class="panel">
-      <h2>📚 Knowledge Base</h2>
+      <h2>📄 Legacy PDF Tools</h2>
+      <p style="font-size:12px;color:#888;margin-bottom:12px">This is a legacy feature. Story Knowledge is now stored per-story in the Story Writer.</p>
 
       <div class="section">
         <h3>Upload PDF</h3>
@@ -1290,60 +1331,64 @@
 
 <!-- ── Page 2: Story Writer ─────────────────────────────────────────────── -->
 <div class="page active" id="page-story" role="tabpanel" aria-labelledby="tab-story">
-  <div class="layout">
+  <div class="story-layout">
 
-    <!-- LEFT: Controls -->
-    <aside class="panel">
-      <h2>✍️ Story Writer</h2>
+    <!-- LEFT: Sidebar controls -->
+    <aside class="story-sidebar">
 
-      <!-- Saved stories (populated on page load) -->
-      <div class="section saved-stories" id="saved-stories-section" style="display:none">
-        <h3>Saved Stories</h3>
-        <div id="saved-stories-list"></div>
+      <!-- Story Details Panel -->
+      <div class="panel">
+        <h2>✍️ Story Writer</h2>
+
+        <!-- Saved stories (populated on page load) -->
+        <div class="section saved-stories" id="saved-stories-section" style="display:none">
+          <h3>Saved Stories</h3>
+          <div id="saved-stories-list"></div>
+        </div>
+
+        <div class="section">
+          <h3>Story Details</h3>
+          <label for="story-title">Title</label>
+          <input type="text" id="story-title" placeholder="e.g. The Last Horizon" class="story-field" />
+          <label for="story-genre">Genre</label>
+          <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" class="story-field" />
+          <label for="story-tone">Tone</label>
+          <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
+          <div class="row">
+            <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
+            <button class="btn-danger" id="reset-story-btn" onclick="resetStory()" style="display:none">Reset</button>
+          </div>
+          <div class="msg" id="story-msg"></div>
+        </div>
+
+        <div class="section">
+          <h3>Story Outline</h3>
+          <div class="result-box" id="story-result">
+            <div class="result-label">Generated Outline</div>
+            <pre id="story-outline"></pre>
+          </div>
+          <p id="story-placeholder" style="color:#aaa;font-size:13px;">Fill in the details above and click <strong>Generate Outline</strong> to see the result here.</p>
+        </div>
+
+        <div class="section" id="chapter-section" style="display:none">
+          <h3>Generate Chapters</h3>
+          <p style="color:#666;font-size:13px;margin-bottom:10px;">Generate chapters one at a time. Each chapter builds on the outline and all previously generated chapters.</p>
+          <label for="chapter-custom-prompt">Custom instructions (optional)</label>
+          <textarea id="chapter-custom-prompt" placeholder="e.g. Focus on the protagonist's inner conflict, add a plot twist…" style="min-height:70px;margin-bottom:8px;"></textarea>
+          <label>Dialogue Ratio <span style="color:#aaa;font-weight:400">(higher = more character speech)</span></label>
+          <div class="slider-row" style="margin-bottom:12px">
+            <input type="range" id="chapter-dialog-ratio" min="0" max="100" step="5" value="60" oninput="document.getElementById('chapter-dialog-ratio-val').textContent=this.value+'%'" />
+            <span class="slider-val" id="chapter-dialog-ratio-val">60%</span>
+          </div>
+          <div class="row">
+            <button class="btn-primary" id="chapter-btn" onclick="generateNextChapter()">Generate Chapter 1</button>
+          </div>
+          <div class="msg" id="chapter-msg"></div>
+        </div>
       </div>
 
-      <div class="section">
-        <h3>Story Details</h3>
-        <label for="story-title">Title</label>
-        <input type="text" id="story-title" placeholder="e.g. The Last Horizon" class="story-field" />
-        <label for="story-genre">Genre</label>
-        <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" class="story-field" />
-        <label for="story-tone">Tone</label>
-        <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
-        <div class="row">
-          <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
-          <button class="btn-danger" id="reset-story-btn" onclick="resetStory()" style="display:none">Reset</button>
-        </div>
-        <div class="msg" id="story-msg"></div>
-      </div>
-
-      <div class="section">
-        <h3>Story Outline</h3>
-        <div class="result-box" id="story-result">
-          <div class="result-label">Generated Outline</div>
-          <pre id="story-outline"></pre>
-        </div>
-        <p id="story-placeholder" style="color:#aaa;font-size:13px;">Fill in the details above and click <strong>Generate Outline</strong> to see the result here.</p>
-      </div>
-
-      <div class="section" id="chapter-section" style="display:none">
-        <h3>Generate Chapters</h3>
-        <p style="color:#666;font-size:13px;margin-bottom:10px;">Generate chapters one at a time. Each chapter builds on the outline and all previously generated chapters.</p>
-        <label for="chapter-custom-prompt">Custom instructions (optional)</label>
-        <textarea id="chapter-custom-prompt" placeholder="e.g. Focus on the protagonist's inner conflict, add a plot twist…" style="min-height:70px;margin-bottom:8px;"></textarea>
-        <label>Dialogue Ratio <span style="color:#aaa;font-weight:400">(higher = more character speech)</span></label>
-        <div class="slider-row" style="margin-bottom:12px">
-          <input type="range" id="chapter-dialog-ratio" min="0" max="100" step="5" value="60" oninput="document.getElementById('chapter-dialog-ratio-val').textContent=this.value+'%'" />
-          <span class="slider-val" id="chapter-dialog-ratio-val">60%</span>
-        </div>
-        <div class="row">
-          <button class="btn-primary" id="chapter-btn" onclick="generateNextChapter()">Generate Chapter 1</button>
-        </div>
-        <div class="msg" id="chapter-msg"></div>
-      </div>
-
-      <!-- Character Manager (shown after a story is created or loaded) -->
-      <div class="section" id="char-section" style="display:none">
+      <!-- Character Manager Panel (shown after a story is created or loaded) -->
+      <div class="panel" id="char-section" style="display:none">
         <h3>🎭 Characters &amp; Voices</h3>
         <p style="color:#666;font-size:12px;margin-bottom:8px">Define characters to keep voice and personality consistent across chapters. Assign a Zonos voice to each character for automated per-character TTS.</p>
 
@@ -1386,37 +1431,39 @@
         </details>
       </div>
 
-      <!-- Story Knowledge & Coherence (shown after a story is loaded) -->
-      <div class="section" id="story-knowledge-section" style="display:none">
-        <h3>📖 Story Knowledge &amp; Coherence</h3>
+    </aside>
 
-        <!-- Coherence banner (shown after chapter generation with warnings) -->
-        <div class="coherence-banner" id="coherence-banner">
-          ⚠️ <strong>Coherence warnings detected</strong> — Check the Coherence tab for details.
+    <!-- RIGHT: Story Workspace (shown after a story is loaded) -->
+    <div class="story-workspace" id="story-knowledge-section" style="display:none">
+      <h3>📖 Story Knowledge &amp; Coherence</h3>
+
+      <!-- Coherence banner (shown after chapter generation with warnings) -->
+      <div class="coherence-banner" id="coherence-banner">
+        ⚠️ <strong>Coherence warnings detected</strong> — Check the Coherence tab for details.
+      </div>
+
+      <!-- Sub-tabs -->
+      <div class="story-sub-tabs">
+        <button class="story-sub-tab active" id="subtab-outline" onclick="switchStorySubTab('outline')">Outline</button>
+        <button class="story-sub-tab" id="subtab-chapters" onclick="switchStorySubTab('chapters')">Chapters</button>
+        <button class="story-sub-tab" id="subtab-knowledge" onclick="switchStorySubTab('knowledge')">Story Knowledge</button>
+        <button class="story-sub-tab" id="subtab-coherence" onclick="switchStorySubTab('coherence')">Coherence</button>
+      </div>
+
+      <!-- Outline sub-panel -->
+      <div class="story-sub-panel active" id="panel-outline">
+        <div class="result-box" id="story-result-knowledge">
+          <pre id="story-outline-knowledge" style="white-space:pre-wrap;font-size:13px;line-height:1.6"></pre>
         </div>
+      </div>
 
-        <!-- Sub-tabs -->
-        <div class="story-sub-tabs">
-          <button class="story-sub-tab active" id="subtab-outline" onclick="switchStorySubTab('outline')">Outline</button>
-          <button class="story-sub-tab" id="subtab-chapters" onclick="switchStorySubTab('chapters')">Chapters</button>
-          <button class="story-sub-tab" id="subtab-knowledge" onclick="switchStorySubTab('knowledge')">Story Knowledge</button>
-          <button class="story-sub-tab" id="subtab-coherence" onclick="switchStorySubTab('coherence')">Coherence</button>
-        </div>
+      <!-- Chapters sub-panel -->
+      <div class="story-sub-panel" id="panel-chapters">
+        <div id="chapter-list-knowledge"><em style="color:#aaa;font-size:12px">No chapters yet.</em></div>
+      </div>
 
-        <!-- Outline sub-panel -->
-        <div class="story-sub-panel active" id="panel-outline">
-          <div class="result-box" id="story-result-knowledge">
-            <pre id="story-outline-knowledge" style="white-space:pre-wrap;font-size:12px"></pre>
-          </div>
-        </div>
-
-        <!-- Chapters sub-panel -->
-        <div class="story-sub-panel" id="panel-chapters">
-          <div id="chapter-list-knowledge"><em style="color:#aaa;font-size:12px">No chapters yet.</em></div>
-        </div>
-
-        <!-- Story Knowledge sub-panel -->
-        <div class="story-sub-panel" id="panel-knowledge">
+      <!-- Story Knowledge sub-panel -->
+      <div class="story-sub-panel" id="panel-knowledge">
           <!-- Parameters section -->
           <div class="knowledge-section">
             <div class="knowledge-section-header">
@@ -1554,16 +1601,19 @@
           </div>
         </div>
       </div>
-    </aside>
 
-    <!-- RIGHT: Reading view -->
-    <main class="panel reading-panel" id="reading-panel" style="display:none" aria-label="Reading view">
+    </aside>
+  </div>
+
+  <!-- Reading view overlay (triggered from chapters) -->
+  <div class="story-layout" id="reading-panel" style="display:none">
+    <div class="story-workspace" style="width:100%">
+      <button onclick="closeReadingView()" style="margin-bottom:16px">← Back to Story</button>
       <div class="reading-view" id="reading-view">
         <div class="reading-story-title" id="reading-title"></div>
         <div class="reading-meta" id="reading-meta"></div>
       </div>
-    </main>
-
+    </div>
   </div>
 </div>
 
@@ -1591,6 +1641,42 @@
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
+
+  function closeReadingView() {
+    document.getElementById('reading-panel').style.display = 'none';
+  }
+
+  /**
+   * Extract human-readable outline text from potentially JSON-wrapped content.
+   * The AI may return JSON like {"outline": "..."} or just the text.
+   */
+  function extractOutlineText(rawOutline) {
+    if (!rawOutline) return 'No outline was returned.';
+
+    // If it looks like plain text (no JSON structure), return as-is
+    if (!rawOutline.trim().startsWith('{') && !rawOutline.includes('"outline"')) {
+      return rawOutline.trim();
+    }
+
+    // Try to parse as JSON and extract the outline field
+    try {
+      const parsed = JSON.parse(rawOutline);
+      if (parsed.outline) {
+        return typeof parsed.outline === 'string' ? parsed.outline.trim() : JSON.stringify(parsed.outline, null, 2);
+      }
+      // If JSON but no outline field, show the whole thing formatted
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      // Not valid JSON, strip any JSON-like wrappers and return clean text
+      const cleaned = rawOutline
+        .replace(/^\s*["{]/, '')  // Remove leading quote or brace
+        .replace(/["}]\s*$/, '')   // Remove trailing quote or brace
+        .replace(/,\s*"[^"]+"\s*:/g, '\n')  // Turn JSON keys into newlines
+        .replace(/\\n/g, '\n')  // Unescape newlines
+        .trim();
+      return cleaned || rawOutline;
+    }
+  }
 
   function showMsg(id, text, type) {
     const el = document.getElementById(id);
@@ -3084,7 +3170,10 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, genre, tone }),
       });
-      document.getElementById('story-outline').textContent = data.outline || 'No outline was returned.';
+
+      // Extract human-readable outline text from potentially JSON-wrapped response
+      const displayOutline = extractOutlineText(data.outline);
+      document.getElementById('story-outline').textContent = displayOutline;
       document.getElementById('story-result').classList.add('visible');
       document.getElementById('story-placeholder').style.display = 'none';
       clearMsg('story-msg');
@@ -4334,9 +4423,9 @@
       section.style.display = 'block';
       loadStoryKnowledge();
 
-      // Copy outline to knowledge panel
+      // Copy outline to knowledge panel (parsed for human readability)
       if (outlineEl && storyState.outline) {
-        outlineEl.textContent = storyState.outline;
+        outlineEl.textContent = extractOutlineText(storyState.outline);
       }
     } else {
       section.style.display = 'none';
