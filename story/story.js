@@ -87,11 +87,63 @@ async function create(title, genre, tone, aiOptions = {}) {
   return storyObj;
 }
 
-/** Minimum target word count included in the chapter generation prompt. */
-const CHAPTER_MIN_WORDS = 700;
+/**
+ * Chapter length presets and their word count targets.
+ * @typedef {'short' | 'default' | 'long'} ChapterLength
+ */
+const CHAPTER_LENGTH_PRESETS = {
+  short: { minWords: 500, targetWords: 600, maxWords: 700 },
+  default: { minWords: 900, targetWords: 1200, maxWords: 1400 },
+  long: { minWords: 1600, targetWords: 1900, maxWords: 2200 },
+};
 
 /** Generic speaker names that are never real character profiles. */
 const GENERIC_SPEAKERS = new Set(['narrator', 'male', 'female']);
+
+/**
+ * Build a LENGTH POLICY block for the chapter generation prompt.
+ * Returns clear, mandatory word count guidance based on the length preset.
+ *
+ * @param {string} length - 'short', 'default', or 'long'
+ * @param {number} [wordTarget] - Optional exact word target (overrides preset)
+ * @returns {string} Formatted length policy text
+ */
+function buildLengthPolicy(length, wordTarget) {
+  if (typeof wordTarget === 'number' && wordTarget > 0) {
+    const tolerance = Math.round(wordTarget * 0.1);
+    return [
+      'LENGTH POLICY (MANDATORY):',
+      `Your chapter must be exactly ${wordTarget} words (±${tolerance} words acceptable).`,
+      'This is not a suggestion — the chapter will be rejected if it falls outside this range.',
+      'Ensure every paragraph contributes meaningful content: vivid descriptions, character thoughts, plot development.',
+      'Do not pad with filler or repeat established information.',
+      'Structure: opening hook → rising action → midpoint → climax → closing hook or cliffhanger.',
+    ].join('\n');
+  }
+
+  const preset = CHAPTER_LENGTH_PRESETS[length] || CHAPTER_LENGTH_PRESETS.default;
+  return [
+    'LENGTH POLICY (MANDATORY):',
+    `Your chapter must be ${preset.minWords}–${preset.maxWords} words.`,
+    `Aim for approximately ${preset.targetWords} words.`,
+    'This is not a suggestion — the chapter will be rejected if it falls below the minimum.',
+    '',
+    'Ensure the length is real content, not padding:',
+    '- Vivid sensory descriptions of settings and atmosphere',
+    '- Character thoughts, emotions, and internal conflicts',
+    '- Meaningful plot advancement and character development',
+    '- Natural dialogue that reveals character and advances story',
+    '',
+    'Structure your chapter with:',
+    '- Opening hook that draws readers in',
+    '- Rising action that builds tension',
+    '- Midpoint or turning point',
+    '- Climax or dramatic moment',
+    '- Closing hook or cliffhanger that compels reading the next chapter',
+    '',
+    'Do NOT end a chapter with a vague tease like "ordinary day" when the genre demands more.',
+  ].join('\n');
+}
 
 /**
  * Map a character's gender and optional personality description to the
@@ -653,6 +705,9 @@ async function _storeChapterSummary(storyId, chapterNumber, content, aiOptions) 
  * @param {string} storyId       - The story ID (from the `id` field of a saved story).
  * @param {number} chapterNumber - 1-based chapter index to generate.
  * @param {object} [aiOptions]   - Options forwarded to ai.ask().
+ *   @param {number} [aiOptions.dialogRatio] - Dialogue ratio 0-100 (default: 60).
+ *   @param {string} [aiOptions.length] - 'short', 'default', or 'long' (default: 'default').
+ *   @param {number} [aiOptions.wordTarget] - Exact word target (overrides length preset).
  * @param {string} [customPrompt] - Optional extra instructions for the AI.
  * @returns {Promise<{storyId: string, chapterNumber: number, content: string}>}
  */
@@ -670,6 +725,14 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     ? Math.max(0, Math.min(100, Math.round(aiOptions.dialogRatio)))
     : DEFAULT_DIALOG_RATIO;
   const narrationRatio = 100 - dialogRatio;
+
+  // Chapter length: default to 'default' when not specified
+  const length = (aiOptions.length === 'short' || aiOptions.length === 'long')
+    ? aiOptions.length
+    : 'default';
+  const wordTarget = (typeof aiOptions.wordTarget === 'number' && aiOptions.wordTarget > 0)
+    ? aiOptions.wordTarget
+    : undefined;
 
   // ── RAG-enriched context ────────────────────────────────────────────────────
   const characters = storyRag.listDocs(storyId, 'character');
@@ -700,11 +763,14 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   const loreContext = buildLoreContext(loreEntries);
   const speakerTagInstruction = buildSpeakerTagInstruction(characters);
   const storyLawBlock = buildStoryLawBlock(storyId, storyData);
+  const lengthPolicy = buildLengthPolicy(length, wordTarget);
 
   const prompt = [
     'You are a creative writing assistant. Write a detailed, immersive chapter of a story.',
     'Respond with ONLY a valid JSON object containing exactly this field:',
     '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
+    '',
+    lengthPolicy,
     '',
     'MANDATORY FORMATTING RULES — your chapter MUST follow these exactly:',
     '',
@@ -745,7 +811,6 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     'Wrong (do NOT do this):',
     '[speaker:female][emotion:curious] "I should look into this," Alex murmured aloud, her voice barely audible.',
     '',
-    'The chapter must be substantial: at least ' + CHAPTER_MIN_WORDS + ' words with vivid descriptions, meaningful dialogue, and strong pacing.',
     `Aim for approximately ${dialogRatio}% character dialogue and ${narrationRatio}% narration/description.`,
     'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tags.',
     '',
@@ -925,7 +990,7 @@ function deleteStory(storyId) {
   return { storyId };
 }
 
-module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get, pickVoicePreset, normalizeChapterParagraphs };
+module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get, pickVoicePreset, normalizeChapterParagraphs, buildLengthPolicy, CHAPTER_LENGTH_PRESETS };
 
 /**
  * Return summary metadata for every saved story, newest first.

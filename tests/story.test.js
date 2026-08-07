@@ -879,3 +879,174 @@ describe('story.js — generateChapter prompt includes formatting rules', () => 
     expect(result.content).toContain('[emotion:neutral]');
   });
 });
+
+// ── story.js — buildLengthPolicy() ────────────────────────────────────────
+
+describe('story.js — buildLengthPolicy()', () => {
+  it('returns correct policy for short preset', () => {
+    const policy = storyModule.buildLengthPolicy('short');
+    expect(policy).toContain('LENGTH POLICY (MANDATORY)');
+    expect(policy).toContain('500–700 words');
+    expect(policy).toContain('600 words');
+  });
+
+  it('returns correct policy for default preset', () => {
+    const policy = storyModule.buildLengthPolicy('default');
+    expect(policy).toContain('LENGTH POLICY (MANDATORY)');
+    expect(policy).toContain('900–1400 words');
+    expect(policy).toContain('1200 words');
+  });
+
+  it('returns correct policy for long preset', () => {
+    const policy = storyModule.buildLengthPolicy('long');
+    expect(policy).toContain('LENGTH POLICY (MANDATORY)');
+    expect(policy).toContain('1600–2200 words');
+    expect(policy).toContain('1900 words');
+  });
+
+  it('returns correct policy for wordTarget override', () => {
+    const policy = storyModule.buildLengthPolicy('default', 1000);
+    expect(policy).toContain('LENGTH POLICY (MANDATORY)');
+    expect(policy).toContain('exactly 1000 words');
+    expect(policy).toContain('±100 words');
+  });
+
+  it('defaults to default preset for unknown length', () => {
+    const policy = storyModule.buildLengthPolicy('unknown');
+    expect(policy).toContain('900–1400 words');
+  });
+
+  it('includes structure guidance in preset policies', () => {
+    const policy = storyModule.buildLengthPolicy('default');
+    expect(policy).toContain('Opening hook');
+    expect(policy).toContain('Climax');
+    expect(policy).toContain('Closing hook');
+  });
+
+  it('does not include structure guidance when wordTarget is set', () => {
+    const policy = storyModule.buildLengthPolicy('default', 1500);
+    expect(policy).not.toContain('Opening hook');
+  });
+});
+
+// ── story.js — CHAPTER_LENGTH_PRESETS ───────────────────────────────────────
+
+describe('story.js — CHAPTER_LENGTH_PRESETS', () => {
+  it('short preset has correct word counts', () => {
+    expect(storyModule.CHAPTER_LENGTH_PRESETS.short).toEqual({
+      minWords: 500,
+      targetWords: 600,
+      maxWords: 700,
+    });
+  });
+
+  it('default preset has correct word counts', () => {
+    expect(storyModule.CHAPTER_LENGTH_PRESETS.default).toEqual({
+      minWords: 900,
+      targetWords: 1200,
+      maxWords: 1400,
+    });
+  });
+
+  it('long preset has correct word counts', () => {
+    expect(storyModule.CHAPTER_LENGTH_PRESETS.long).toEqual({
+      minWords: 1600,
+      targetWords: 1900,
+      maxWords: 2200,
+    });
+  });
+});
+
+// ── story.js — generateChapter length options ───────────────────────────────
+
+describe('story.js — generateChapter length options', () => {
+  function writeStory(id, data = {}) {
+    fs.mkdirSync(STORIES_DIR, { recursive: true });
+    const defaults = {
+      id,
+      title: 'Test Story',
+      genre: 'fantasy',
+      tone: 'epic',
+      outline: 'A hero journeys forth.',
+      createdAt: new Date().toISOString(),
+      chapters: [],
+    };
+    fs.writeFileSync(
+      path.join(STORIES_DIR, `${id}.json`),
+      JSON.stringify({ ...defaults, ...data }, null, 2),
+      'utf8',
+    );
+  }
+
+  beforeEach(() => {
+    storyRag.listDocs.mockReturnValue([]);
+    storyRag.addDoc.mockImplementation(() => {});
+    storyRag.removeDoc.mockReturnValue(true);
+  });
+
+  it('defaults to default length when length option not specified', async () => {
+    writeStory('test-length-default-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-length-default-1234', 1, {});
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('LENGTH POLICY (MANDATORY)');
+    expect(prompt).toContain('900–1400 words');
+  });
+
+  it('uses short length when specified', async () => {
+    writeStory('test-length-short-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-length-short-1234', 1, { length: 'short' });
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('500–700 words');
+  });
+
+  it('uses long length when specified', async () => {
+    writeStory('test-length-long-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-length-long-1234', 1, { length: 'long' });
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('1600–2200 words');
+  });
+
+  it('uses wordTarget when specified', async () => {
+    writeStory('test-length-target-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-length-target-1234', 1, { wordTarget: 1500 });
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('exactly 1500 words');
+    expect(prompt).toContain('±150 words');
+  });
+
+  it('wordTarget overrides length preset', async () => {
+    writeStory('test-length-override-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-length-override-1234', 1, {
+      length: 'short',
+      wordTarget: 2000,
+    });
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('exactly 2000 words');
+    expect(prompt).not.toContain('500–700 words');
+  });
+});
