@@ -33,24 +33,26 @@
       margin: 0 auto;
     }
 
-    /* Story Writer layout: left sidebar + right workspace */
+    /* Story Writer layout: left sidebar (300px) + right workspace (flex 1) */
     .story-layout {
-      display: grid;
-      grid-template-columns: 320px 1fr;
+      display: flex;
+      flex-direction: row;
       gap: 16px;
       padding: 16px;
       max-width: 1600px;
       margin: 0 auto;
-      align-items: start;
+      align-items: flex-start;
     }
 
     .story-sidebar {
+      flex: 0 0 300px;
       display: flex;
       flex-direction: column;
       gap: 16px;
     }
 
     .story-workspace {
+      flex: 1;
       background: #fff;
       border-radius: 8px;
       padding: 20px;
@@ -63,9 +65,51 @@
       width: 100%;
     }
 
+    /* Chapter card styling for the chapters list */
+    .chapter-card {
+      border: 1px solid #e8e8e8;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .chapter-card-header {
+      background: #f8f9fa;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #e8e8e8;
+    }
+
+    .chapter-card-title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .chapter-card-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .chapter-card-body {
+      padding: 16px;
+      font-size: 14px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    .chapter-card-body p {
+      margin-bottom: 12px;
+    }
+
+    .chapter-card-body p:last-child {
+      margin-bottom: 0;
+    }
+
     @media (max-width: 900px) {
-      .story-layout { grid-template-columns: 1fr; }
-      .story-sidebar { flex-direction: row; flex-wrap: wrap; }
+      .story-layout { flex-direction: column; }
+      .story-sidebar { flex: auto; width: 100%; }
     }
 
     @media (max-width: 760px) {
@@ -1333,7 +1377,7 @@
 <div class="page active" id="page-story" role="tabpanel" aria-labelledby="tab-story">
   <div class="story-layout">
 
-    <!-- LEFT: Sidebar controls -->
+    <!-- LEFT: Sidebar controls (~300px) -->
     <aside class="story-sidebar">
 
       <!-- Story Details Panel -->
@@ -1361,21 +1405,19 @@
           <div class="msg" id="story-msg"></div>
         </div>
 
-        <div class="section">
+        <!-- Compact outline preview (just one line, links to tab) -->
+        <div class="section" id="outline-preview-section" style="display:none">
           <h3>Story Outline</h3>
-          <div class="result-box" id="story-result">
-            <div class="result-label">Generated Outline</div>
-            <pre id="story-outline"></pre>
-          </div>
-          <p id="story-placeholder" style="color:#aaa;font-size:13px;">Fill in the details above and click <strong>Generate Outline</strong> to see the result here.</p>
+          <p id="outline-preview-text" style="color:#666;font-size:12px;line-height:1.4;max-height:60px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;"></p>
+          <button class="btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="switchStorySubTab('outline')">View full outline →</button>
         </div>
 
         <div class="section" id="chapter-section" style="display:none">
           <h3>Generate Chapters</h3>
-          <p style="color:#666;font-size:13px;margin-bottom:10px;">Generate chapters one at a time. Each chapter builds on the outline and all previously generated chapters.</p>
+          <p style="color:#666;font-size:13px;margin-bottom:10px;">Generate chapters one at a time.</p>
           <label for="chapter-custom-prompt">Custom instructions (optional)</label>
-          <textarea id="chapter-custom-prompt" placeholder="e.g. Focus on the protagonist's inner conflict, add a plot twist…" style="min-height:70px;margin-bottom:8px;"></textarea>
-          <label>Dialogue Ratio <span style="color:#aaa;font-weight:400">(higher = more character speech)</span></label>
+          <textarea id="chapter-custom-prompt" placeholder="e.g. Focus on the protagonist's inner conflict…" style="min-height:70px;margin-bottom:8px;"></textarea>
+          <label>Dialogue Ratio <span style="color:#aaa;font-weight:400">(higher = more speech)</span></label>
           <div class="slider-row" style="margin-bottom:12px">
             <input type="range" id="chapter-dialog-ratio" min="0" max="100" step="5" value="60" oninput="document.getElementById('chapter-dialog-ratio-val').textContent=this.value+'%'" />
             <span class="slider-val" id="chapter-dialog-ratio-val">60%</span>
@@ -1387,10 +1429,10 @@
         </div>
       </div>
 
-      <!-- Character Manager Panel (shown after a story is created or loaded) -->
+      <!-- Character Manager Panel -->
       <div class="panel" id="char-section" style="display:none">
         <h3>🎭 Characters &amp; Voices</h3>
-        <p style="color:#666;font-size:12px;margin-bottom:8px">Define characters to keep voice and personality consistent across chapters. Assign a Zonos voice to each character for automated per-character TTS.</p>
+        <p style="color:#666;font-size:12px;margin-bottom:8px">Define characters for consistent voice across chapters.</p>
 
         <div id="char-list"><em style="color:#aaa;font-size:12px">No characters yet.</em></div>
         <div class="msg" id="char-msg"></div>
@@ -1433,33 +1475,32 @@
 
     </aside>
 
-    <!-- RIGHT: Story Workspace (shown after a story is loaded) -->
+    <!-- MAIN: Story Workspace (shown after a story is loaded) -->
     <div class="story-workspace" id="story-knowledge-section" style="display:none">
-      <h3>📖 Story Knowledge &amp; Coherence</h3>
 
-      <!-- Coherence banner (shown after chapter generation with warnings) -->
+      <!-- Coherence warning banner (shown after chapter generation with warnings) -->
       <div class="coherence-banner" id="coherence-banner">
         ⚠️ <strong>Coherence warnings detected</strong> — Check the Coherence tab for details.
       </div>
 
-      <!-- Sub-tabs -->
+      <!-- Tabs: Chapters is PRIMARY, default when chapters exist -->
       <div class="story-sub-tabs">
-        <button class="story-sub-tab active" id="subtab-outline" onclick="switchStorySubTab('outline')">Outline</button>
-        <button class="story-sub-tab" id="subtab-chapters" onclick="switchStorySubTab('chapters')">Chapters</button>
-        <button class="story-sub-tab" id="subtab-knowledge" onclick="switchStorySubTab('knowledge')">Story Knowledge</button>
-        <button class="story-sub-tab" id="subtab-coherence" onclick="switchStorySubTab('coherence')">Coherence</button>
+        <button class="story-sub-tab active" id="subtab-chapters" onclick="switchStorySubTab('chapters')">📖 Chapters</button>
+        <button class="story-sub-tab" id="subtab-outline" onclick="switchStorySubTab('outline')">📋 Outline</button>
+        <button class="story-sub-tab" id="subtab-knowledge" onclick="switchStorySubTab('knowledge')">💡 Story Knowledge</button>
+        <button class="story-sub-tab" id="subtab-coherence" onclick="switchStorySubTab('coherence')">🔍 Coherence</button>
+      </div>
+
+      <!-- Chapters sub-panel (PRIMARY - shown first, visible by default) -->
+      <div class="story-sub-panel active" id="panel-chapters">
+        <div id="chapter-list-knowledge"><em style="color:#aaa;font-size:14px">No chapters yet. Generate your first chapter using the controls on the left.</em></div>
       </div>
 
       <!-- Outline sub-panel -->
-      <div class="story-sub-panel active" id="panel-outline">
+      <div class="story-sub-panel" id="panel-outline">
         <div class="result-box" id="story-result-knowledge">
           <pre id="story-outline-knowledge" style="white-space:pre-wrap;font-size:13px;line-height:1.6"></pre>
         </div>
-      </div>
-
-      <!-- Chapters sub-panel -->
-      <div class="story-sub-panel" id="panel-chapters">
-        <div id="chapter-list-knowledge"><em style="color:#aaa;font-size:12px">No chapters yet.</em></div>
       </div>
 
       <!-- Story Knowledge sub-panel -->
@@ -1644,6 +1685,45 @@
 
   function closeReadingView() {
     document.getElementById('reading-panel').style.display = 'none';
+  }
+
+  /**
+   * Open reading view for a specific chapter
+   */
+  function openReadingViewForChapter(chapterNumber) {
+    const chapter = (storyState.chapters || []).find(c => c.number === chapterNumber);
+    if (!chapter) return;
+
+    document.getElementById('reading-title').textContent = `${storyState.title || 'Untitled'} — Chapter ${chapterNumber}`;
+    document.getElementById('reading-meta').textContent = `Genre: ${storyState.genre || ''} · Tone: ${storyState.tone || ''}`;
+
+    // Render chapter content with paragraphs
+    const contentEl = document.createElement('div');
+    contentEl.className = 'reading-content';
+    const paragraphs = (chapter.content || '').split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    paragraphs.forEach(p => {
+      const pEl = document.createElement('p');
+      pEl.textContent = p;
+      contentEl.appendChild(pEl);
+    });
+
+    // Clear previous content and add new
+    const readingView = document.getElementById('reading-view');
+    readingView.innerHTML = '';
+    readingView.appendChild(createDiv('reading-story-title', `${storyState.title || 'Untitled'} — Chapter ${chapterNumber}`));
+    readingView.appendChild(createDiv('reading-meta', `Genre: ${storyState.genre || ''} · Tone: ${storyState.tone || ''}`));
+    readingView.appendChild(contentEl);
+
+    // Hide workspace, show reading panel
+    document.getElementById('story-knowledge-section').style.display = 'none';
+    document.getElementById('reading-panel').style.display = '';
+  }
+
+  function createDiv(className, text) {
+    const div = document.createElement('div');
+    div.className = className;
+    div.textContent = text;
+    return div;
   }
 
   /**
@@ -4163,21 +4243,45 @@
   }
 
   /**
-   * Render chapter list in the knowledge panel
+   * Render chapter list in the workspace panel with full content
    */
   function renderChapterListKnowledge() {
     const container = document.getElementById('chapter-list-knowledge');
-    if (!container || !storyState.chapters || storyState.chapters.length === 0) {
-      if (container) container.innerHTML = '<em style="color:#aaa;font-size:12px">No chapters yet.</em>';
+    if (!container) return;
+
+    if (!storyState.chapters || storyState.chapters.length === 0) {
+      container.innerHTML = '<em style="color:#aaa;font-size:14px">No chapters yet. Generate your first chapter using the controls on the left.</em>';
       return;
     }
 
-    container.innerHTML = storyState.chapters.map((ch) =>
-      `<div style="padding:6px 0;border-bottom:1px solid #eee;font-size:12px">
-        Chapter ${ch.number}
-        <span style="color:#888">(${ch.content ? ch.content.split(/\s+/).length : 0} words)</span>
-      </div>`
-    ).join('');
+    container.innerHTML = storyState.chapters.map((ch) => {
+      const wordCount = ch.content ? ch.content.split(/\s+/).length : 0;
+      // Format content: split on double newlines to create paragraphs
+      const paragraphs = (ch.content || '').split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+      const bodyHtml = paragraphs.map(p => `<p>${escapeHtml(p)}</p>`).join('');
+
+      return `
+        <div class="chapter-card">
+          <div class="chapter-card-header">
+            <span class="chapter-card-title">Chapter ${ch.number} <span style="color:#888;font-weight:400">(${wordCount} words)</span></span>
+            <div class="chapter-card-actions">
+              <button class="btn-secondary" style="padding:4px 10px;font-size:12px" onclick="switchTab('story')">Edit</button>
+              <button class="btn-secondary" style="padding:4px 10px;font-size:12px" onclick="openReadingViewForChapter(${ch.number})">Read</button>
+            </div>
+          </div>
+          <div class="chapter-card-body">${bodyHtml}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  /**
+   * Escape HTML special characters to prevent XSS
+   */
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   /**
@@ -4414,21 +4518,44 @@
 
   /**
    * Show/hide story knowledge section based on story state
+   * Also handles default tab selection (Chapters if chapters exist, Outline otherwise)
    */
   function updateStoryKnowledgeVisibility() {
     const section = document.getElementById('story-knowledge-section');
     const outlineEl = document.getElementById('story-outline-knowledge');
+    const outlinePreviewSection = document.getElementById('outline-preview-section');
+    const outlinePreviewText = document.getElementById('outline-preview-text');
 
     if (storyState.id) {
       section.style.display = 'block';
-      loadStoryKnowledge();
 
-      // Copy outline to knowledge panel (parsed for human readability)
+      // Show compact outline preview in left sidebar
+      if (outlinePreviewSection) {
+        outlinePreviewSection.style.display = 'block';
+        if (outlinePreviewText && storyState.outline) {
+          // Show first ~100 chars of outline as preview
+          const cleanOutline = extractOutlineText(storyState.outline);
+          outlinePreviewText.textContent = cleanOutline.substring(0, 150) + (cleanOutline.length > 150 ? '…' : '');
+        }
+      }
+
+      // Copy outline to Outline tab (parsed for human readability)
       if (outlineEl && storyState.outline) {
         outlineEl.textContent = extractOutlineText(storyState.outline);
       }
+
+      // Load story knowledge data
+      loadStoryKnowledge();
+
+      // Default tab: Chapters if chapters exist, Outline otherwise
+      if (storyState.chapters && storyState.chapters.length > 0) {
+        switchStorySubTab('chapters');
+      } else {
+        switchStorySubTab('outline');
+      }
     } else {
       section.style.display = 'none';
+      if (outlinePreviewSection) outlinePreviewSection.style.display = 'none';
     }
   }
 
@@ -4476,6 +4603,9 @@
 
       // Handle coherence result
       handleChapterResponse(result);
+
+      // Switch to Chapters tab to show the newly generated chapter
+      switchStorySubTab('chapters');
 
       showMsg('chapter-msg', `Chapter ${result.chapterNumber} generated!`, 'success');
 
