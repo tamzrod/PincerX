@@ -7,7 +7,8 @@ PincerX is a local creative storytelling system that generates stories with AI, 
 The application is organized into four functional areas:
 
 - **Story Engine** (`story/`) — story creation, chapter generation, character extraction, and voice assignment
-- **Story Coherence** (`story/story-coherence.js`) — narrative consistency validation
+- **Story Knowledge** (`story/story-rag.js`) — per-story knowledge store with expanded types
+- **Story Coherence** (`story/story-coherence.js`) — narrative consistency validation (KDE-inspired)
 - **Core Libraries** (`lib/`) — AI transport, document retrieval, and text analysis
 - **HTTP API** (`api/server.js`) — Express endpoints for all client interactions
 
@@ -23,6 +24,7 @@ All AI inference is delegated to a local [Ollama](https://ollama.com/) backend (
 │                  api/server.js                          │
 │                                                         │
 │   Story endpoints ──────────────► story.js             │
+│   Story Knowledge endpoints ─────► story-rag.js       │
 │   Coherence endpoints ─────────► story-coherence.js    │
 │   TTS endpoints ────────────────► Zonos sidecar       │
 │   Config endpoints ─────────────► lib/ai.js            │
@@ -48,6 +50,7 @@ All AI inference is delegated to a local [Ollama](https://ollama.com/) backend (
         ┌──────────────────┐
         │  data/stories/   │
         │  (per-story JSON)│
+        │  rag-docs.json   │
         └──────────────────┘
 ```
 
@@ -65,8 +68,8 @@ PincerX/
 │   └── feedback.js       # Text analysis (sentiment, suggestions)
 ├── story/
 │   ├── story.js          # Story creation, chapter generation
-│   ├── story-rag.js      # Per-story knowledge store (characters, lore)
-│   └── story-coherence.js # Narrative consistency validation
+│   ├── story-rag.js      # Per-story knowledge store (expanded types)
+│   └── story-coherence.js # Narrative consistency validation (KDE-inspired)
 ├── zonos/
 │   ├── server.py         # Zonos TTS sidecar (Python)
 │   ├── Dockerfile
@@ -74,7 +77,7 @@ PincerX/
 ├── public/
 │   └── index.html       # Web UI for story management and TTS
 ├── data/
-│   ├── stories/          # Persisted story JSON files
+│   ├── stories/          # Persisted story JSON files + rag-docs.json
 │   ├── tts-cache/       # Cached audio files
 │   └── docs.json         # Generic knowledge base (for legacy /ask endpoint)
 ├── tests/                # Jest test suite
@@ -102,28 +105,46 @@ Handles the complete story creation and chapter generation workflow:
 1. **Story creation** (`create()`) — Generates outline, characters, and locations from title/genre/tone
 2. **Chapter generation** (`generateChapter()`) — Writes chapters with `[speaker:Name][emotion:X]` tags
 3. **Auto-character extraction** — Detects new named speakers and creates minimal profiles
-4. **Voice preset assignment** — Maps characters to Zonos voice presets based on gender/age
+4. **Auto-knowledge extraction** — Extracts places, systems, arc boundaries from chapters
+5. **Coherence checking** — Runs KDE-inspired consistency checks after generation
+6. **Voice preset assignment** — Maps characters to Zonos voice presets based on gender/age
 
-### `story/story-rag.js` — Story Knowledge Store
+### `story/story-rag.js` — Per-Story Knowledge Store
 
-Per-story document storage for:
+Per-story document storage with expanded knowledge types supporting the anti-hallucination system:
 
-- **Characters** — Name, role, gender, personality, backstory, voice ID
-- **Lore** — Locations, world details, plot elements
-- **Summaries** — Auto-generated chapter summaries for continuity
+**Supported Knowledge Types:**
+| Type | Purpose | Key Fields |
+|------|---------|------------|
+| `character` | People, personalities, boundaries | name, role, gender, personality, backstory, context, boundary |
+| `place` | Locations with constraints | title, description, constraints, context, boundary |
+| `lore` / `world` | World rules and established facts | title, content, context, boundary |
+| `system` | Magic, tech, cultivation, science rules | title, domain, content, context, boundary |
+| `parameter` | Genre hard rules, tone limits, bans | title, content, bans, context, boundary |
+| `arc_boundary` | What can/cannot happen in current arc | title, phase, constraints, allowedEvents, forbiddenEvents |
+| `summary` | Chapter summaries for continuity | chapterNumber, content |
 
-Uses keyword-based retrieval for context during chapter generation.
+**Key functions:**
+- `addDoc(storyId, doc)` — Add/update a document
+- `listDocs(storyId, type)` — List docs, optionally filtered by type
+- `listDocsByType(storyId)` — Get all docs grouped by type
+- `upsertKnowledge(storyId, doc)` — Add or update with merge support
+- `batchUpsert(storyId, docs)` — Efficiently add/update multiple docs
+- `formatKnowledgeForPrompt(storyId, options)` — Format knowledge for AI prompts
+- `retrieve(storyId, query, topK)` — Keyword-based retrieval
 
-### `story/story-coherence.js` — Story Coherence Engine
+### `story/story-coherence.js` — Story Coherence Engine (KDE-Inspired)
 
 A lightweight layer for validating narrative consistency, inspired by KDE Beta/Gamma reasoning patterns.
 
-**Key Concepts:**
-- **Context Detection**: Determines under what conditions a story element is valid
-- **Boundary Detection**: Defines when rules or traits stop being applicable
+**KDE-ENGINE-002 (Beta) concepts:**
+- **Context Detection**: Under what conditions is this story element valid?
+- **Boundary Detection**: When does this rule/trait stop being true?
 - **Confidence & Evidence**: Attaches confidence levels to coherence checks
-- **Causal Mechanism**: Explains how events connect through motivation and consequence
-- **Intervention Thinking**: Supports "what if" analysis while staying grounded
+
+**KDE-ENGINE-003 (Gamma) concepts:**
+- **Causal Mechanism**: How events connect through motivation and consequence
+- **Intervention Thinking**: "What if" analysis while staying grounded
 
 **Key functions:**
 - `checkChapter(storyId, content, options)` — Validates chapter consistency with characters, lore, and continuity
@@ -134,6 +155,22 @@ A lightweight layer for validating narrative consistency, inspired by KDE Beta/G
 ### `lib/rag.js` — Generic Document Retrieval
 
 Legacy module for PDF-based question answering. Maintained for backward compatibility but not the primary use case.
+
+---
+
+## Story Knowledge System
+
+PincerX implements a **living knowledge base** that grows with each chapter:
+
+1. **Before generation**: Structured knowledge (parameters, arc boundaries, systems, characters, places, lore) is injected into the chapter prompt as "STORY LAW / KNOWLEDGE"
+2. **After generation**: Auto-extraction runs to identify new knowledge elements (new places, systems, arc boundaries)
+3. **Coherence check**: KDE-inspired consistency validation runs and returns warnings/suggestions
+4. **User control**: Manual add/edit of knowledge items through the Story Knowledge UI panel
+
+This architecture prevents hallucinations by ensuring:
+- The model always has access to established rules
+- New elements are explicitly added to the knowledge store
+- Inconsistencies are flagged for review
 
 ---
 
@@ -152,7 +189,7 @@ Legacy module for PDF-based question answering. Maintained for backward compatib
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/story/:id/chapter` | Generate next chapter |
+| POST | `/story/:id/chapter` | Generate next chapter (returns coherence result) |
 | PATCH | `/story/:id/chapter/:num` | Update chapter content |
 | DELETE | `/story/:id/chapter/:num` | Delete a chapter |
 
@@ -166,6 +203,15 @@ Legacy module for PDF-based question answering. Maintained for backward compatib
 | POST | `/story/:id/lore` | Add lore entry |
 | GET | `/story/:id/lore` | List lore entries |
 | DELETE | `/story/:id/lore/:loreId` | Remove lore |
+
+### Story Knowledge (New)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/story/:id/knowledge` | List all knowledge (optional `?type=` or `?groupBy=type`) |
+| GET | `/story/:id/knowledge/:docId` | Get a specific knowledge document |
+| POST | `/story/:id/knowledge` | Add/update a knowledge entry |
+| DELETE | `/story/:id/knowledge/:docId` | Remove a knowledge entry |
 
 ### TTS (Zonos)
 
@@ -213,12 +259,13 @@ These endpoints remain for backward compatibility but are not emphasized in the 
 | Consumer | Dependency | Contract |
 |----------|-----------|----------|
 | `server.js` | `story.js` | Story creation and chapter generation |
-| `server.js` | `story-rag.js` | Character and lore management |
+| `server.js` | `story-rag.js` | Knowledge management |
 | `server.js` | `lib/ai.js` | Config validation, model listing |
 | `server.js` | `lib/rag.js` | Legacy document Q&A |
 | `server.js` | `lib/feedback.js` | Legacy text analysis |
 | `story.js` | `lib/ai.js` | All AI inference calls |
-| `story.js` | `story-rag.js` | Character/lore context retrieval |
+| `story.js` | `story-rag.js` | Knowledge retrieval and storage |
+| `story.js` | `story-coherence.js` | Coherence validation |
 | `lib/rag.js` | `lib/ai.js` | Generic document Q&A |
 
 ---
@@ -247,8 +294,8 @@ Tests are located in `tests/` and run with `npm test` (Jest).
 | `tests/rag.test.js` | Document retrieval and Q&A |
 | `tests/feedback.test.js` | Text analysis and sentiment detection |
 | `tests/story.test.js` | Story creation, chapter generation, character extraction |
-| `tests/story-rag.test.js` | Per-story knowledge store operations |
-| `tests/story-coherence.test.js` | Story coherence validation |
+| `tests/story-rag.test.js` | Per-story knowledge store operations (expanded types) |
+| `tests/story-coherence.test.js` | Story coherence validation (KDE-inspired) |
 | `tests/server.test.js` | API endpoint integration tests |
 
 **Design principles:**

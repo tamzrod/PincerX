@@ -396,17 +396,19 @@ describe('story.js — generateChapter()', () => {
     ).resolves.toHaveProperty('content', 'Chapter content.');
   });
 
-  it('passes aiOptions to both the chapter and summary ai.ask calls', async () => {
+  it('passes aiOptions to chapter, summary, and knowledge extraction calls', async () => {
     writeStory('test-opts-1234');
     ai.ask
       .mockResolvedValueOnce(JSON.stringify({ content: 'Chapter content.' }))
-      .mockResolvedValueOnce('Summary.');
+      .mockResolvedValueOnce('Summary.')
+      .mockResolvedValueOnce('{"extractions":[]}');
 
     await storyModule.generateChapter('test-opts-1234', 1, { model: 'mistral' });
 
-    expect(ai.ask).toHaveBeenCalledTimes(2);
+    expect(ai.ask).toHaveBeenCalledTimes(3);
     expect(ai.ask).toHaveBeenNthCalledWith(1, expect.any(String), { model: 'mistral' });
     expect(ai.ask).toHaveBeenNthCalledWith(2, expect.any(String), { model: 'mistral' });
+    expect(ai.ask).toHaveBeenNthCalledWith(3, expect.any(String), { model: 'mistral' });
   });
 });
 

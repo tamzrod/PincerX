@@ -802,6 +802,273 @@
       transition: width 0.5s ease;
       width: 0%;
     }
+
+    /* ── Story Writer sub-tabs ─────────────────────────────────────────── */
+
+    .story-sub-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #e8eaf0;
+      padding-bottom: 8px;
+    }
+
+    .story-sub-tab {
+      padding: 6px 12px;
+      border: none;
+      background: transparent;
+      color: #666;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 5px 5px 0 0;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .story-sub-tab:hover {
+      background: #f0f2ff;
+      color: #4a6cf7;
+    }
+
+    .story-sub-tab.active {
+      background: #4a6cf7;
+      color: #fff;
+    }
+
+    .story-sub-panel {
+      display: none;
+    }
+
+    .story-sub-panel.active {
+      display: block;
+    }
+
+    /* ── Knowledge panel styles ────────────────────────────────────────── */
+
+    .knowledge-section {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: #f8f9fc;
+      border-radius: 6px;
+      border: 1px solid #e8eaf0;
+    }
+
+    .knowledge-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .knowledge-section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1a1a2e;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .knowledge-badge {
+      background: #4a6cf7;
+      color: #fff;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+
+    .knowledge-item {
+      background: #fff;
+      border: 1px solid #e8eaf0;
+      border-radius: 5px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+
+    .knowledge-item-title {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 4px;
+    }
+
+    .knowledge-item-meta {
+      color: #888;
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+
+    .knowledge-item-content {
+      color: #555;
+      line-height: 1.4;
+    }
+
+    .knowledge-item-boundary {
+      margin-top: 6px;
+      padding: 4px 8px;
+      background: #fff8e6;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #8a6d3b;
+    }
+
+    .knowledge-item-boundary strong {
+      color: #c9302c;
+    }
+
+    .knowledge-empty {
+      color: #aaa;
+      font-size: 12px;
+      text-align: center;
+      padding: 16px;
+    }
+
+    /* ── Coherence panel styles ────────────────────────────────────────── */
+
+    .coherence-summary {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .coherence-stat {
+      flex: 1;
+      background: #f8f9fc;
+      border-radius: 6px;
+      padding: 10px;
+      text-align: center;
+    }
+
+    .coherence-stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #1a1a2e;
+    }
+
+    .coherence-stat-label {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    .coherence-level-high { color: #1e7e45; }
+    .coherence-level-medium { color: #f0a500; }
+    .coherence-level-low { color: #c9302c; }
+
+    .coherence-warnings {
+      margin: 12px 0;
+    }
+
+    .coherence-warning {
+      padding: 8px 10px;
+      border-radius: 5px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+
+    .coherence-warning.issue {
+      background: #fff0f0;
+      border: 1px solid #f5c6c6;
+      color: #c9302c;
+    }
+
+    .coherence-warning.suggestion {
+      background: #f0f8ff;
+      border: 1px solid #c5d2f8;
+      color: #3355cc;
+    }
+
+    .coherence-evidence {
+      background: #f8f9fc;
+      border-radius: 5px;
+      padding: 10px;
+      font-size: 12px;
+      color: #555;
+      margin-top: 10px;
+      border-left: 3px solid #4a6cf7;
+    }
+
+    .coherence-mechanism {
+      background: #f0fff4;
+      border-radius: 5px;
+      padding: 10px;
+      font-size: 12px;
+      color: #1e7e45;
+      margin-top: 10px;
+      border-left: 3px solid #1e7e45;
+    }
+
+    .coherence-boundaries {
+      margin-top: 12px;
+    }
+
+    .coherence-boundary-item {
+      background: #fff8e6;
+      border-radius: 4px;
+      padding: 6px 10px;
+      margin-bottom: 4px;
+      font-size: 11px;
+      color: #8a6d3b;
+    }
+
+    /* ── Add knowledge form ─────────────────────────────────────────────── */
+
+    .add-knowledge-form {
+      background: #f8f9fc;
+      border-radius: 6px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+
+    .add-knowledge-form label {
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 2px;
+    }
+
+    .add-knowledge-form select,
+    .add-knowledge-form input,
+    .add-knowledge-form textarea {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 5px;
+      padding: 6px 8px;
+      font-size: 12px;
+      margin-bottom: 8px;
+      font-family: inherit;
+    }
+
+    .add-knowledge-form textarea {
+      min-height: 60px;
+      resize: vertical;
+    }
+
+    .add-knowledge-form .btn-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* ── Coherence banner ──────────────────────────────────────────────── */
+
+    .coherence-banner {
+      background: #fff8e6;
+      border: 1px solid #f0a500;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: #8a6d3b;
+      display: none;
+    }
+
+    .coherence-banner.visible {
+      display: block;
+    }
+
+    .coherence-banner strong {
+      color: #c9302c;
+    }
   </style>
 </head>
 <body>
@@ -1117,6 +1384,175 @@
             <button class="btn-primary" id="char-save-btn" onclick="saveCharacter()" style="width:100%">Save Character</button>
           </div>
         </details>
+      </div>
+
+      <!-- Story Knowledge & Coherence (shown after a story is loaded) -->
+      <div class="section" id="story-knowledge-section" style="display:none">
+        <h3>📖 Story Knowledge &amp; Coherence</h3>
+
+        <!-- Coherence banner (shown after chapter generation with warnings) -->
+        <div class="coherence-banner" id="coherence-banner">
+          ⚠️ <strong>Coherence warnings detected</strong> — Check the Coherence tab for details.
+        </div>
+
+        <!-- Sub-tabs -->
+        <div class="story-sub-tabs">
+          <button class="story-sub-tab active" id="subtab-outline" onclick="switchStorySubTab('outline')">Outline</button>
+          <button class="story-sub-tab" id="subtab-chapters" onclick="switchStorySubTab('chapters')">Chapters</button>
+          <button class="story-sub-tab" id="subtab-knowledge" onclick="switchStorySubTab('knowledge')">Story Knowledge</button>
+          <button class="story-sub-tab" id="subtab-coherence" onclick="switchStorySubTab('coherence')">Coherence</button>
+        </div>
+
+        <!-- Outline sub-panel -->
+        <div class="story-sub-panel active" id="panel-outline">
+          <div class="result-box" id="story-result-knowledge">
+            <pre id="story-outline-knowledge" style="white-space:pre-wrap;font-size:12px"></pre>
+          </div>
+        </div>
+
+        <!-- Chapters sub-panel -->
+        <div class="story-sub-panel" id="panel-chapters">
+          <div id="chapter-list-knowledge"><em style="color:#aaa;font-size:12px">No chapters yet.</em></div>
+        </div>
+
+        <!-- Story Knowledge sub-panel -->
+        <div class="story-sub-panel" id="panel-knowledge">
+          <!-- Parameters section -->
+          <div class="knowledge-section">
+            <div class="knowledge-section-header">
+              <div class="knowledge-section-title">📌 Story Parameters <span class="knowledge-badge" id="param-count">0</span></div>
+            </div>
+            <p style="font-size:11px;color:#888;margin-bottom:8px">Hard rules, genre constraints, tone limits, and bans.</p>
+            <div id="param-list"><em class="knowledge-empty">No parameters defined.</em></div>
+          </div>
+
+          <!-- Arc Boundaries section -->
+          <div class="knowledge-section">
+            <div class="knowledge-section-header">
+              <div class="knowledge-section-title">🎯 Arc Boundaries <span class="knowledge-badge" id="arc-count">0</span></div>
+            </div>
+            <p style="font-size:11px;color:#888;margin-bottom:8px">What can/cannot happen in the current arc.</p>
+            <div id="arc-list"><em class="knowledge-empty">No arc boundaries defined.</em></div>
+          </div>
+
+          <!-- Systems section -->
+          <div class="knowledge-section">
+            <div class="knowledge-section-header">
+              <div class="knowledge-section-title">⚡ Systems <span class="knowledge-badge" id="system-count">0</span></div>
+            </div>
+            <p style="font-size:11px;color:#888;margin-bottom:8px">Magic, technology, cultivation, or science rules.</p>
+            <div id="system-list"><em class="knowledge-empty">No systems defined.</em></div>
+          </div>
+
+          <!-- Places section -->
+          <div class="knowledge-section">
+            <div class="knowledge-section-header">
+              <div class="knowledge-section-title">🏰 Places <span class="knowledge-badge" id="place-count">0</span></div>
+            </div>
+            <p style="font-size:11px;color:#888;margin-bottom:8px">Key locations and their constraints.</p>
+            <div id="place-list"><em class="knowledge-empty">No places defined.</em></div>
+          </div>
+
+          <!-- Lore section -->
+          <div class="knowledge-section">
+            <div class="knowledge-section-header">
+              <div class="knowledge-section-title">📚 World Lore <span class="knowledge-badge" id="lore-count">0</span></div>
+            </div>
+            <p style="font-size:11px;color:#888;margin-bottom:8px">World rules and established facts.</p>
+            <div id="lore-list"><em class="knowledge-empty">No lore defined.</em></div>
+          </div>
+
+          <!-- Add knowledge form -->
+          <details id="add-knowledge-details">
+            <summary style="font-size:12px;font-weight:600;cursor:pointer;color:#4a6cf7">＋ Add Story Knowledge</summary>
+            <div class="add-knowledge-form">
+              <label for="knowledge-type">Type</label>
+              <select id="knowledge-type" onchange="onKnowledgeTypeChange()">
+                <option value="parameter">Story Parameter (hard rule/ban)</option>
+                <option value="arc_boundary">Arc Boundary</option>
+                <option value="system">System (magic/tech)</option>
+                <option value="place">Place</option>
+                <option value="lore">Lore</option>
+              </select>
+
+              <div id="knowledge-title-field">
+                <label for="knowledge-title" id="knowledge-title-label">Title</label>
+                <input type="text" id="knowledge-title" placeholder="e.g. Time Travel, The Ancient Forest" />
+              </div>
+
+              <label for="knowledge-content">Content / Description</label>
+              <textarea id="knowledge-content" placeholder="Describe the rule, location, or system…"></textarea>
+
+              <div id="knowledge-context-field" style="display:none">
+                <label for="knowledge-context">Context (when is this true?)</label>
+                <input type="text" id="knowledge-context" placeholder="e.g. Only works during full moon" />
+              </div>
+
+              <div id="knowledge-boundary-field" style="display:none">
+                <label for="knowledge-boundary">Boundary (when does this stop being true?)</label>
+                <input type="text" id="knowledge-boundary" placeholder="e.g. After the eclipse" />
+              </div>
+
+              <div id="knowledge-domain-field" style="display:none">
+                <label for="knowledge-domain">Domain</label>
+                <select id="knowledge-domain">
+                  <option value="magic">Magic</option>
+                  <option value="tech">Technology</option>
+                  <option value="cultivation">Cultivation</option>
+                  <option value="science">Science</option>
+                </select>
+              </div>
+
+              <div class="btn-row">
+                <button class="btn-primary" onclick="addStoryKnowledge()">Add Knowledge</button>
+              </div>
+              <div class="msg" id="knowledge-msg"></div>
+            </div>
+          </details>
+        </div>
+
+        <!-- Coherence sub-panel -->
+        <div class="story-sub-panel" id="panel-coherence">
+          <div class="coherence-summary" id="coherence-summary">
+            <div class="coherence-stat">
+              <div class="coherence-stat-value" id="coherence-confidence">—</div>
+              <div class="coherence-stat-label">Confidence</div>
+            </div>
+            <div class="coherence-stat">
+              <div class="coherence-stat-value" id="coherence-level">—</div>
+              <div class="coherence-stat-label">Level</div>
+            </div>
+            <div class="coherence-stat">
+              <div class="coherence-stat-value" id="coherence-warnings-count">—</div>
+              <div class="coherence-stat-label">Warnings</div>
+            </div>
+          </div>
+
+          <button class="btn-primary" id="check-coherence-btn" onclick="checkStoryCoherence()" style="margin-bottom:12px">🔍 Check Latest Chapter</button>
+          <div class="msg" id="coherence-check-msg"></div>
+
+          <div id="coherence-results">
+            <div class="coherence-evidence" id="coherence-evidence" style="display:none">
+              <strong>Evidence:</strong> <span id="coherence-evidence-text"></span>
+            </div>
+
+            <div class="coherence-warnings" id="coherence-warnings"></div>
+
+            <div class="coherence-mechanism" id="coherence-mechanism" style="display:none">
+              <strong>Causal Mechanism:</strong><br />
+              <span id="coherence-mechanism-text"></span>
+            </div>
+
+            <div class="coherence-boundaries" id="coherence-boundaries-panel" style="display:none">
+              <strong style="font-size:12px;color:#8a6d3b">Established Boundaries:</strong>
+              <div id="coherence-boundaries-list"></div>
+            </div>
+          </div>
+
+          <div id="coherence-placeholder" style="text-align:center;padding:30px;color:#aaa;font-size:13px">
+            Generate a chapter and check its coherence to see results here.
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -2658,6 +3094,8 @@
       storyState.title = data.title;
       storyState.genre = data.genre;
       storyState.tone = data.tone;
+      storyState.outline = data.outline;
+      storyState.chapters = data.chapters || [];
       storyState.nextChapter = 1;
 
       // Reveal chapter section + reset button; clear reading view
@@ -2675,6 +3113,9 @@
       document.getElementById('char-section').style.display = '';
       await loadCharacters();
       await refreshCharacterVoiceMap();
+
+      // Load story knowledge and coherence panel
+      updateStoryKnowledgeVisibility();
       // Refresh saved stories list so the new entry appears
       loadStoryList();
     } catch (e) {
@@ -2711,6 +3152,9 @@
       // Refresh character list — auto-extraction may have added new characters.
       await loadCharacters();
       await refreshCharacterVoiceMap();
+
+      // Load story knowledge and coherence panel
+      updateStoryKnowledgeVisibility();
     } catch (e) {
       showMsg('chapter-msg', e.message, 'error');
     } finally {
@@ -3123,6 +3567,8 @@
       storyState.title = data.title;
       storyState.genre = data.genre;
       storyState.tone = data.tone;
+      storyState.outline = data.outline;
+      storyState.chapters = data.chapters || [];
 
       document.getElementById('story-title').value = data.title || '';
       document.getElementById('story-genre').value = data.genre || '';
@@ -3154,6 +3600,9 @@
       document.getElementById('char-section').style.display = '';
       await loadCharacters();
       await refreshCharacterVoiceMap();
+
+      // Load story knowledge and coherence panel
+      updateStoryKnowledgeVisibility();
 
       switchTab('story');
     } catch (e) {
@@ -3252,6 +3701,9 @@
       showMsg('char-msg', msg, 'success');
       await loadCharacters();
       await refreshCharacterVoiceMap();
+
+      // Load story knowledge and coherence panel
+      updateStoryKnowledgeVisibility();
     } catch (e) {
       showMsg('char-msg', e.message, 'error');
     } finally {
@@ -3267,6 +3719,9 @@
       const listEl = document.getElementById('char-list');
       if (!listEl.children.length) listEl.innerHTML = '<em style="color:#aaa;font-size:12px">No characters yet.</em>';
       await refreshCharacterVoiceMap();
+
+      // Load story knowledge and coherence panel
+      updateStoryKnowledgeVisibility();
     } catch (e) {
       showMsg('char-msg', `Failed to delete: ${e.message}`, 'error');
     }
@@ -3525,6 +3980,432 @@
   // Load PDF list and saved stories on page load
   loadPDFs();
   loadStoryList();
+
+  // ── Story Knowledge & Coherence Functions ─────────────────────────────────
+
+  /**
+   * Switch between sub-tabs in the Story Writer panel
+   */
+  function switchStorySubTab(name) {
+    document.querySelectorAll('.story-sub-tab').forEach((btn) => {
+      const active = btn.id === 'subtab-' + name;
+      btn.classList.toggle('active', active);
+    });
+    document.querySelectorAll('.story-sub-panel').forEach((panel) => {
+      panel.classList.toggle('active', panel.id === 'panel-' + name);
+    });
+  }
+
+  /**
+   * Load and display all story knowledge
+   */
+  async function loadStoryKnowledge() {
+    if (!storyState.id) return;
+
+    try {
+      const response = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/knowledge?groupBy=type`);
+      const { grouped, counts } = response;
+
+      // Update counts
+      document.getElementById('param-count').textContent = (counts.parameter || 0);
+      document.getElementById('arc-count').textContent = (counts.arc_boundary || 0);
+      document.getElementById('system-count').textContent = (counts.system || 0);
+      document.getElementById('place-count').textContent = (counts.place || 0);
+      document.getElementById('lore-count').textContent = ((counts.lore || 0) + (counts.world || 0));
+
+      // Render lists
+      renderKnowledgeList('param-list', grouped.parameter || []);
+      renderKnowledgeList('arc-list', grouped.arc_boundary || []);
+      renderKnowledgeList('system-list', grouped.system || []);
+      renderKnowledgeList('place-list', grouped.place || []);
+      renderKnowledgeList('lore-list', [...(grouped.lore || []), ...(grouped.world || [])]);
+
+      // Update outline
+      const outlineEl = document.getElementById('story-outline-knowledge');
+      if (outlineEl && storyState.outline) {
+        outlineEl.textContent = storyState.outline;
+      }
+
+      // Update chapter list
+      renderChapterListKnowledge();
+    } catch (e) {
+      console.error('Failed to load story knowledge:', e);
+    }
+  }
+
+  /**
+   * Render a list of knowledge items
+   */
+  function renderKnowledgeList(containerId, items) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    if (!items || items.length === 0) {
+      container.innerHTML = '<em class="knowledge-empty">No items yet.</em>';
+      return;
+    }
+
+    container.innerHTML = items.map((item) => {
+      let html = '<div class="knowledge-item">';
+      html += `<div class="knowledge-item-title">${escapeHtml(item.title || item.name || 'Untitled')}</div>`;
+
+      const metaParts = [];
+      if (item.sourceChapter) metaParts.push(`Ch. ${item.sourceChapter}`);
+      if (item.domain) metaParts.push(`[${item.domain}]`);
+      if (metaParts.length) {
+        html += `<div class="knowledge-item-meta">${metaParts.join(' · ')}</div>`;
+      }
+
+      if (item.content) {
+        html += `<div class="knowledge-item-content">${escapeHtml(item.content)}</div>`;
+      }
+
+      if (item.context || item.boundary) {
+        html += '<div class="knowledge-item-boundary">';
+        if (item.context) html += `<div><strong>Context:</strong> ${escapeHtml(item.context)}</div>`;
+        if (item.boundary) html += `<div><strong>Boundary:</strong> ${escapeHtml(item.boundary)}</div>`;
+        html += '</div>';
+      }
+
+      html += '<button class="btn-danger" style="margin-top:6px;font-size:11px;padding:3px 8px" onclick="deleteKnowledgeItem(\'' + item.id + '\')">Delete</button>';
+      html += '</div>';
+      return html;
+    }).join('');
+  }
+
+  /**
+   * Render chapter list in the knowledge panel
+   */
+  function renderChapterListKnowledge() {
+    const container = document.getElementById('chapter-list-knowledge');
+    if (!container || !storyState.chapters || storyState.chapters.length === 0) {
+      if (container) container.innerHTML = '<em style="color:#aaa;font-size:12px">No chapters yet.</em>';
+      return;
+    }
+
+    container.innerHTML = storyState.chapters.map((ch) =>
+      `<div style="padding:6px 0;border-bottom:1px solid #eee;font-size:12px">
+        Chapter ${ch.number}
+        <span style="color:#888">(${ch.content ? ch.content.split(/\s+/).length : 0} words)</span>
+      </div>`
+    ).join('');
+  }
+
+  /**
+   * Delete a knowledge item
+   */
+  async function deleteKnowledgeItem(docId) {
+    if (!storyState.id) return;
+    if (!confirm('Delete this knowledge item?')) return;
+
+    try {
+      await apiFetch(`/story/${encodeURIComponent(storyState.id)}/knowledge/${encodeURIComponent(docId)}`, { method: 'DELETE' });
+      loadStoryKnowledge();
+    } catch (e) {
+      alert('Failed to delete: ' + e.message);
+    }
+  }
+
+  /**
+   * Handle knowledge type change to show/hide appropriate fields
+   */
+  function onKnowledgeTypeChange() {
+    const type = document.getElementById('knowledge-type').value;
+    const contextField = document.getElementById('knowledge-context-field');
+    const boundaryField = document.getElementById('knowledge-boundary-field');
+    const domainField = document.getElementById('knowledge-domain-field');
+    const titleLabel = document.getElementById('knowledge-title-label');
+
+    // Reset visibility
+    contextField.style.display = 'none';
+    boundaryField.style.display = 'none';
+    domainField.style.display = 'none';
+
+    // Set defaults
+    titleLabel.textContent = 'Title';
+
+    switch (type) {
+      case 'arc_boundary':
+        contextField.style.display = 'block';
+        boundaryField.style.display = 'block';
+        titleLabel.textContent = 'Arc Name';
+        break;
+      case 'system':
+        contextField.style.display = 'block';
+        boundaryField.style.display = 'block';
+        domainField.style.display = 'block';
+        titleLabel.textContent = 'System Name';
+        break;
+      case 'parameter':
+        contextField.style.display = 'block';
+        boundaryField.style.display = 'block';
+        titleLabel.textContent = 'Rule Name';
+        break;
+      case 'place':
+        contextField.style.display = 'block';
+        boundaryField.style.display = 'block';
+        titleLabel.textContent = 'Place Name';
+        break;
+      case 'lore':
+        titleLabel.textContent = 'Lore Title';
+        break;
+    }
+  }
+
+  /**
+   * Add a new knowledge item
+   */
+  async function addStoryKnowledge() {
+    if (!storyState.id) return;
+
+    const type = document.getElementById('knowledge-type').value;
+    const title = document.getElementById('knowledge-title').value.trim();
+    const content = document.getElementById('knowledge-content').value.trim();
+    const context = document.getElementById('knowledge-context').value.trim();
+    const boundary = document.getElementById('knowledge-boundary').value.trim();
+    const domain = document.getElementById('knowledge-domain').value;
+
+    if (!title && !content) {
+      showMsg('knowledge-msg', 'Please provide a title or content.', 'error');
+      return;
+    }
+
+    const doc = {
+      type,
+      title: title || content.slice(0, 50),
+      content,
+    };
+
+    if (context) doc.context = context;
+    if (boundary) doc.boundary = boundary;
+    if (domain && type === 'system') doc.domain = domain;
+
+    try {
+      await apiFetch(`/story/${encodeURIComponent(storyState.id)}/knowledge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(doc),
+      });
+      showMsg('knowledge-msg', 'Knowledge added!', 'success');
+      // Clear form
+      document.getElementById('knowledge-title').value = '';
+      document.getElementById('knowledge-content').value = '';
+      document.getElementById('knowledge-context').value = '';
+      document.getElementById('knowledge-boundary').value = '';
+      loadStoryKnowledge();
+    } catch (e) {
+      showMsg('knowledge-msg', 'Failed to add: ' + e.message, 'error');
+    }
+  }
+
+  /**
+   * Check story coherence for the latest chapter
+   */
+  async function checkStoryCoherence() {
+    if (!storyState.id || !storyState.chapters || storyState.chapters.length === 0) {
+      showMsg('coherence-check-msg', 'No chapters to check.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('check-coherence-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Checking…';
+    clearMsg('coherence-check-msg');
+
+    const latestChapter = storyState.chapters[storyState.chapters.length - 1];
+
+    try {
+      const result = await apiFetch(
+        `/story/${encodeURIComponent(storyState.id)}/coherence/check`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chapterContent: latestChapter.content }),
+        },
+      );
+
+      displayCoherenceResult(result);
+      showMsg('coherence-check-msg', 'Check complete!', 'success');
+    } catch (e) {
+      showMsg('coherence-check-msg', 'Check failed: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔍 Check Latest Chapter';
+    }
+  }
+
+  /**
+   * Display coherence check results
+   */
+  function displayCoherenceResult(result) {
+    // Update stats
+    document.getElementById('coherence-confidence').textContent = result.confidence ? Math.round(result.confidence * 100) + '%' : '—';
+
+    const levelEl = document.getElementById('coherence-level');
+    levelEl.textContent = result.level || '—';
+    levelEl.className = 'coherence-stat-value coherence-level-' + (result.level || 'medium');
+
+    document.getElementById('coherence-warnings-count').textContent = result.warnings ? result.warnings.length : 0;
+
+    // Show/hide placeholder
+    document.getElementById('coherence-placeholder').style.display = 'none';
+
+    // Evidence
+    const evidenceEl = document.getElementById('coherence-evidence');
+    if (result.evidence) {
+      evidenceEl.style.display = 'block';
+      document.getElementById('coherence-evidence-text').textContent = result.evidence;
+    } else {
+      evidenceEl.style.display = 'none';
+    }
+
+    // Mechanism
+    const mechanismEl = document.getElementById('coherence-mechanism');
+    if (result.mechanism) {
+      mechanismEl.style.display = 'block';
+      document.getElementById('coherence-mechanism-text').textContent = result.mechanism;
+    } else {
+      mechanismEl.style.display = 'none';
+    }
+
+    // Warnings
+    const warningsContainer = document.getElementById('coherence-warnings');
+    warningsContainer.innerHTML = '';
+
+    if (result.warnings && result.warnings.length > 0) {
+      result.warnings.forEach((w) => {
+        const div = document.createElement('div');
+        div.className = 'coherence-warning issue';
+        div.textContent = '⚠️ ' + w;
+        warningsContainer.appendChild(div);
+      });
+    }
+
+    if (result.suggestions && result.suggestions.length > 0 && result.suggestions[0] !== 'No issues detected') {
+      result.suggestions.forEach((s) => {
+        const div = document.createElement('div');
+        div.className = 'coherence-warning suggestion';
+        div.textContent = '💡 ' + s;
+        warningsContainer.appendChild(div);
+      });
+    }
+
+    // Boundaries
+    const boundariesPanel = document.getElementById('coherence-boundaries-panel');
+    const boundariesList = document.getElementById('coherence-boundaries-list');
+    if (result.boundaries && result.boundaries.length > 0) {
+      boundariesPanel.style.display = 'block';
+      boundariesList.innerHTML = result.boundaries.map((b) =>
+        `<div class="coherence-boundary-item">${escapeHtml(b)}</div>`
+      ).join('');
+    } else {
+      boundariesPanel.style.display = 'none';
+    }
+  }
+
+  /**
+   * Handle chapter generation response (show coherence banner if needed)
+   */
+  function handleChapterResponse(result) {
+    if (result.coherence && result.coherence.warnings && result.coherence.warnings.length > 0) {
+      const banner = document.getElementById('coherence-banner');
+      banner.classList.add('visible');
+    }
+
+    // Refresh knowledge
+    loadStoryKnowledge();
+
+    // Update chapter button text
+    const nextNum = (storyState.chapters ? storyState.chapters.length : 0) + 1;
+    const btn = document.getElementById('chapter-btn');
+    if (btn) {
+      btn.textContent = `Generate Chapter ${nextNum}`;
+    }
+  }
+
+  /**
+   * Show/hide story knowledge section based on story state
+   */
+  function updateStoryKnowledgeVisibility() {
+    const section = document.getElementById('story-knowledge-section');
+    const outlineEl = document.getElementById('story-outline-knowledge');
+
+    if (storyState.id) {
+      section.style.display = 'block';
+      loadStoryKnowledge();
+
+      // Copy outline to knowledge panel
+      if (outlineEl && storyState.outline) {
+        outlineEl.textContent = storyState.outline;
+      }
+    } else {
+      section.style.display = 'none';
+    }
+  }
+
+  // Override generateNextChapter to handle coherence result
+  const originalGenerateNextChapter = window.generateNextChapter;
+  window.generateNextChapter = async function() {
+    const btn = document.getElementById('chapter-btn');
+    if (!btn || btn.disabled) return;
+
+    if (!storyState.id) {
+      showMsg('chapter-msg', 'Please create or load a story first.', 'error');
+      return;
+    }
+
+    const customPrompt = document.getElementById('chapter-custom-prompt').value.trim();
+    const dialogRatio = parseInt(document.getElementById('chapter-dialog-ratio').value, 10);
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Writing…';
+    clearMsg('chapter-msg');
+
+    // Hide previous coherence banner
+    document.getElementById('coherence-banner').classList.remove('visible');
+
+    try {
+      const response = await fetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chapterNumber: storyState.chapters ? storyState.chapters.length + 1 : 1,
+          customPrompt,
+          dialogRatio,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Generation failed');
+      }
+
+      const result = await response.json();
+
+      // Reload the story to get updated state
+      await loadStory(storyState.id);
+
+      // Handle coherence result
+      handleChapterResponse(result);
+
+      showMsg('chapter-msg', `Chapter ${result.chapterNumber} generated!`, 'success');
+
+      // Refresh character list (new characters may have been added)
+      loadCharacters();
+      loadStoryCharacterVoices();
+    } catch (e) {
+      showMsg('chapter-msg', e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = `Generate Chapter ${(storyState.chapters ? storyState.chapters.length + 1 : 1)}`;
+    }
+  };
+
+  // Utility: escape HTML
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
 </script>
 
 <!-- ── Voice Transcript Editor modal ─────────────────────────────────────── -->

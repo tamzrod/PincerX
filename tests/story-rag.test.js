@@ -229,3 +229,163 @@ describe('storyRag.clearStory()', () => {
     expect(storyRag.listDocs(TEST_STORY_ID)).toEqual([]);
   });
 });
+
+// ── New knowledge type tests ─────────────────────────────────────────────────
+
+describe('storyRag VALID_TYPES', () => {
+  it('exports VALID_TYPES array with all expected types', () => {
+    expect(storyRag.VALID_TYPES).toContain('character');
+    expect(storyRag.VALID_TYPES).toContain('place');
+    expect(storyRag.VALID_TYPES).toContain('lore');
+    expect(storyRag.VALID_TYPES).toContain('world');
+    expect(storyRag.VALID_TYPES).toContain('system');
+    expect(storyRag.VALID_TYPES).toContain('parameter');
+    expect(storyRag.VALID_TYPES).toContain('arc_boundary');
+    expect(storyRag.VALID_TYPES).toContain('summary');
+  });
+
+  it('isValidType returns true for valid types', () => {
+    expect(storyRag.isValidType('character')).toBe(true);
+    expect(storyRag.isValidType('place')).toBe(true);
+    expect(storyRag.isValidType('system')).toBe(true);
+    expect(storyRag.isValidType('parameter')).toBe(true);
+    expect(storyRag.isValidType('arc_boundary')).toBe(true);
+  });
+
+  it('isValidType returns false for invalid types', () => {
+    expect(storyRag.isValidType('characterx')).toBe(false);
+    expect(storyRag.isValidType('place123')).toBe(false);
+    expect(storyRag.isValidType('')).toBe(false);
+    expect(storyRag.isValidType('invalid')).toBe(false);
+  });
+});
+
+describe('storyRag upsertKnowledge()', () => {
+  it('adds a new document when id does not exist', () => {
+    const doc = { id: 'place-forest', type: 'place', title: 'The Forest', content: 'A dark forest' };
+    const added = storyRag.upsertKnowledge(TEST_STORY_ID, doc);
+
+    expect(added).toBe(true);
+    const docs = storyRag.listDocs(TEST_STORY_ID);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].title).toBe('The Forest');
+  });
+
+  it('updates an existing document when id exists', () => {
+    storyRag.addDoc(TEST_STORY_ID, { id: 'system-magic', type: 'system', title: 'Magic', content: 'Old description' });
+    const updated = storyRag.upsertKnowledge(TEST_STORY_ID, { id: 'system-magic', type: 'system', title: 'Magic', content: 'New description' });
+
+    expect(updated).toBe(false);
+    const docs = storyRag.listDocs(TEST_STORY_ID, 'system');
+    expect(docs).toHaveLength(1);
+    expect(docs[0].content).toBe('New description');
+  });
+
+  it('adds createdAt timestamp when adding new document', () => {
+    const doc = { id: 'param-ban', type: 'parameter', title: 'Time Ban', content: 'No time travel' };
+    storyRag.upsertKnowledge(TEST_STORY_ID, doc);
+
+    const docs = storyRag.listDocs(TEST_STORY_ID, 'parameter');
+    expect(docs[0].createdAt).toBeDefined();
+  });
+});
+
+describe('storyRag batchUpsert()', () => {
+  it('adds multiple new documents', () => {
+    const docs = [
+      { id: 'place-1', type: 'place', title: 'Place A', content: 'A place' },
+      { id: 'place-2', type: 'place', title: 'Place B', content: 'Another place' },
+      { id: 'system-1', type: 'system', title: 'Magic', content: 'Magic system' },
+    ];
+    storyRag.batchUpsert(TEST_STORY_ID, docs);
+
+    const allDocs = storyRag.listDocs(TEST_STORY_ID);
+    expect(allDocs).toHaveLength(3);
+  });
+
+  it('updates existing documents by id', () => {
+    storyRag.addDoc(TEST_STORY_ID, { id: 'place-1', type: 'place', title: 'Old Title', content: 'Old content' });
+    storyRag.batchUpsert(TEST_STORY_ID, [{ id: 'place-1', type: 'place', title: 'New Title', content: 'New content' }]);
+
+    const docs = storyRag.listDocs(TEST_STORY_ID, 'place');
+    expect(docs).toHaveLength(1);
+    expect(docs[0].title).toBe('New Title');
+  });
+});
+
+describe('storyRag listDocsByType()', () => {
+  beforeEach(() => {
+    storyRag.addDoc(TEST_STORY_ID, { id: 'char-1', type: 'character', name: 'Elena', content: 'A' });
+    storyRag.addDoc(TEST_STORY_ID, { id: 'place-1', type: 'place', title: 'Forest', content: 'B' });
+    storyRag.addDoc(TEST_STORY_ID, { id: 'lore-1', type: 'lore', title: 'World', content: 'C' });
+    storyRag.addDoc(TEST_STORY_ID, { id: 'system-1', type: 'system', title: 'Magic', content: 'D' });
+    storyRag.addDoc(TEST_STORY_ID, { id: 'param-1', type: 'parameter', title: 'Rule', content: 'E' });
+    storyRag.addDoc(TEST_STORY_ID, { id: 'arc-1', type: 'arc_boundary', title: 'Arc 1', content: 'F' });
+  });
+
+  it('returns all documents grouped by type', () => {
+    const grouped = storyRag.listDocsByType(TEST_STORY_ID);
+
+    expect(grouped.character).toHaveLength(1);
+    expect(grouped.place).toHaveLength(1);
+    expect(grouped.lore).toHaveLength(1);
+    expect(grouped.system).toHaveLength(1);
+    expect(grouped.parameter).toHaveLength(1);
+    expect(grouped.arc_boundary).toHaveLength(1);
+    expect(grouped.summary).toHaveLength(0);
+    expect(grouped.world).toHaveLength(0);
+  });
+});
+
+describe('storyRag getDoc()', () => {
+  it('returns a document by id', () => {
+    storyRag.addDoc(TEST_STORY_ID, { id: 'char-1', type: 'character', name: 'Elena', content: 'A' });
+    const doc = storyRag.getDoc(TEST_STORY_ID, 'char-1');
+
+    expect(doc).not.toBeNull();
+    expect(doc.name).toBe('Elena');
+  });
+
+  it('returns null for non-existent document', () => {
+    const doc = storyRag.getDoc(TEST_STORY_ID, 'nonexistent');
+    expect(doc).toBeNull();
+  });
+});
+
+describe('storyRag formatKnowledgeForPrompt()', () => {
+  beforeEach(() => {
+    storyRag.addDoc(TEST_STORY_ID, { id: 'char-1', type: 'character', name: 'Elena', role: 'hero', personality: 'brave', content: 'Protagonist' });
+    storyRag.addDoc(TEST_STORY_ID, { id: 'param-1', type: 'parameter', title: 'Time Rule', content: 'No time travel', context: 'Always', boundary: 'Never' });
+    storyRag.addDoc(TEST_STORY_ID, { id: 'place-1', type: 'place', title: 'Forest', content: 'Dark forest' });
+  });
+
+  it('returns a formatted string with knowledge sections', () => {
+    const result = storyRag.formatKnowledgeForPrompt(TEST_STORY_ID);
+
+    expect(result).toContain('## STORY PARAMETERS');
+    expect(result).toContain('Time Rule');
+    expect(result).toContain('## CHARACTERS');
+    expect(result).toContain('Elena');
+    expect(result).toContain('## PLACES');
+    expect(result).toContain('Forest');
+  });
+
+  it('respects include options', () => {
+    const result = storyRag.formatKnowledgeForPrompt(TEST_STORY_ID, {
+      includeCharacters: false,
+      includeParameters: true,
+      includePlaces: false,
+    });
+
+    expect(result).toContain('## STORY PARAMETERS');
+    expect(result).toContain('Time Rule');
+    expect(result).not.toContain('## CHARACTERS');
+    expect(result).not.toContain('Elena');
+    expect(result).not.toContain('## PLACES');
+  });
+
+  it('returns empty string when no knowledge exists', () => {
+    const result = storyRag.formatKnowledgeForPrompt('empty-story-999');
+    expect(result).toBe('');
+  });
+});

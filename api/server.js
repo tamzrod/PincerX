@@ -1153,6 +1153,175 @@ app.delete('/story/:id/lore/:loreId', (req, res) => {
   }
 });
 
+// ── Story Knowledge (expanded knowledge types) ───────────────────────────────────
+
+/**
+ * GET /story/:id/knowledge
+ * Returns all knowledge documents for a story, optionally filtered by type.
+ * Query params:
+ *   - type: filter by specific type (optional)
+ *   - groupBy: if 'type', returns docs grouped by type (optional)
+ */
+app.get('/story/:id/knowledge', (req, res) => {
+  const { id } = req.params;
+  const { type, groupBy } = req.query;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  try {
+    story.get(id); // verify story exists
+  } catch (e) {
+    return res.status(404).json({ error: e.message });
+  }
+
+  try {
+    if (type) {
+      if (!storyRag.isValidType(type)) {
+        return res.status(400).json({
+          error: `Invalid type "${type}". Valid types: ${storyRag.VALID_TYPES.join(', ')}`,
+        });
+      }
+      const docs = storyRag.listDocs(id, type);
+      return res.json({ type, docs, count: docs.length });
+    }
+
+    if (groupBy === 'type') {
+      const grouped = storyRag.listDocsByType(id);
+      const counts = {};
+      let total = 0;
+      for (const [t, docs] of Object.entries(grouped)) {
+        counts[t] = docs.length;
+        total += docs.length;
+      }
+      return res.json({ grouped, counts, total });
+    }
+
+    const docs = storyRag.listDocs(id);
+    return res.json({ docs, count: docs.length });
+  } catch (e) {
+    return res.status(500).json({ error: `Failed to list knowledge: ${e.message}` });
+  }
+});
+
+/**
+ * GET /story/:id/knowledge/:docId
+ * Returns a specific knowledge document by ID.
+ */
+app.get('/story/:id/knowledge/:docId', (req, res) => {
+  const { id, docId } = req.params;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  try {
+    story.get(id); // verify story exists
+  } catch (e) {
+    return res.status(404).json({ error: e.message });
+  }
+
+  try {
+    const doc = storyRag.getDoc(id, docId);
+    if (!doc) {
+      return res.status(404).json({ error: `Knowledge document not found: ${docId}` });
+    }
+    return res.json(doc);
+  } catch (e) {
+    return res.status(500).json({ error: `Failed to get knowledge doc: ${e.message}` });
+  }
+});
+
+/**
+ * POST /story/:id/knowledge
+ * Body: { "id": "...", "type": "place|system|parameter|arc_boundary|...",
+ *         "title": "...", "content": "...", "context": "...", "boundary": "..." }
+ * Creates or updates a knowledge document in the story's RAG store.
+ * Uses upsert logic: if id exists, updates; otherwise creates.
+ */
+app.post('/story/:id/knowledge', (req, res) => {
+  const { id } = req.params;
+  const { id: docId, type, title, content, context, boundary, sourceChapter, confidence, ...extra } = req.body;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  try {
+    story.get(id); // verify story exists
+  } catch (e) {
+    return res.status(404).json({ error: e.message });
+  }
+
+  // Validate type
+  if (!type || !storyRag.isValidType(type)) {
+    return res.status(400).json({
+      error: `Invalid or missing "type". Valid types: ${storyRag.VALID_TYPES.join(', ')}`,
+    });
+  }
+
+  // Generate ID if not provided
+  let finalDocId = docId;
+  if (!finalDocId) {
+    if (title) {
+      finalDocId = `${type}-${slugify(title.trim())}`;
+    } else if (req.body.name) {
+      finalDocId = `${type}-${slugify(req.body.name.trim())}`;
+    } else {
+      return res.status(400).json({ error: 'Must provide either "id" or "title" (or "name" for characters) to identify the document.' });
+    }
+  }
+
+  // Build the document
+  const doc = {
+    id: finalDocId,
+    type,
+    title: title ? title.trim() : (req.body.name ? req.body.name.trim() : undefined),
+    content: content ? content.trim() : '',
+    context: context ? context.trim() : undefined,
+    boundary: boundary ? boundary.trim() : undefined,
+    sourceChapter: typeof sourceChapter === 'number' ? sourceChapter : undefined,
+    confidence: typeof confidence === 'number' ? confidence : undefined,
+    ...extra, // Allow additional type-specific fields
+  };
+
+  try {
+    storyRag.upsertKnowledge(id, doc);
+    return res.status(201).json(doc);
+  } catch (e) {
+    return res.status(500).json({ error: `Failed to save knowledge: ${e.message}` });
+  }
+});
+
+/**
+ * DELETE /story/:id/knowledge/:docId
+ * Removes a knowledge document from the story's RAG store.
+ */
+app.delete('/story/:id/knowledge/:docId', (req, res) => {
+  const { id, docId } = req.params;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+
+  try {
+    story.get(id); // verify story exists
+  } catch (e) {
+    return res.status(404).json({ error: e.message });
+  }
+
+  try {
+    const removed = storyRag.removeDoc(id, docId);
+    if (!removed) {
+      return res.status(404).json({ error: `Knowledge document not found: ${docId}` });
+    }
+    return res.json({ docId });
+  } catch (e) {
+    return res.status(500).json({ error: `Failed to delete knowledge: ${e.message}` });
+  }
+});
+
 /**
  * GET /story/:id/character-voices
  * Returns a map of character name → Zonos voice_id for characters that have a

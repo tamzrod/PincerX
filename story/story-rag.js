@@ -14,6 +14,49 @@ const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 const VALID_STORY_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
+ * Valid knowledge document types for per-story knowledge store.
+ * Each type supports additional fields beyond the base schema.
+ *
+ * Schema for all types:
+ * - id: string (required)
+ * - type: string (required, one of VALID_TYPES)
+ * - title: string (optional)
+ * - content: string (optional)
+ * - context: string (optional, KDE-Beta: conditions under which this is true)
+ * - boundary: string (optional, KDE-Beta: when this stops being true)
+ * - sourceChapter: number (optional, chapter that established this)
+ * - confidence: number (optional, 0-1)
+ *
+ * Type-specific fields:
+ * - character: name, role, gender, personality, backstory, speechStyle, voiceId
+ * - place: description, constraints
+ * - lore/world: description
+ * - system: description, domain (tech|magic|cultivation|science)
+ * - parameter: genre, tone, bans
+ * - arc_boundary: phase, constraints, allowedEvents, forbiddenEvents
+ * - summary: chapterNumber, content
+ */
+const VALID_TYPES = [
+  'character',
+  'place',
+  'lore',
+  'world',
+  'system',
+  'parameter',
+  'arc_boundary',
+  'summary',
+];
+
+/**
+ * Slugify a string to a safe identifier.
+ * @param {string} str
+ * @returns {string}
+ */
+function _slugify(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+/**
  * Throw a TypeError when storyId does not match the allowed pattern.
  * Prevents path-traversal attacks by ensuring storyId cannot contain path
  * separators or relative segments.
@@ -28,6 +71,15 @@ function _assertValidStoryId(storyId) {
   ) {
     throw new TypeError(`Invalid story ID: "${storyId}"`);
   }
+}
+
+/**
+ * Validate a knowledge document type.
+ * @param {string} type
+ * @returns {boolean}
+ */
+function isValidType(type) {
+  return VALID_TYPES.includes(type);
 }
 
 /**
@@ -182,4 +234,281 @@ function clearStory(storyId) {
   }
 }
 
-module.exports = { addDoc, removeDoc, listDocs, retrieve, clearStory };
+/**
+ * Get a document by its ID.
+ *
+ * @param {string} storyId
+ * @param {string} docId
+ * @returns {object|null}
+ */
+function getDoc(storyId, docId) {
+  _assertValidStoryId(storyId);
+  const docs = loadDocs(storyId);
+  return docs.find((d) => d.id === docId) || null;
+}
+
+/**
+ * List all documents grouped by type.
+ *
+ * @param {string} storyId
+ * @returns {Object<string, Array>} Documents grouped by type
+ */
+function listDocsByType(storyId) {
+  _assertValidStoryId(storyId);
+  const docs = loadDocs(storyId);
+  const grouped = {};
+  for (const type of VALID_TYPES) {
+    grouped[type] = docs.filter((d) => d.type === type);
+  }
+  return grouped;
+}
+
+/**
+ * Add or update a knowledge document with merge support.
+ * If a document with the same title (for lore/place/system) or name (for character)
+ * exists, it updates; otherwise it adds new.
+ *
+ * @param {string} storyId
+ * @param {object} doc - Must include id, type, and either name or title
+ * @returns {boolean} true if added, false if updated
+ */
+function upsertKnowledge(storyId, doc) {
+  _assertValidStoryId(storyId);
+  const docs = loadDocs(storyId);
+
+  // Find by id first
+  const idx = docs.findIndex((d) => d.id === doc.id);
+  if (idx >= 0) {
+    docs[idx] = { ...docs[idx], ...doc, updatedAt: new Date().toISOString() };
+    saveDocs(storyId, docs);
+    return false;
+  }
+
+  // If no id match, try finding by name (for characters) or title (for others)
+  if (doc.name) {
+    const nameIdx = docs.findIndex(
+      (d) => d.type === doc.type && d.name && d.name.toLowerCase() === doc.name.toLowerCase()
+    );
+    if (nameIdx >= 0) {
+      docs[nameIdx] = { ...docs[nameIdx], ...doc, updatedAt: new Date().toISOString() };
+      saveDocs(storyId, docs);
+      return false;
+    }
+  }
+
+  if (doc.title) {
+    const titleIdx = docs.findIndex(
+      (d) => d.type === doc.type && d.title && d.title.toLowerCase() === doc.title.toLowerCase()
+    );
+    if (titleIdx >= 0) {
+      docs[titleIdx] = { ...docs[titleIdx], ...doc, updatedAt: new Date().toISOString() };
+      saveDocs(storyId, docs);
+      return false;
+    }
+  }
+
+  // Not found, add new
+  docs.push({ ...doc, createdAt: new Date().toISOString() });
+  saveDocs(storyId, docs);
+  return true;
+}
+
+/**
+ * Batch add or update multiple documents efficiently.
+ *
+ * @param {string} storyId
+ * @param {Array<object>} docs
+ */
+function batchUpsert(storyId, docs) {
+  _assertValidStoryId(storyId);
+  const existing = loadDocs(storyId);
+  const existingMap = new Map(existing.map((d) => [d.id, d]));
+
+  for (const doc of docs) {
+    if (doc.id && existingMap.has(doc.id)) {
+      // Update existing
+      existingMap.set(doc.id, { ...existingMap.get(doc.id), ...doc, updatedAt: new Date().toISOString() });
+    } else {
+      // Add new with dedup by name/title
+      const nameMatch = doc.name
+        ? existing.find((d) => d.type === doc.type && d.name && d.name.toLowerCase() === doc.name.toLowerCase())
+        : null;
+      const titleMatch = doc.title
+        ? existing.find((d) => d.type === doc.type && d.title && d.title.toLowerCase() === doc.title.toLowerCase())
+        : null;
+      const match = nameMatch || titleMatch;
+      if (match) {
+        existingMap.set(match.id, { ...match, ...doc, updatedAt: new Date().toISOString() });
+      } else {
+        existingMap.set(doc.id, { ...doc, createdAt: new Date().toISOString() });
+      }
+    }
+  }
+
+  saveDocs(storyId, [...existingMap.values()]);
+}
+
+/**
+ * Format knowledge documents for injection into chapter prompts.
+ * Returns a human-readable string suitable for AI context.
+ *
+ * @param {string} storyId
+ * @param {object} options
+ * @param {boolean} options.includeCharacters - Include characters (default: true)
+ * @param {boolean} options.includePlaces - Include places (default: true)
+ * @param {boolean} options.includeLore - Include lore/world (default: true)
+ * @param {boolean} options.includeSystems - Include systems (default: true)
+ * @param {boolean} options.includeParameters - Include parameters (default: true)
+ * @param {boolean} options.includeArcBoundaries - Include arc boundaries (default: true)
+ * @param {boolean} options.includeSummaries - Include summaries (default: true)
+ * @param {number} options.maxChars - Max characters per section (default: 2000)
+ * @returns {string}
+ */
+function formatKnowledgeForPrompt(storyId, options = {}) {
+  const opts = {
+    includeCharacters: true,
+    includePlaces: true,
+    includeLore: true,
+    includeSystems: true,
+    includeParameters: true,
+    includeArcBoundaries: true,
+    includeSummaries: true,
+    maxChars: 2000,
+    ...options,
+  };
+
+  const docs = loadDocs(storyId);
+  const parts = [];
+
+  const truncate = (str, max) => {
+    if (!str || str.length <= max) return str;
+    return str.slice(0, max - 3) + '...';
+  };
+
+  // Parameters first (most important for genre adherence)
+  if (opts.includeParameters) {
+    const params = docs.filter((d) => d.type === 'parameter');
+    if (params.length > 0) {
+      const paramLines = params.map((p) => {
+        let line = `## ${p.title || 'Parameter'}: ${p.content || ''}`;
+        if (p.context) line += `\n   Context: ${p.context}`;
+        if (p.boundary) line += `\n   Boundary: ${p.boundary}`;
+        if (p.bans) line += `\n   Bans: ${p.bans}`;
+        return line;
+      });
+      parts.push('## STORY PARAMETERS (Hard Rules)\n' + truncate(paramLines.join('\n'), opts.maxChars));
+    }
+  }
+
+  // Arc Boundaries (constraints for current arc)
+  if (opts.includeArcBoundaries) {
+    const arcs = docs.filter((d) => d.type === 'arc_boundary');
+    if (arcs.length > 0) {
+      const arcLines = arcs.map((a) => {
+        let line = `## ${a.title || 'Arc Boundary'}`;
+        if (a.phase) line += ` (${a.phase})`;
+        line += `\n   ${a.content || ''}`;
+        if (a.constraints) line += `\n   Constraints: ${a.constraints}`;
+        if (a.allowedEvents && a.allowedEvents.length) line += `\n   Allowed: ${a.allowedEvents.join(', ')}`;
+        if (a.forbiddenEvents && a.forbiddenEvents.length) line += `\n   Forbidden: ${a.forbiddenEvents.join(', ')}`;
+        if (a.context) line += `\n   Context: ${a.context}`;
+        if (a.boundary) line += `\n   Ends when: ${a.boundary}`;
+        return line;
+      });
+      parts.push('## ARC BOUNDARIES (What Can/Cannot Happen)\n' + truncate(arcLines.join('\n'), opts.maxChars));
+    }
+  }
+
+  // Systems (magic, tech, etc.)
+  if (opts.includeSystems) {
+    const systems = docs.filter((d) => d.type === 'system');
+    if (systems.length > 0) {
+      const sysLines = systems.map((s) => {
+        let line = `## ${s.title || 'System'}`;
+        if (s.domain) line += ` [${s.domain}]`;
+        line += `\n   ${s.content || ''}`;
+        if (s.context) line += `\n   Works when: ${s.context}`;
+        if (s.boundary) line += `\n   Stops working when: ${s.boundary}`;
+        return line;
+      });
+      parts.push('## SYSTEMS & RULES\n' + truncate(sysLines.join('\n'), opts.maxChars));
+    }
+  }
+
+  // Characters
+  if (opts.includeCharacters) {
+    const chars = docs.filter((d) => d.type === 'character');
+    if (chars.length > 0) {
+      const charLines = chars.map((c) => {
+        let line = `## ${c.name || 'Unknown'}`;
+        if (c.role) line += ` (${c.role})`;
+        line += `\n   ${c.personality || ''}`;
+        if (c.backstory) line += `\n   Backstory: ${c.backstory}`;
+        if (c.context) line += `\n   Context: ${c.context}`;
+        if (c.boundary) line += `\n   Boundary: ${c.boundary}`;
+        return line;
+      });
+      parts.push('## CHARACTERS\n' + truncate(charLines.join('\n'), opts.maxChars));
+    }
+  }
+
+  // Places
+  if (opts.includePlaces) {
+    const places = docs.filter((d) => d.type === 'place');
+    if (places.length > 0) {
+      const placeLines = places.map((p) => {
+        let line = `## ${p.title || 'Unknown Place'}`;
+        line += `\n   ${p.content || p.description || ''}`;
+        if (p.constraints) line += `\n   Constraints: ${p.constraints}`;
+        if (p.context) line += `\n   Context: ${p.context}`;
+        if (p.boundary) line += `\n   Boundary: ${p.boundary}`;
+        return line;
+      });
+      parts.push('## PLACES\n' + truncate(placeLines.join('\n'), opts.maxChars));
+    }
+  }
+
+  // Lore/World
+  if (opts.includeLore) {
+    const lore = docs.filter((d) => d.type === 'lore' || d.type === 'world');
+    if (lore.length > 0) {
+      const loreLines = lore.map((l) => {
+        let line = `## ${l.title || 'Lore'}`;
+        line += `\n   ${l.content || ''}`;
+        if (l.context) line += `\n   Context: ${l.context}`;
+        if (l.boundary) line += `\n   Boundary: ${l.boundary}`;
+        return line;
+      });
+      parts.push('## WORLD LORE\n' + truncate(loreLines.join('\n'), opts.maxChars));
+    }
+  }
+
+  // Summaries (chronological order)
+  if (opts.includeSummaries) {
+    const summaries = docs
+      .filter((d) => d.type === 'summary')
+      .sort((a, b) => (a.chapterNumber || 0) - (b.chapterNumber || 0));
+    if (summaries.length > 0) {
+      const sumLines = summaries.map((s) => `Ch${s.chapterNumber}: ${s.content || ''}`);
+      parts.push('## RECENT CHAPTERS\n' + truncate(sumLines.join('\n'), opts.maxChars));
+    }
+  }
+
+  return parts.join('\n\n');
+}
+
+module.exports = {
+  addDoc,
+  removeDoc,
+  listDocs,
+  listDocsByType,
+  retrieve,
+  getDoc,
+  upsertKnowledge,
+  batchUpsert,
+  formatKnowledgeForPrompt,
+  clearStory,
+  isValidType,
+  VALID_TYPES,
+  _slugify,
+};

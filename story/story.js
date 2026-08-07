@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const ai = require('../lib/ai');
 const storyRag = require('./story-rag');
+const coherence = require('./story-coherence');
 
 const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 
@@ -243,6 +244,147 @@ const DEFAULT_DIALOG_RATIO = 60;
 const EMOTION_PRESETS = ['neutral', 'happy', 'sad', 'calm', 'energetic', 'angry'];
 
 /**
+ * Build the STORY LAW / KNOWLEDGE block for chapter generation prompts.
+ * This is the primary anti-hallucination mechanism - it ensures the model
+ * has access to all established story rules, boundaries, and world state.
+ *
+ * @param {string} storyId - The story ID
+ * @param {object} storyData - The story metadata (genre, tone, etc.)
+ * @returns {string} Formatted knowledge block for the prompt
+ */
+function buildStoryLawBlock(storyId, storyData) {
+  // Get formatted knowledge from story-rag
+  const knowledge = storyRag.formatKnowledgeForPrompt(storyId, {
+    includeCharacters: true,
+    includePlaces: true,
+    includeLore: true,
+    includeSystems: true,
+    includeParameters: true,
+    includeArcBoundaries: true,
+    includeSummaries: true,
+    maxChars: 4000, // More generous for the main knowledge block
+  });
+
+  if (!knowledge) {
+    return '';
+  }
+
+  return [
+    '═══════════════════════════════════════════════════════════════',
+    'STORY LAW / KNOWLEDGE — Established Rules & Boundaries',
+    '═══════════════════════════════════════════════════════════════',
+    '',
+    knowledge,
+    '',
+    '═══════════════════════════════════════════════════════════════',
+    'STORY FUNDAMENTALS',
+    `Title: ${storyData.title}`,
+    `Genre: ${storyData.genre}`,
+    `Tone: ${storyData.tone}`,
+    '═══════════════════════════════════════════════════════════════',
+    '',
+    'IMPORTANT: You MUST follow all rules above. Do not contradict Story Law.',
+    'If introducing new elements, they must be consistent with established boundaries.',
+  ].join('\n');
+}
+
+/**
+ * Extract knowledge elements from a newly generated chapter.
+ * This is the auto-growth mechanism that expands the knowledge base.
+ *
+ * @param {string} storyId
+ * @param {number} chapterNumber
+ * @param {string} content - The generated chapter text
+ * @param {object} aiOptions - Options forwarded to ai.ask()
+ */
+async function _extractChapterKnowledge(storyId, chapterNumber, content, aiOptions) {
+  const prompt = [
+    'You are a creative writing assistant analyzing a chapter to extract canonical story knowledge.',
+    'Extract ONLY clearly established facts, rules, and boundaries that should be remembered.',
+    'Respond with ONLY a valid JSON object with an "extractions" array.',
+    '',
+    'Rules for extraction:',
+    '- Only extract things explicitly stated in the chapter',
+    '- Do NOT speculate or infer beyond what is written',
+    '- Be conservative: if uncertain, do not extract',
+    '- Focus on: new characters, new places, world rules, magic/tech systems, arc constraints',
+    '',
+    'JSON format:',
+    '{',
+    '  "extractions": [',
+    '    { "type": "character", "id": "char-slug", "name": "...", "role": "...", "gender": "...", "personality": "...", "context": "...", "sourceChapter": N },',
+    '    { "type": "place", "id": "place-slug", "title": "...", "content": "...", "constraints": "...", "context": "...", "sourceChapter": N },',
+    '    { "type": "system", "id": "system-slug", "title": "...", "content": "...", "domain": "magic|tech|cultivation|science", "context": "...", "boundary": "...", "sourceChapter": N },',
+    '    { "type": "arc_boundary", "id": "arc-slug", "title": "...", "phase": "...", "content": "...", "allowedEvents": [], "forbiddenEvents": [], "context": "...", "boundary": "...", "sourceChapter": N },',
+    '    { "type": "lore", "id": "lore-slug", "title": "...", "content": "...", "context": "...", "sourceChapter": N }',
+    '  ]',
+    '}',
+    '',
+    'Chapter content:',
+    content.slice(0, 4000),
+  ].join('\n');
+
+  try {
+    const raw = await ai.ask(prompt, aiOptions);
+    const parsed = parseChapterContent(raw);
+
+    // Try to extract JSON from the response
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return;
+
+    let extracted;
+    try {
+      extracted = JSON.parse(match[0]);
+    } catch {
+      // Try with fixed newlines
+      try {
+        extracted = JSON.parse(match[0].replace(/\r?\n/g, '\\n'));
+      } catch {
+        return;
+      }
+    }
+
+    if (!extracted || !Array.isArray(extracted.extractions) || extracted.extractions.length === 0) {
+      return;
+    }
+
+    // Get existing docs to check for duplicates
+    const existing = storyRag.loadDocs ? storyRag.loadDocs(storyId) : [];
+    const existingIds = new Set(existing.map((d) => d.id));
+    const existingNames = new Set(existing.filter((d) => d.name).map((d) => d.name.toLowerCase()));
+    const existingTitles = new Set(existing.filter((d) => d.title).map((d) => d.title.toLowerCase()));
+
+    const toAdd = [];
+    for (const item of extracted.extractions) {
+      if (!item.type || !storyRag.isValidType(item.type)) continue;
+
+      // Skip if already exists by id, name, or title
+      if (item.id && existingIds.has(item.id)) continue;
+      if (item.name && existingNames.has(item.name.toLowerCase())) continue;
+      if (item.title && existingTitles.has(item.title.toLowerCase())) continue;
+
+      // Generate slug for id if not provided
+      if (!item.id) {
+        const base = item.name || item.title || `item-${Date.now()}`;
+        item.id = `${item.type}-${storyRag._slugify(base)}`;
+      }
+
+      // Add source chapter
+      item.sourceChapter = chapterNumber;
+
+      toAdd.push(item);
+    }
+
+    if (toAdd.length > 0) {
+      storyRag.batchUpsert(storyId, toAdd);
+    }
+  } catch (e) {
+    // Suppress errors - knowledge extraction is optional
+    console.warn('[story] Failed to extract knowledge from chapter:', chapterNumber, e.message);
+  }
+}
+
+/**
  * Normalise text returned by the AI so that literal `\n`/`\t` escape
  * sequences become real whitespace characters and surrounding whitespace
  * is removed.
@@ -475,6 +617,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   const characterContext = buildCharacterContext(characters);
   const loreContext = buildLoreContext(loreEntries);
   const speakerTagInstruction = buildSpeakerTagInstruction(characters);
+  const storyLawBlock = buildStoryLawBlock(storyId, storyData);
 
   const prompt = [
     'You are a creative writing assistant. Write a detailed, immersive chapter of a story.',
@@ -520,6 +663,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     `Genre: ${storyData.genre}`,
     `Tone: ${storyData.tone}`,
     `Outline:\n${storyData.outline}`,
+    storyLawBlock ? `\n${storyLawBlock}` : '',
     characterContext ? `\n${characterContext}` : '',
     loreContext ? `\n${loreContext}` : '',
     prior ? `\nPreviously written chapters:\n${prior}` : '',
@@ -548,7 +692,28 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   // Auto-create character profiles for any new named speakers in the chapter.
   await _extractNewCharacters(storyId, content, aiOptions);
 
-  return { storyId, chapterNumber, content };
+  // Auto-extract knowledge elements from the chapter (new places, systems, arc boundaries, etc.)
+  await _extractChapterKnowledge(storyId, chapterNumber, content, aiOptions);
+
+  // Run coherence check on the generated chapter (soft gate - guide, don't freeze)
+  let coherenceResult = null;
+  try {
+    coherenceResult = await coherence.checkChapter(storyId, content, {
+      checkCharacters: true,
+      checkLore: true,
+      checkCausality: true,
+    }, aiOptions);
+  } catch (e) {
+    console.warn('[story] Coherence check failed:', e.message);
+    // Don't fail the chapter generation if coherence check fails
+  }
+
+  return {
+    storyId,
+    chapterNumber,
+    content,
+    coherence: coherenceResult,
+  };
 }
 
 /**
