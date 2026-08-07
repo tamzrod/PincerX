@@ -397,6 +397,88 @@ function normalizeText(text) {
 }
 
 /**
+ * Lightweight chapter content normalizer that ensures paragraph breaks exist.
+ *
+ * If the content has no double newlines (i.e., is a wall-of-text), this function
+ * splits it into paragraphs on safe boundaries:
+ *   - [speaker:X] tags (start of a new paragraph when followed by content)
+ *   - Dialogue/narration transitions (quoted speech followed by attribution)
+ *
+ * This function does NOT invent story content; it only restructures existing content.
+ * Existing [speaker] and [emotion] tags are preserved.
+ *
+ * @param {string} content - Raw chapter content, possibly lacking paragraph breaks.
+ * @returns {string} Content with proper paragraph separation.
+ */
+function normalizeChapterParagraphs(content) {
+  if (!content || typeof content !== 'string') return content;
+
+  // Already has paragraph breaks — normalize line endings and return
+  if (content.includes('\n\n')) {
+    return content
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  // Single-block wall-of-text — needs paragraphization
+  const paragraphs = [];
+  let remaining = content;
+
+  // Pattern 1: split before [speaker:X] tags (they start new paragraphs)
+  const speakerParts = remaining.split(/(\[[speaker:][^\]]+\])/);
+  let current = '';
+
+  for (const part of speakerParts) {
+    if (/^\[speaker:/.test(part)) {
+      // Save accumulated content before this speaker tag as a paragraph
+      if (current.trim()) {
+        paragraphs.push(current.trim());
+      }
+      current = part;
+    } else {
+      current += part;
+    }
+  }
+  if (current.trim()) {
+    paragraphs.push(current.trim());
+  }
+
+  // Pattern 2: split dialogue-attribution pairs within paragraphs
+  // When we see dialogue ending with " and followed by attribution,
+  // split them into separate paragraphs
+  const finalParagraphs = [];
+  for (const para of paragraphs) {
+    // Check if paragraph contains both dialogue and attribution
+    const dialogueAttrSplit = para.split(/([""][^""\n]+[""][,]\s+[A-Z][a-z]+(?:[a-z]+)?\s+(?:said|whispered|murmured|shouted|cried|asked|replied|answered|exclaimed|stated|continued|began|added|explained|remarked|nodded|shook|called|laughed|smiled|frowned|glanced|looked|sighed|paused|hesitated|reconsidered|agreed|disagreed|confirmed|denied|admitted|confessed|warned|reminded|noticed|realized|thought|remembered|dreamt|imagined|sensed|felt|feared|dreaded|hoped|wished|wanted|needed|desired|longing|craved|loved|hated|envied|resented|blamed|credited|thanked|apologized|insisted|promised|swore|declined|refused))/gi);
+
+    if (dialogueAttrSplit.length > 1) {
+      // First part is dialogue, rest is attribution
+      for (let i = 0; i < dialogueAttrSplit.length; i++) {
+        const segment = dialogueAttrSplit[i].trim();
+        if (segment) {
+          // Ensure each segment starts with a speaker tag if it's dialogue
+          if (i === 0 && segment.startsWith('"')) {
+            finalParagraphs.push('[speaker:narrator][emotion:neutral] ' + segment);
+          } else if (segment) {
+            finalParagraphs.push(segment);
+          }
+        }
+      }
+    } else {
+      finalParagraphs.push(para);
+    }
+  }
+
+  // Join with blank lines
+  return finalParagraphs
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+    .join('\n\n');
+}
+
+/**
  * Extract the outline, characters, and locations from the AI response for
  * story creation.  Falls back to the raw response text as the outline (with
  * empty characters and locations arrays) if JSON parsing fails or the outline
@@ -624,40 +706,48 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     'Respond with ONLY a valid JSON object containing exactly this field:',
     '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
     '',
-    'The chapter must be substantial: at least ' + CHAPTER_MIN_WORDS + ' words with vivid descriptions, meaningful dialogue, and strong pacing.',
-    `Aim for approximately ${dialogRatio}% character dialogue and ${narrationRatio}% narration/description.`,
-    'Dialogue lines and narrative description should each form their own paragraphs where possible.',
+    'MANDATORY FORMATTING RULES — your chapter MUST follow these exactly:',
     '',
-    'IMPORTANT — Speaker and emotion tagging for text-to-speech:',
-    'Begin every paragraph with a speaker tag immediately followed by an emotion tag, before the paragraph text.',
+    '1. BLANK LINES BETWEEN PARAGRAPHS: Every paragraph MUST be separated by exactly one blank line (double newline).',
+    '   A wall-of-text without paragraph breaks is a FAILURE and will be rejected.',
+    '   Typical chapter has 8-15+ separate paragraphs.',
+    '',
+    '2. DIALOGUE VS NARRATION SEPARATION:',
+    '   - Each dialogue line (character speech) MUST be in its own paragraph.',
+    '   - Each narrative/description block MUST be in its own paragraph.',
+    '   - Never combine multiple sentences of different types into one paragraph.',
+    '',
+    '3. REQUIRED SPEAKER/EMOTION TAGS:',
+    '   Begin EVERY paragraph with a [speaker:X][emotion:Y] tag BEFORE any text.',
+    '   speaker:X must be a character name (e.g. [speaker:Elena]) or "narrator"/"male"/"female" for generic narration.',
+    '   emotion:Y must be one of: ' + EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ') + '.',
+    '   For narrator paragraphs use ONLY [emotion:neutral] or [emotion:calm].',
+    '   Tags are invisible to readers and used only by the audio system.',
+    '',
+    '4. FORBIDDEN — SINGLE WALL-OF-TEXT CHAPTER:',
+    '   Chapters without paragraph breaks (single block of text) are NOT acceptable.',
+    '   You MUST insert blank lines to create distinct paragraphs.',
+    '',
     speakerTagInstruction,
-    `Emotion tags: one of ${EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ')}.`,
-    'For narrator paragraphs, use ONLY [emotion:neutral] or [emotion:calm]. Reserve expressive emotions for character dialogue.',
-    'The tags are invisible to readers and are used only by the audio narration system.',
-    'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tags.',
     '',
-    'CRITICAL RULE — Never mix dialogue and attribution in the same paragraph:',
-    'When a character speaks AND the sentence contains a narrative attribution (e.g. "she said", "he murmured", "Alex whispered"),',
-    'you MUST split them into SEPARATE paragraphs: one [speaker:character] paragraph for the quoted speech only,',
-    'followed immediately by a [speaker:narrator] paragraph for the attribution and any following narration.',
+    '5. CRITICAL — DIALOGUE AND ATTRIBUTION MUST BE SEPARATE PARAGRAPHS:',
+    '   When a character speaks AND the sentence contains a narrative attribution (e.g. "she said", "he murmured"),',
+    '   split them into SEPARATE paragraphs:',
+    '   - First: [speaker:character][emotion:X] "Quoted speech only."',
+    '   - Then: [speaker:narrator][emotion:neutral] Attribution and following narration.',
     '',
-    'Correct example (split into separate paragraphs):',
+    'Correct examples:',
     '[speaker:female][emotion:curious] "I should look into this."',
     '[speaker:narrator][emotion:neutral] Alex murmured aloud, her voice barely audible over the rustling of papers.',
-    '[speaker:female][emotion:curious] "Maybe there\'s something important I\'m missing."',
-    '[speaker:narrator][emotion:neutral] She felt a mix of curiosity and trepidation, as if the future was whispering secrets.',
-    '',
-    'WRONG example (do NOT do this — dialogue and attribution mixed in one paragraph):',
-    '[speaker:female][emotion:curious] "I should look into this," Alex murmured aloud, her voice barely audible.',
-    '',
-    'Further examples:',
-    '[speaker:narrator][emotion:neutral] The old house creaked as she stepped inside.',
     '[speaker:male][emotion:happy] "We finally made it!"',
     '[speaker:narrator][emotion:neutral] Thomas shouted, punching the air.',
-    '[speaker:female][emotion:sad] "I\'m so sorry."',
-    '[speaker:narrator][emotion:neutral] Elena whispered softly, turning away.',
     '',
-    'Do not include any explanation or text outside the JSON object.',
+    'Wrong (do NOT do this):',
+    '[speaker:female][emotion:curious] "I should look into this," Alex murmured aloud, her voice barely audible.',
+    '',
+    'The chapter must be substantial: at least ' + CHAPTER_MIN_WORDS + ' words with vivid descriptions, meaningful dialogue, and strong pacing.',
+    `Aim for approximately ${dialogRatio}% character dialogue and ${narrationRatio}% narration/description.`,
+    'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tags.',
     '',
     `Title: ${storyData.title}`,
     `Genre: ${storyData.genre}`,
@@ -719,6 +809,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
 /**
  * Extract the chapter content string from the AI response.
  * Falls back to the raw response text if JSON parsing fails.
+ * Applies normalizeChapterParagraphs to ensure proper paragraph structure.
  *
  * @param {string} raw - Raw string from the AI.
  * @returns {string}
@@ -731,7 +822,7 @@ function parseChapterContent(raw) {
     try {
       const parsed = JSON.parse(jsonStr);
       if (typeof parsed.content === 'string' && parsed.content.trim()) {
-        return normalizeText(parsed.content.trim());
+        return normalizeChapterParagraphs(normalizeText(parsed.content.trim()));
       }
     } catch { /* try next */ }
     // Attempt 2: escape unescaped literal newlines inside JSON string values
@@ -740,11 +831,11 @@ function parseChapterContent(raw) {
       const fixed = jsonStr.replace(/\r?\n/g, '\\n');
       const parsed = JSON.parse(fixed);
       if (typeof parsed.content === 'string' && parsed.content.trim()) {
-        return normalizeText(parsed.content.trim());
+        return normalizeChapterParagraphs(normalizeText(parsed.content.trim()));
       }
     } catch { /* fall through */ }
   }
-  return normalizeText(raw.trim());
+  return normalizeChapterParagraphs(normalizeText(raw.trim()));
 }
 
 /**
@@ -834,7 +925,7 @@ function deleteStory(storyId) {
   return { storyId };
 }
 
-module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get, pickVoicePreset };
+module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get, pickVoicePreset, normalizeChapterParagraphs };
 
 /**
  * Return summary metadata for every saved story, newest first.

@@ -713,3 +713,169 @@ describe('story.js — pickVoicePreset()', () => {
     expect(storyModule.pickVoicePreset('non-binary', 'teen, shy')).toBe('preset-young-girl');
   });
 });
+
+// ── story.js — normalizeChapterParagraphs() ────────────────────────────────
+
+describe('story.js — normalizeChapterParagraphs()', () => {
+  it('preserves content that already has double newlines', () => {
+    const input = '[speaker:narrator][emotion:neutral] First paragraph.\n\n[speaker:Elena][emotion:happy] "Hello."';
+    const result = storyModule.normalizeChapterParagraphs(input);
+    expect(result).toContain('\n\n');
+    expect(result).toContain('[speaker:narrator]');
+    expect(result).toContain('[speaker:Elena]');
+  });
+
+  it('adds paragraph breaks for wall-of-text content with [speaker] tags', () => {
+    const input = '[speaker:narrator][emotion:neutral] The sun rose over the hills. [speaker:Elena][emotion:happy] "Good morning!" [speaker:narrator][emotion:neutral] She smiled.';
+    const result = storyModule.normalizeChapterParagraphs(input);
+    expect(result).toContain('\n\n');
+    expect(result).toContain('[speaker:narrator]');
+    expect(result).toContain('[speaker:Elena]');
+    expect(result).toContain('"Good morning!"');
+  });
+
+  it('does not invent story content when normalizing', () => {
+    const input = '[speaker:narrator][emotion:neutral] A mysterious figure appeared.';
+    const result = storyModule.normalizeChapterParagraphs(input);
+    expect(result).toBe('[speaker:narrator][emotion:neutral] A mysterious figure appeared.');
+  });
+
+  it('normalizes multiple newlines to double newlines', () => {
+    const input = '[speaker:narrator][emotion:neutral] First.\n\n\n\n[speaker:Elena][emotion:happy] Second.';
+    const result = storyModule.normalizeChapterParagraphs(input);
+    expect(result).not.toContain('\n\n\n');
+    expect(result).toContain('\n\n');
+  });
+
+  it('handles null/undefined/empty input gracefully', () => {
+    expect(storyModule.normalizeChapterParagraphs(null)).toBeNull();
+    expect(storyModule.normalizeChapterParagraphs(undefined)).toBeUndefined();
+    expect(storyModule.normalizeChapterParagraphs('')).toBe('');
+  });
+
+  it('preserves [speaker] tags exactly', () => {
+    const input = '[speaker:Elena][emotion:curious] "What is that?"';
+    const result = storyModule.normalizeChapterParagraphs(input);
+    expect(result).toContain('[speaker:Elena][emotion:curious]');
+  });
+
+  it('splits content before each [speaker:X] tag', () => {
+    const input = 'Intro text [speaker:Elena][emotion:happy] "Hello" [speaker:Marcus][emotion:neutral] "Hi there"';
+    const result = storyModule.normalizeChapterParagraphs(input);
+    const paragraphs = result.split('\n\n');
+    expect(paragraphs.length).toBeGreaterThan(1);
+    expect(result).toContain('[speaker:Elena]');
+    expect(result).toContain('[speaker:Marcus]');
+  });
+});
+
+// ── story.js — generateChapter formatting rules in prompt ─────────────────
+
+describe('story.js — generateChapter prompt includes formatting rules', () => {
+  function writeStory(id, data = {}) {
+    fs.mkdirSync(STORIES_DIR, { recursive: true });
+    const defaults = {
+      id,
+      title: 'Test Story',
+      genre: 'fantasy',
+      tone: 'epic',
+      outline: 'A hero journeys forth.',
+      createdAt: new Date().toISOString(),
+      chapters: [],
+    };
+    fs.writeFileSync(
+      path.join(STORIES_DIR, `${id}.json`),
+      JSON.stringify({ ...defaults, ...data }, null, 2),
+      'utf8',
+    );
+  }
+
+  beforeEach(() => {
+    storyRag.listDocs.mockReturnValue([]);
+    storyRag.addDoc.mockImplementation(() => {});
+    storyRag.removeDoc.mockReturnValue(true);
+  });
+
+  it('includes mandatory blank line formatting rules in chapter prompt', async () => {
+    writeStory('test-prompt-format-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-prompt-format-1234', 1);
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('MANDATORY FORMATTING RULES');
+    expect(prompt).toContain('BLANK LINES BETWEEN PARAGRAPHS');
+    expect(prompt).toContain('wall-of-text');
+  });
+
+  it('includes dialogue vs narration separation rules in chapter prompt', async () => {
+    writeStory('test-prompt-dialogue-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-prompt-dialogue-1234', 1);
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('DIALOGUE VS NARRATION SEPARATION');
+  });
+
+  it('includes required speaker/emotion tag rules in chapter prompt', async () => {
+    writeStory('test-prompt-tags-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-prompt-tags-1234', 1);
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('[speaker:');
+    expect(prompt).toContain('[emotion:');
+    expect(prompt).toContain('REQUIRED SPEAKER');
+  });
+
+  it('includes forbidden wall-of-text warning in chapter prompt', async () => {
+    writeStory('test-prompt-wall-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-prompt-wall-1234', 1);
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('FORBIDDEN');
+    expect(prompt).toContain('SINGLE WALL-OF-TEXT');
+  });
+
+  it('wall-of-text chapter content gets paragraph breaks after normalization', async () => {
+    writeStory('test-wall-text-1234');
+    // AI returns a wall-of-text without paragraph breaks
+    const wallOfText = '[speaker:narrator][emotion:neutral] The old house stood silent. [speaker:Elena][emotion:curious] "It looks abandoned." [speaker:narrator][emotion:neutral] She shivered.';
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: wallOfText }))
+      .mockResolvedValueOnce('Summary.');
+
+    const result = await storyModule.generateChapter('test-wall-text-1234', 1);
+
+    expect(result.content).toContain('\n\n');
+    expect(result.content).toContain('[speaker:narrator]');
+    expect(result.content).toContain('[speaker:Elena]');
+  });
+
+  it('preserves [speaker] tags in normalized chapter content', async () => {
+    writeStory('test-preserve-tags-1234');
+    const messyContent = '[speaker:Elena][emotion:happy] "Hello" [speaker:Marcus][emotion:neutral] "Hi"';
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: messyContent }))
+      .mockResolvedValueOnce('Summary.');
+
+    const result = await storyModule.generateChapter('test-preserve-tags-1234', 1);
+
+    expect(result.content).toContain('[speaker:Elena]');
+    expect(result.content).toContain('[speaker:Marcus]');
+    expect(result.content).toContain('[emotion:happy]');
+    expect(result.content).toContain('[emotion:neutral]');
+  });
+});
