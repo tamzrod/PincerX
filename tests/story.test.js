@@ -952,6 +952,38 @@ describe('story.js — generateChapter prompt includes formatting rules', () => 
     expect(prompt).toContain('DIALOGUE VS NARRATION SEPARATION');
   });
 
+  it('does NOT instruct the model to target a specific dialogue percentage', async () => {
+    // Dialogue Ratio is no longer an author-controlled parameter. The chapter
+    // prompt must not contain any "X% dialogue" / "X% narration" target — the
+    // model decides the dialogue/narration balance naturally per scene.
+    writeStory('test-prompt-no-ratio-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-prompt-no-ratio-1234', 1);
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).not.toMatch(/%\s*dialogue/i);
+    expect(prompt).not.toMatch(/%\s*narration/i);
+    expect(prompt).not.toMatch(/dialogue ratio/i);
+  });
+
+  it('ignores a legacy aiOptions.dialogRatio value (feature removed)', async () => {
+    // A stale caller may still pass dialogRatio. It must have no effect — the
+    // prompt contains no dialogue-percentage target either way.
+    writeStory('test-prompt-legacy-ratio-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-prompt-legacy-ratio-1234', 1, { dialogRatio: 80 });
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).not.toMatch(/%\s*dialogue/i);
+    expect(prompt).not.toMatch(/80%/);
+  });
+
   it('includes required speaker/emotion tag rules in chapter prompt', async () => {
     writeStory('test-prompt-tags-1234');
     ai.ask

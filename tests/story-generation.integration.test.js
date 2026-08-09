@@ -106,7 +106,7 @@ describe('story generation pipeline (integration)', () => {
       .mockResolvedValueOnce(JSON.stringify({ elements: [] })) // knowledge
       .mockResolvedValueOnce(JSON.stringify({ violations: [], score: 100 })); // coherence
 
-    const result = await story.generateChapter(created.id, 1, { dialogRatio: 50 });
+    const result = await story.generateChapter(created.id, 1);
 
     expect(result.storyId).toBe(created.id);
     expect(result.chapterNumber).toBe(1);

@@ -1695,11 +1695,6 @@
           <p style="color:#666;font-size:13px;margin-bottom:10px;">Generate chapters one at a time.</p>
           <label for="chapter-custom-prompt">Custom instructions (optional)</label>
           <textarea id="chapter-custom-prompt" placeholder="e.g. Focus on the protagonist's inner conflict…" style="min-height:70px;margin-bottom:8px;"></textarea>
-          <label>Dialogue Ratio <span style="color:#aaa;font-weight:400">(higher = more speech)</span></label>
-          <div class="slider-row" style="margin-bottom:12px">
-            <input type="range" id="chapter-dialog-ratio" min="0" max="100" step="5" value="60" oninput="document.getElementById('chapter-dialog-ratio-val').textContent=this.value+'%'" />
-            <span class="slider-val" id="chapter-dialog-ratio-val">60%</span>
-          </div>
           <label for="chapter-length">Chapter Length</label>
           <select id="chapter-length" style="margin-bottom:12px">
             <option value="short">Short (~1100 words)</option>
@@ -4188,7 +4183,6 @@
     clearMsg('chapter-msg');
     const chapterNumber = storyState.nextChapter;
     const customPrompt = document.getElementById('chapter-custom-prompt').value.trim();
-    const dialogRatio = Number(document.getElementById('chapter-dialog-ratio').value);
 
     setLoading('chapter-btn', true, `Generate Chapter ${chapterNumber}`);
     showMsg('chapter-msg', `Generating Chapter ${chapterNumber}…`, 'loading');
@@ -4211,7 +4205,7 @@
       const length = lengthSelect ? lengthSelect.value : 'default';
       const storyModelEl = document.getElementById('story-model');
       const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
-      const body = { chapterNumber, dialogRatio, length };
+      const body = { chapterNumber, length };
       if (customPrompt) body.customPrompt = customPrompt;
       if (storyModel) body.model = storyModel;
 
@@ -4267,7 +4261,6 @@
     if (!storyState.id) return;
     clearMsg('chapter-msg');
     const customPrompt = document.getElementById('chapter-custom-prompt').value.trim();
-    const dialogRatio = Number(document.getElementById('chapter-dialog-ratio').value);
 
     // Disable action buttons in this chapter while regenerating
     sectionEl.querySelectorAll('button').forEach((b) => { b.disabled = true; });
@@ -4278,7 +4271,7 @@
       const length = lengthSelect ? lengthSelect.value : 'default';
       const storyModelEl = document.getElementById('story-model');
       const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
-      const body = { chapterNumber, dialogRatio, length };
+      const body = { chapterNumber, length };
       if (customPrompt) body.customPrompt = customPrompt;
       if (storyModel) body.model = storyModel;
 
@@ -6191,12 +6184,11 @@
       await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter/${chapterNumber}`, { method: 'DELETE' });
     } catch { /* a partial may not have a summary; ignore delete errors */ }
 
-    const dialogRatio = Number(document.getElementById('chapter-dialog-ratio').value);
     const lengthSelect = document.getElementById('chapter-length');
     const length = lengthSelect ? lengthSelect.value : 'default';
     const storyModelEl = document.getElementById('story-model');
     const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
-    const body = { chapterNumber, dialogRatio, length };
+    const body = { chapterNumber, length };
     if (storyModel) body.model = storyModel;
 
     setLoading('chapter-btn', true, `Regenerate Chapter ${chapterNumber}`);
@@ -6313,7 +6305,6 @@
     }
 
     const customPrompt = document.getElementById('chapter-custom-prompt').value.trim();
-    const dialogRatio = parseInt(document.getElementById('chapter-dialog-ratio').value, 10);
     const lengthSelect = document.getElementById('chapter-length');
     const length = lengthSelect ? lengthSelect.value : 'default';
     const storyModelEl = document.getElementById('story-model');
@@ -6330,7 +6321,6 @@
       const reqBody = {
         chapterNumber: storyState.chapters ? storyState.chapters.length + 1 : 1,
         customPrompt,
-        dialogRatio,
         length,
       };
       if (storyModel) reqBody.model = storyModel;

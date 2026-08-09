@@ -248,7 +248,7 @@ describe('generateChapter — resume', () => {
         status: 'partial',
         resumeAvailable: true,
         createdAt: new Date().toISOString(),
-        generation: { reason: 'timeout', length: 'default', dialogRatio: 60, model: 'gemma3:27b' },
+        generation: { reason: 'timeout', length: 'default', model: 'gemma3:27b' },
       }],
     });
 
@@ -292,7 +292,7 @@ describe('generateChapter — resume', () => {
         status: 'partial',
         resumeAvailable: true,
         createdAt: new Date().toISOString(),
-        generation: { reason: 'timeout', length: 'default', dialogRatio: 60, model: 'gemma3:27b' },
+        generation: { reason: 'timeout', length: 'default', model: 'gemma3:27b' },
       }],
     });
     ai.askStream.mockResolvedValueOnce(JSON.stringify({ content: 'E'.repeat(80) }));
@@ -317,7 +317,7 @@ describe('generateChapter — resume', () => {
         status: 'partial',
         resumeAvailable: true,
         createdAt: new Date().toISOString(),
-        generation: { reason: 'timeout', length: 'default', wordTarget: 2000, dialogRatio: 60, model: 'llama3' },
+        generation: { reason: 'timeout', length: 'default', wordTarget: 2000, model: 'llama3' },
       }],
     });
     ai.askStream.mockResolvedValueOnce(JSON.stringify({ content: 'G'.repeat(80) }));
@@ -343,7 +343,7 @@ describe('generateChapter — resume', () => {
         status: 'partial',
         resumeAvailable: true,
         createdAt: new Date().toISOString(),
-        generation: { reason: 'timeout', length: 'default', dialogRatio: 60, model: 'llama3' },
+        generation: { reason: 'timeout', length: 'default', model: 'llama3' },
       }],
     });
     // The model restates the last sentence before continuing.
@@ -372,7 +372,7 @@ describe('generateChapter — resume', () => {
         status: 'partial',
         resumeAvailable: true,
         createdAt: new Date().toISOString(),
-        generation: { reason: 'timeout', length: 'default', dialogRatio: 60, model: 'llama3' },
+        generation: { reason: 'timeout', length: 'default', model: 'llama3' },
       }],
     });
     ai.askStream.mockResolvedValueOnce(JSON.stringify({ content: 'J'.repeat(80) }));
@@ -413,7 +413,7 @@ describe('generateChapter — multiple sequential resumes', () => {
         status: 'partial',
         resumeAvailable: true,
         createdAt: new Date().toISOString(),
-        generation: { reason: 'timeout', length: 'default', wordTarget: 2000, dialogRatio: 60, model: 'llama3' },
+        generation: { reason: 'timeout', length: 'default', wordTarget: 2000, model: 'llama3' },
       }],
     });
 
@@ -500,7 +500,7 @@ describe('generateChapter — resume preserves Reader Experience objective', () 
         status: 'partial',
         resumeAvailable: true,
         createdAt: new Date().toISOString(),
-        generation: { reason: 'timeout', length: 'default', dialogRatio: 60, model: 'llama3', experienceObjective: objective },
+        generation: { reason: 'timeout', length: 'default', model: 'llama3', experienceObjective: objective },
       }],
     });
     // Reader Experience is configured for the story.

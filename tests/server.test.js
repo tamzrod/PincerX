@@ -442,17 +442,34 @@ describe('POST /story/:id/chapter', () => {
     expect(story.generateChapter).toHaveBeenCalledWith('1234-my-story', 1, {}, '');
   });
 
-  it('forwards length, wordTarget, and dialogRatio into aiOptions', async () => {
+  it('forwards length and wordTarget into aiOptions', async () => {
     story.generateChapter.mockResolvedValue({ storyId: '1234-my-story', chapterNumber: 1, content: 'x' });
 
     await request(app)
       .post('/story/1234-my-story/chapter')
-      .send({ chapterNumber: 1, length: 'long', wordTarget: 2500, dialogRatio: 40 });
+      .send({ chapterNumber: 1, length: 'long', wordTarget: 2500 });
 
     expect(story.generateChapter).toHaveBeenCalledWith(
       '1234-my-story',
       1,
-      { length: 'long', wordTarget: 2500, dialogRatio: 40 },
+      { length: 'long', wordTarget: 2500 },
+      '',
+    );
+  });
+
+  it('ignores a legacy dialogRatio field in the request body (feature removed)', async () => {
+    // Dialogue Ratio is no longer an author-controlled parameter. If a stale
+    // client sends it, the server must NOT forward it into aiOptions.
+    story.generateChapter.mockResolvedValue({ storyId: '1234-my-story', chapterNumber: 1, content: 'x' });
+
+    await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({ chapterNumber: 1, length: 'default', dialogRatio: 40 });
+
+    expect(story.generateChapter).toHaveBeenCalledWith(
+      '1234-my-story',
+      1,
+      { length: 'default' },
       '',
     );
   });
@@ -706,7 +723,6 @@ describe('POST /story/:id/chapter/stream', () => {
       experienceObjective: { trajectory: ['curiosity'] },
       length: undefined,
       wordTarget: undefined,
-      dialogRatio: undefined,
     });
     expect(aiOptions.model).toBe('gemma3:27b');
   });

@@ -1426,15 +1426,14 @@ app.post('/story/create', async (req, res) => {
 
 /**
  * POST /story/:id/chapter
- * Body: { "chapterNumber": 1, "customPrompt": "...", "dialogRatio": 60, "length": "default", "wordTarget": 2000 }
+ * Body: { "chapterNumber": 1, "customPrompt": "...", "length": "default", "wordTarget": 2000 }
  * Generates a chapter for an existing story and saves it to data/stories/.
- * dialogRatio (0–100) controls the percentage of character dialogue vs narration.
  * length ("short" | "default" | "long") selects the chapter word-count preset.
  * wordTarget (positive int) optionally overrides the preset with an exact word count.
  */
 app.post('/story/:id/chapter', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model, regenerate, resume } = req.body;
+  const { chapterNumber, customPrompt, length, wordTarget, model, regenerate, resume } = req.body;
 
   if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
@@ -1446,9 +1445,6 @@ app.post('/story/:id/chapter', async (req, res) => {
 
   const prompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
   const aiOptions = {};
-  if (typeof dialogRatio === 'number' && Number.isFinite(dialogRatio)) {
-    aiOptions.dialogRatio = dialogRatio;
-  }
   if (length === 'short' || length === 'default' || length === 'long') {
     aiOptions.length = length;
   }
@@ -1483,7 +1479,6 @@ app.post('/story/:id/chapter', async (req, res) => {
       experienceObjective: resume.experienceObjective || null,
       length: resume.length || undefined,
       wordTarget: resume.wordTarget || undefined,
-      dialogRatio: resume.dialogRatio || undefined,
     };
   }
 
@@ -1530,7 +1525,7 @@ function sseEmit(res, event, payload) {
  */
 app.post('/story/:id/chapter/stream', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model, regenerate, resume } = req.body;
+  const { chapterNumber, customPrompt, length, wordTarget, model, regenerate, resume } = req.body;
 
   // SSE headers. Disable Nagle + proxy buffering so tokens flush promptly.
   res.set('Content-Type', 'text/event-stream');
@@ -1551,9 +1546,6 @@ app.post('/story/:id/chapter/stream', async (req, res) => {
 
   const prompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
   const aiOptions = {};
-  if (typeof dialogRatio === 'number' && Number.isFinite(dialogRatio)) {
-    aiOptions.dialogRatio = dialogRatio;
-  }
   if (length === 'short' || length === 'default' || length === 'long') {
     aiOptions.length = length;
   }
@@ -1585,7 +1577,6 @@ app.post('/story/:id/chapter/stream', async (req, res) => {
       experienceObjective: resume.experienceObjective || null,
       length: resume.length || undefined,
       wordTarget: resume.wordTarget || undefined,
-      dialogRatio: resume.dialogRatio || undefined,
     };
   }
 

@@ -320,7 +320,6 @@ function _buildResumePrompt(p) {
     '- Separate every paragraph with a blank line (double newline).',
     '- Begin EVERY paragraph with a [speaker:X][emotion:Y] tag.',
     `  emotion must be one of: ${EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ')}.`,
-    `  Aim for approximately ${p.dialogRatio}% dialogue and ${p.narrationRatio}% narration.`,
     '',
     p.speakerTagInstruction,
     '',
@@ -490,9 +489,6 @@ async function _extractNewCharacters(storyId, content, aiOptions) {
     }
   }
 }
-
-/** Default percentage of the chapter that should be character dialogue (0–100). */
-const DEFAULT_DIALOG_RATIO = 60;
 
 /**
  * Valid emotion presets understood by the Zonos TTS sidecar.
@@ -926,13 +922,12 @@ async function _storeChapterSummary(storyId, chapterNumber, content, aiOptions) 
  * @param {string} storyId       - The story ID (from the `id` field of a saved story).
  * @param {number} chapterNumber - 1-based chapter index to generate.
  * @param {object} [aiOptions]   - Options forwarded to ai.ask().
- *   @param {number} [aiOptions.dialogRatio] - Dialogue ratio 0-100 (default: 60).
  *   @param {string} [aiOptions.length] - 'short', 'default', or 'long' (default: 'default').
  *   @param {number} [aiOptions.wordTarget] - Exact word target (overrides length preset).
  *   @param {object} [aiOptions.resume] - Resume a timed-out partial chapter. When
  *     present, the existing partial chapter text is continued from its exact end
  *     (no rewrite). May carry `{ content, experienceObjective, length, wordTarget,
- *     dialogRatio, model }`; missing fields are read from the stored partial chapter.
+ *     model }`; missing fields are read from the stored partial chapter.
  *   @param {object} [aiOptions.regenerate] - Coherence-guided full rewrite (see below).
  * @param {string} [customPrompt] - Optional extra instructions for the AI.
  * @returns {Promise<object>} On completion: `{ storyId, chapterNumber, content,
@@ -960,25 +955,12 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   const isResume = Boolean(resume);
 
   // When resuming, prefer the generation params captured on the partial chapter
-  // (length/wordTarget/dialogRatio/model) so the resume matches the original
-  // intent rather than whatever the caller happened to pass this time.
+  // (length/wordTarget/model) so the resume matches the original intent rather
+  // than whatever the caller happened to pass this time.
   const partialChapter = isResume
     ? (storyData.chapters || []).find((c) => c.number === chapterNumber && c.status === 'partial')
     : null;
   const resumeGen = (partialChapter && partialChapter.generation) || {};
-
-  const dialogRatio = (() => {
-    if (isResume) {
-      const r = (typeof resume.dialogRatio === 'number')
-        ? resume.dialogRatio
-        : (typeof resumeGen.dialogRatio === 'number' ? resumeGen.dialogRatio : aiOptions.dialogRatio);
-      if (typeof r === 'number') return Math.max(0, Math.min(100, Math.round(r)));
-    }
-    return (typeof aiOptions.dialogRatio === 'number')
-      ? Math.max(0, Math.min(100, Math.round(aiOptions.dialogRatio)))
-      : DEFAULT_DIALOG_RATIO;
-  })();
-  const narrationRatio = 100 - dialogRatio;
 
   // Chapter length: default to 'default' when not specified
   const length = (() => {
@@ -1183,7 +1165,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
         existingPartial,
         remainingWords: resumeBudget.remainingWords,
         remainingLengthPolicy: buildLengthPolicy(length, resumeBudget.remainingWords),
-        dialogRatio, narrationRatio, speakerTagInstruction,
+        speakerTagInstruction,
         title: storyData.title, genre: storyData.genre, tone: storyData.tone, outline: storyData.outline,
         storyLawBlock, canonicalNamesBlock, characterContext, loreContext, prior,
         experienceObjectiveBlock, customPrompt,
@@ -1236,7 +1218,6 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
         'Wrong (do NOT do this):',
         '[speaker:female][emotion:curious] "I should look into this," Alex murmured aloud, her voice barely audible.',
         '',
-        `Aim for approximately ${dialogRatio}% character dialogue and ${narrationRatio}% narration/description.`,
         'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tags.',
         '',
         `Title: ${storyData.title}`,
@@ -1293,7 +1274,6 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
           reason,
           length,
           wordTarget,
-          dialogRatio,
           model: aiOptions.model || resumeGen.model || undefined,
           experienceObjective: experienceObjective || undefined,
         },
