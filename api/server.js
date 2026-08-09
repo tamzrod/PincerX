@@ -1391,11 +1391,12 @@ app.get('/story/:id', (req, res) => {
 
 /**
  * POST /story/create
- * Body: { "title": "...", "genre": "...", "tone": "..." }
+ * Body: { "title": "...", "genre": "...", "tone": "...", "model": "..." }
  * Generates a story outline via AI and saves it to data/stories/.
+ * model (optional) overrides the configured AI model for this generation only.
  */
 app.post('/story/create', async (req, res) => {
-  const { title, genre, tone } = req.body;
+  const { title, genre, tone, model } = req.body;
 
   const titleErr = validateStringField(title, 'title');
   if (titleErr) return res.status(400).json({ error: titleErr });
@@ -1406,8 +1407,13 @@ app.post('/story/create', async (req, res) => {
   const toneErr = validateStringField(tone, 'tone');
   if (toneErr) return res.status(400).json({ error: toneErr });
 
+  const aiOptions = {};
+  if (typeof model === 'string' && model.trim()) {
+    aiOptions.model = model.trim();
+  }
+
   try {
-    const result = await story.create(title.trim(), genre.trim(), tone.trim());
+    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions);
     return res.status(201).json(result);
   } catch (e) {
     return res.status(502).json({ error: `Story generation error: ${e.message}` });
@@ -1424,7 +1430,7 @@ app.post('/story/create', async (req, res) => {
  */
 app.post('/story/:id/chapter', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget } = req.body;
+  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model } = req.body;
 
   if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
@@ -1444,6 +1450,9 @@ app.post('/story/:id/chapter', async (req, res) => {
   }
   if (Number.isFinite(wordTarget) && wordTarget > 0) {
     aiOptions.wordTarget = Math.round(wordTarget);
+  }
+  if (typeof model === 'string' && model.trim()) {
+    aiOptions.model = model.trim();
   }
 
   try {

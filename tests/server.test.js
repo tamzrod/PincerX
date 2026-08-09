@@ -450,6 +450,21 @@ describe('POST /story/:id/chapter', () => {
     );
   });
 
+  it('forwards a model override into generateChapter aiOptions', async () => {
+    story.generateChapter.mockResolvedValue({ storyId: '1234-my-story', chapterNumber: 1, content: 'x' });
+
+    await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({ chapterNumber: 1, model: 'mistral' });
+
+    expect(story.generateChapter).toHaveBeenCalledWith(
+      '1234-my-story',
+      1,
+      { model: 'mistral' },
+      '',
+    );
+  });
+
   it('returns 400 when story ID contains invalid characters', async () => {
     const res = await request(app)
       .post('/story/my.story_id/chapter')
@@ -540,7 +555,7 @@ describe('POST /story/create', () => {
     expect(res.body.genre).toBe('dystopia');
     expect(res.body.tone).toBe('dark');
     expect(res.body.outline).toMatch(/Utopia/);
-    expect(story.create).toHaveBeenCalledWith('Brave New World', 'dystopia', 'dark');
+    expect(story.create).toHaveBeenCalledWith('Brave New World', 'dystopia', 'dark', {});
   });
 
   it('trims whitespace from title, genre, and tone before passing to story.create', async () => {
@@ -557,7 +572,19 @@ describe('POST /story/create', () => {
       .post('/story/create')
       .send({ title: '  Trimmed  ', genre: '  fantasy  ', tone: '  epic  ' });
 
-    expect(story.create).toHaveBeenCalledWith('Trimmed', 'fantasy', 'epic');
+    expect(story.create).toHaveBeenCalledWith('Trimmed', 'fantasy', 'epic', {});
+  });
+
+  it('forwards a model override into story.create aiOptions', async () => {
+    story.create.mockResolvedValue({
+      id: 'x', title: 't', genre: 'g', tone: 'tn', outline: 'o', createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await request(app)
+      .post('/story/create')
+      .send({ title: 'T', genre: 'g', tone: 'tn', model: 'mistral' });
+
+    expect(story.create).toHaveBeenCalledWith('T', 'g', 'tn', { model: 'mistral' });
   });
 
   it('returns 400 when title is missing', async () => {

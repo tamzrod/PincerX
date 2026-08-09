@@ -1488,6 +1488,13 @@
           <input type="text" id="story-genre" placeholder="e.g. fantasy, thriller, romance" class="story-field" />
           <label for="story-tone">Tone</label>
           <input type="text" id="story-tone" placeholder="e.g. dark, humorous, adventurous" />
+          <label for="story-model">Model</label>
+          <div class="model-row" style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+            <select id="story-model" style="flex:1">
+              <option value="">Auto (use Settings)</option>
+            </select>
+            <button type="button" class="btn-secondary" id="story-model-refresh" onclick="populateStoryModelSelect(true)" title="Re-detect available models">↻</button>
+          </div>
           <div class="row">
             <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
             <button class="btn-danger" id="reset-story-btn" onclick="resetStory()" style="display:none">Reset</button>
@@ -2010,6 +2017,65 @@
       );
     }
     return { cfg, models };
+  }
+
+  /**
+   * Populate the Story Writer "Model" dropdown (#story-model) from the AI
+   * backend's available models. Calls the same auto-detect /models endpoint
+   * used by preflightAIConnection (uses stored config). Caches the result so
+   * repeated calls don't re-hit the backend unless `force` is true.
+   *
+   * Resolves to the list of model names (empty on failure). Never throws —
+   * failures leave the "Auto (use Settings)" option in place so generation
+   * still works via the stored config.
+   *
+   * @param {boolean} [force=false] - bypass the cache and re-query the backend
+   * @returns {Promise<string[]>}
+   */
+  let _storyModelCache = null;
+  async function populateStoryModelSelect(force = false) {
+    const select = document.getElementById('story-model');
+    if (!select) return [];
+
+    // Keep current selection across re-populations so a user pick survives refresh.
+    let current = select.value;
+    let cfgModel = '';
+    try { cfgModel = (await _loadAIConfig())?.model || ''; } catch { /* ignore */ }
+
+    if (!force && _storyModelCache) {
+      _renderStoryModelOptions(select, _storyModelCache, current || cfgModel);
+      return _storyModelCache;
+    }
+
+    // Show a loading state so the refresh button gives immediate feedback.
+    select.innerHTML = '<option value="">Detecting…</option>';
+
+    try {
+      const data = await apiFetch('/models');
+      const models = (data.models || []).slice().sort();
+      _storyModelCache = models;
+      _renderStoryModelOptions(select, models, current || cfgModel);
+      return models;
+    } catch (e) {
+      // Restore the cached list if we have one, otherwise fall back to Auto.
+      _renderStoryModelOptions(select, _storyModelCache || [], current || cfgModel);
+      showMsg('story-msg', `Could not detect models: ${e.message}`, 'error');
+      return _storyModelCache || [];
+    }
+  }
+
+  /**
+   * Render model <option>s into the dropdown, preserving a "use Settings"
+   * fallback option. Pre-selects `preferred` when present.
+   */
+  function _renderStoryModelOptions(select, models, preferred) {
+    let html = '<option value="">Auto (use Settings)</option>';
+    models.forEach((m) => {
+      const sel = (m === preferred) ? ' selected' : '';
+      html += `<option value="${escapeHtml(m)}"${sel}>${escapeHtml(m)}</option>`;
+    });
+    select.innerHTML = html;
+    select.value = (preferred && models.includes(preferred)) ? preferred : '';
   }
 
   // ── PDF list ─────────────────────────────────────────────────────────────
@@ -3565,10 +3631,15 @@
       const cfg = await _loadAIConfig();
       showAIStatus('Generating story outline…', 'loading', _aiEndpointLabel(cfg));
 
+      const storyModelEl = document.getElementById('story-model');
+      const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+      const body = { title, genre, tone };
+      if (storyModel) body.model = storyModel;
+
       const data = await apiFetch('/story/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, genre, tone }),
+        body: JSON.stringify(body),
       });
 
       // Extract human-readable outline text from potentially JSON-wrapped response
@@ -4498,6 +4569,10 @@
   // Load PDF list and saved stories on page load
   loadPDFs();
   loadStoryList();
+  // Best-effort: populate the Story Writer model dropdown from the configured
+  // AI backend so the user can pick a model before generating. Non-blocking —
+  // failures leave the "Auto (use Settings)" option in place.
+  populateStoryModelSelect();
 
   // ── Story Knowledge & Coherence Functions ─────────────────────────────────
 
@@ -4923,6 +4998,8 @@
     const dialogRatio = parseInt(document.getElementById('chapter-dialog-ratio').value, 10);
     const lengthSelect = document.getElementById('chapter-length');
     const length = lengthSelect ? lengthSelect.value : 'default';
+    const storyModelEl = document.getElementById('story-model');
+    const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
 
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>Writing…';
@@ -4932,15 +5009,18 @@
     document.getElementById('coherence-banner').classList.remove('visible');
 
     try {
+      const reqBody = {
+        chapterNumber: storyState.chapters ? storyState.chapters.length + 1 : 1,
+        customPrompt,
+        dialogRatio,
+        length,
+      };
+      if (storyModel) reqBody.model = storyModel;
+
       const response = await fetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chapterNumber: storyState.chapters ? storyState.chapters.length + 1 : 1,
-          customPrompt,
-          dialogRatio,
-          length,
-        }),
+        body: JSON.stringify(reqBody),
       });
 
       if (!response.ok) {
