@@ -10,7 +10,7 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY api ./api
-COPY openclaw ./openclaw
+COPY lib ./lib
 COPY public ./public
 COPY story ./story
 COPY ingest.js ./
