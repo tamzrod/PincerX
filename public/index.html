@@ -3486,8 +3486,8 @@
     document.getElementById('story-tone').value = '';
     document.getElementById('chapter-custom-prompt').value = '';
 
-    document.getElementById('story-result').classList.remove('visible');
-    document.getElementById('story-placeholder').style.display = '';
+    const _resultBox = document.getElementById('story-result-knowledge');
+    if (_resultBox) _resultBox.classList.remove('visible');
     document.getElementById('chapter-section').style.display = 'none';
     document.getElementById('reading-panel').style.display = 'none';
     document.getElementById('reset-story-btn').style.display = 'none';
@@ -3528,7 +3528,8 @@
     if (!tone)  { showMsg('story-msg', 'Please enter a tone.', 'error'); return; }
 
     setLoading('story-btn', true, 'Generate Outline');
-    document.getElementById('story-result').classList.remove('visible');
+    const _resultBox = document.getElementById('story-result-knowledge');
+    if (_resultBox) _resultBox.classList.remove('visible');
     showMsg('story-msg', 'Generating story outline…', 'loading');
 
     try {
@@ -3555,9 +3556,10 @@
 
       // Extract human-readable outline text from potentially JSON-wrapped response
       const displayOutline = extractOutlineText(data.outline);
-      document.getElementById('story-outline').textContent = displayOutline;
-      document.getElementById('story-result').classList.add('visible');
-      document.getElementById('story-placeholder').style.display = 'none';
+      const _outlineEl = document.getElementById('story-outline-knowledge');
+      if (_outlineEl) _outlineEl.textContent = displayOutline;
+      const _box = document.getElementById('story-result-knowledge');
+      if (_box) _box.classList.add('visible');
       clearMsg('story-msg');
 
       showAIStatus('Outline generated', 'success', data.title || '', 4000);
@@ -4071,9 +4073,10 @@
       document.getElementById('story-title').value = data.title || '';
       document.getElementById('story-genre').value = data.genre || '';
       document.getElementById('story-tone').value  = data.tone  || '';
-      document.getElementById('story-outline').textContent = data.outline || '';
-      document.getElementById('story-result').classList.add('visible');
-      document.getElementById('story-placeholder').style.display = 'none';
+      const _outlineEl = document.getElementById('story-outline-knowledge');
+      if (_outlineEl) _outlineEl.textContent = data.outline || '';
+      const _box = document.getElementById('story-result-knowledge');
+      if (_box) _box.classList.add('visible');
       document.getElementById('chapter-section').style.display = '';
       document.getElementById('reset-story-btn').style.display = '';
       clearMsg('story-msg');
