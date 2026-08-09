@@ -47,6 +47,9 @@ describe('GET /config', () => {
     expect(res.body).toHaveProperty('baseUrl');
     expect(res.body).toHaveProperty('model');
     expect(res.body).toHaveProperty('hasApiKey');
+    // Default points at the Docker host so a containerized PincerX can reach
+    // a host-side Ollama without extra configuration.
+    expect(res.body.baseUrl).toBe('http://host.docker.internal:11434');
   });
 
   it('returns stored config values when file exists', async () => {

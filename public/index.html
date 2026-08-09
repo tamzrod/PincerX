@@ -882,6 +882,84 @@
       width: 0%;
     }
 
+    /* ── Global AI activity status bar ──────────────────────────────────── */
+    /* Surfaces the live phase of AI generation (outline / chapter) and any
+       error caught along the way, so a stalled request is never silently
+       stuck on "Loading…". Stacks above the Zonos bar when both are visible. */
+
+    .ai-status-bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #1a1a2e;
+      color: #e8eaf0;
+      font-size: 12px;
+      font-family: system-ui, sans-serif;
+      padding: 8px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 210;
+      transform: translateY(100%);
+      transition: transform 0.25s ease;
+      box-shadow: 0 -2px 10px rgba(0,0,0,.25);
+    }
+
+    .ai-status-bar.visible { transform: translateY(0); }
+
+    /* When the Zonos bar is also visible, lift this bar above it. */
+    .ai-status-bar.visible.with-zonos { bottom: 36px; }
+
+    .ai-status-icon {
+      flex-shrink: 0;
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .ai-status-bar.loading .ai-status-icon { animation: zonos-pulse 1.4s ease-in-out infinite; }
+    .ai-status-bar.success .ai-status-icon { color: #4ade80; }
+    .ai-status-bar.error   .ai-status-icon { color: #ff6b6b; }
+
+    .ai-status-body { flex: 1; min-width: 0; }
+
+    .ai-status-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .ai-status-detail {
+      font-size: 11px;
+      color: rgba(255,255,255,.6);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+
+    .ai-status-bar.error .ai-status-detail { color: #ffb4b4; }
+
+    .ai-status-bar.error {
+      background: #2a1010;
+      cursor: pointer;
+    }
+
+    .ai-status-bar.error .ai-status-text { font-weight: 600; }
+
+    .ai-status-dismiss {
+      flex-shrink: 0;
+      background: rgba(255,255,255,.12);
+      border: none;
+      color: #fff;
+      border-radius: 4px;
+      padding: 3px 9px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .ai-status-dismiss:hover { background: rgba(255,255,255,.22); }
+
     /* ── Story Writer sub-tabs ─────────────────────────────────────────── */
 
     .story-sub-tabs {
@@ -1254,8 +1332,8 @@
             <option value="http">http://</option>
             <option value="https">https://</option>
           </select>
-          <input type="text" id="cfg-host" placeholder="192.168.1.10 or localhost" style="flex:1" />
-          <input type="text" id="cfg-port" placeholder="Port" style="width:80px" />
+          <input type="text" id="cfg-host" placeholder="host.docker.internal or localhost" style="flex:1" />
+          <input type="text" id="cfg-port" placeholder="11434" style="width:80px" />
         </div>
       </div>
     </div>
@@ -1281,6 +1359,11 @@
       <label for="cfg-apikey">API Key <span id="cfg-apikey-note" style="color:#aaa;font-weight:400">(leave blank for none / Ollama)</span></label>
       <input type="password" id="cfg-apikey" placeholder="sk-… or leave blank" autocomplete="off" />
     </div>
+
+    <div class="row" style="margin-top:6px">
+      <button class="btn-secondary" id="cfg-test-btn" type="button" onclick="testConnection()">🔌 Test Connection</button>
+    </div>
+    <p style="font-size:11px;color:#666;margin-top:6px">Saves the current fields first, then pings the backend and reports the result in the status bar at the bottom of the screen.</p>
 
     <div class="msg" id="cfg-msg"></div>
 
@@ -1668,7 +1751,24 @@
 </div>
 
 <script>
-  // ── Tab navigation ────────────────────────────────────────────────────────
+  // Surface uncaught errors and unhandled promise rejections in the global AI
+  // status bar so a failure is never silently swallowed (which previously left
+  // the UI stuck on a "Loading…" spinner with no indication of what went wrong).
+  window.addEventListener('error', (e) => {
+    if (typeof showAIStatus === 'function') {
+      showAIStatus('Unexpected error', 'error',
+        (e.error && e.error.message) || e.message || 'Unknown error');
+    }
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    if (typeof showAIStatus === 'function') {
+      const reason = e.reason;
+      showAIStatus('Unexpected error', 'error',
+        (reason && reason.message) || String(reason) || 'Unknown rejection');
+    }
+  });
+</script>
+<script>
 
   function switchTab(name) {
     document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -1786,6 +1886,113 @@
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
+  }
+
+  // ── Global AI status bar ─────────────────────────────────────────────────
+  // Surfaces the live phase of AI generation and any error caught, so a
+  // stalled request (e.g. Ollama unreachable from inside Docker) is never
+  // silently stuck on a "Loading…" spinner.
+
+  let _aiStatusTimer = null;
+  // Cache of the last known AI config { baseUrl, model, provider } so status
+  // messages can show the endpoint being contacted without an extra round-trip.
+  let _aiConfigCache = null;
+
+  async function _loadAIConfig() {
+    if (_aiConfigCache) return _aiConfigCache;
+    try {
+      _aiConfigCache = await apiFetch('/config');
+    } catch { _aiConfigCache = null; }
+    return _aiConfigCache;
+  }
+
+  function _aiEndpointLabel(cfg) {
+    if (!cfg) return '';
+    const parts = [];
+    if (cfg.baseUrl) parts.push(cfg.baseUrl);
+    if (cfg.model) parts.push(`model: ${cfg.model}`);
+    return parts.join(' · ');
+  }
+
+  /**
+   * Show the AI status bar in a given state.
+   * @param {string} text   - Primary status line.
+   * @param {'loading'|'success'|'error'} type
+   * @param {string} [detail] - Optional second line (endpoint, error hint, …).
+   * @param {number} [autoHideMs] - When set (success only), auto-hide after ms.
+   */
+  function showAIStatus(text, type, detail, autoHideMs) {
+    const bar = document.getElementById('ai-status-bar');
+    const textEl = document.getElementById('ai-status-text');
+    const detailEl = document.getElementById('ai-status-detail');
+    const iconEl = document.getElementById('ai-status-icon');
+    const dismissBtn = document.getElementById('ai-status-dismiss');
+    if (!bar) return;
+
+    if (_aiStatusTimer) { clearTimeout(_aiStatusTimer); _aiStatusTimer = null; }
+
+    bar.classList.remove('loading', 'success', 'error');
+    bar.classList.add(type, 'visible');
+
+    // Stack above the Zonos bar when it is visible.
+    const zonos = document.getElementById('zonos-status-bar');
+    bar.classList.toggle('with-zonos', zonos && zonos.classList.contains('visible'));
+
+    textEl.textContent = text;
+    if (detail) {
+      detailEl.textContent = detail;
+      detailEl.style.display = '';
+    } else {
+      detailEl.style.display = 'none';
+    }
+
+    const icons = { loading: '⏳', success: '✓', error: '⚠' };
+    iconEl.textContent = icons[type] || '⏳';
+
+    dismissBtn.style.display = type === 'loading' ? 'none' : '';
+
+    if (type === 'success' && autoHideMs) {
+      _aiStatusTimer = setTimeout(() => dismissAIStatus(), autoHideMs);
+    }
+  }
+
+  function dismissAIStatus() {
+    const bar = document.getElementById('ai-status-bar');
+    if (!bar) return;
+    if (_aiStatusTimer) { clearTimeout(_aiStatusTimer); _aiStatusTimer = null; }
+    bar.classList.remove('visible', 'loading', 'success', 'error', 'with-zonos');
+  }
+
+  /**
+   * Preflight connection probe against the configured AI backend via the
+   * server's /models endpoint (uses the stored config). Resolves to a list of
+   * model names; rejects with a readable error on failure.
+   *
+   * Used before long-running generation so a misconfigured/unreachable backend
+   * is reported immediately instead of stalling for the full 120s AI timeout.
+   */
+  async function preflightAIConnection() {
+    const cfg = await _loadAIConfig();
+    showAIStatus(
+      'Contacting AI backend…',
+      'loading',
+      _aiEndpointLabel(cfg)
+    );
+    // /models with no query params uses the stored config on the server side.
+    const data = await apiFetch('/models');
+    const models = data.models || [];
+    if (models.length === 0) {
+      throw new Error('AI backend responded but listed no models. Pull a model first (e.g. `ollama pull llama3.2`).');
+    }
+    if (cfg && cfg.model && !models.includes(cfg.model)) {
+      // Warn but do not block — the backend may still accept the model name.
+      showAIStatus(
+        `Model "${cfg.model}" not in available list`,
+        'loading',
+        `Available: ${models.slice(0, 4).join(', ')}${models.length > 4 ? '…' : ''} · ${cfg.baseUrl}`
+      );
+    }
+    return { cfg, models };
   }
 
   // ── PDF list ─────────────────────────────────────────────────────────────
@@ -2046,7 +2253,7 @@
       } else {
         // Ollama — parse scheme/host/port
         let scheme = 'http';
-        let host = 'localhost';
+        let host = 'host.docker.internal';
         let port = '11434';
         try {
           const parsed = new URL(cfg.baseUrl);
@@ -2151,30 +2358,10 @@
 
   async function saveSettings() {
     clearMsg('cfg-msg');
+    const baseUrl = buildBaseUrlFromFields();
+    if (!baseUrl) return;
+
     const provider = document.getElementById('cfg-provider').value;
-    let baseUrl;
-
-    if (PROVIDER_PRESETS[provider]) {
-      baseUrl = document.getElementById('cfg-online-url').value.trim();
-      if (!baseUrl) {
-        showMsg('cfg-msg', 'Enter the API Base URL.', 'error');
-        return;
-      }
-    } else {
-      const scheme = document.getElementById('cfg-scheme').value;
-      const host = document.getElementById('cfg-host').value.trim();
-      const port = document.getElementById('cfg-port').value.trim();
-      if (!host) {
-        showMsg('cfg-msg', 'Host cannot be empty.', 'error');
-        return;
-      }
-      if (!port || isNaN(Number(port)) || Number(port) < 1 || Number(port) > 65535) {
-        showMsg('cfg-msg', 'Port must be a number between 1 and 65535.', 'error');
-        return;
-      }
-      baseUrl = `${scheme}://${host}:${port}`;
-    }
-
     const model = document.getElementById('cfg-model').value.trim();
     const apiKey = document.getElementById('cfg-apikey').value;
 
@@ -2197,11 +2384,111 @@
         body: JSON.stringify(body),
       });
       showMsg('cfg-msg', data.message || 'Saved.', 'success');
+      // Invalidate the cached config so subsequent status messages re-read it.
+      _aiConfigCache = null;
     } catch (e) {
       showMsg('cfg-msg', e.message, 'error');
     } finally {
       btn.disabled = false;
       btn.textContent = 'Save';
+    }
+  }
+
+  /**
+   * Read the host/port (or online URL) fields from the settings modal and
+   * return a normalized baseUrl string. Returns null with a cfg-msg error
+   * when the fields are invalid.
+   */
+  function buildBaseUrlFromFields() {
+    const provider = document.getElementById('cfg-provider').value;
+    if (PROVIDER_PRESETS[provider]) {
+      const url = document.getElementById('cfg-online-url').value.trim();
+      if (!url) { showMsg('cfg-msg', 'Enter the API Base URL.', 'error'); return null; }
+      return url;
+    }
+    const scheme = document.getElementById('cfg-scheme').value;
+    const host = document.getElementById('cfg-host').value.trim();
+    const port = document.getElementById('cfg-port').value.trim();
+    if (!host) { showMsg('cfg-msg', 'Host cannot be empty.', 'error'); return null; }
+    if (!port || isNaN(Number(port)) || Number(port) < 1 || Number(port) > 65535) {
+      showMsg('cfg-msg', 'Port must be a number between 1 and 65535.', 'error'); return null;
+    }
+    return `${scheme}://${host}:${port}`;
+  }
+
+  /**
+   * Save the current settings fields, then probe the AI backend and report
+   * the outcome in the global AI status bar. Gives immediate, visible
+   * feedback about whether Ollama is reachable from the PincerX container.
+   */
+  async function testConnection() {
+    clearMsg('cfg-msg');
+    const baseUrl = buildBaseUrlFromFields();
+    if (!baseUrl) return;
+
+    const provider = document.getElementById('cfg-provider').value;
+    const model = document.getElementById('cfg-model').value.trim();
+    const apiKey = document.getElementById('cfg-apikey').value;
+    if (!model) { showMsg('cfg-msg', 'Model name cannot be empty.', 'error'); return; }
+
+    const btn = document.getElementById('cfg-test-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Testing…';
+
+    // Persist first so the server-side probe uses the exact values shown.
+    try {
+      await apiFetch('/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseUrl, model, provider, apiKey }),
+      });
+      _aiConfigCache = null;
+    } catch (e) {
+      showMsg('cfg-msg', 'Could not save config before testing: ' + e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = '🔌 Test Connection';
+      return;
+    }
+
+    showAIStatus('Testing AI backend connection…', 'loading', `${baseUrl} · model: ${model}`);
+
+    try {
+      const data = await apiFetch('/models?baseUrl=' + encodeURIComponent(baseUrl) + '&provider=' + encodeURIComponent(provider));
+      const models = data.models || [];
+      if (models.length === 0) {
+        showMsg('cfg-msg', 'Backend reachable but no models found.', 'error');
+        showAIStatus('No models on backend', 'error',
+          `${baseUrl} — pull a model (e.g. \`ollama pull llama3.2\`)`);
+      } else {
+        const ok = !model || models.includes(model);
+        showMsg('cfg-msg', `Connected. ${models.length} model(s) available.`, 'success');
+        if (ok) {
+          showAIStatus('AI backend reachable', 'success',
+            `${baseUrl} · ${models.length} models`, 5000);
+        } else {
+          showAIStatus(`Model "${model}" not listed`, 'error',
+            `Available: ${models.slice(0, 4).join(', ')}${models.length > 4 ? '…' : ''}`);
+        }
+        // Refresh the model dropdown with the detected list.
+        const modelSelect = document.getElementById('cfg-model');
+        const current = modelSelect.value;
+        modelSelect.innerHTML = '';
+        models.forEach((name) => {
+          const opt = document.createElement('option');
+          opt.value = name; opt.textContent = name;
+          modelSelect.appendChild(opt);
+        });
+        modelSelect.value = models.includes(current) ? current : models[0];
+      }
+    } catch (e) {
+      showMsg('cfg-msg', 'Connection failed: ' + e.message, 'error');
+      const hint = provider === 'ollama'
+        ? 'Is Ollama running and listening on 11434? Inside Docker use host.docker.internal.'
+        : 'Check the API Base URL and API key.';
+      showAIStatus('AI backend unreachable', 'error', `${e.message} — ${hint}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔌 Test Connection';
     }
   }
 
@@ -3245,6 +3532,21 @@
     showMsg('story-msg', 'Generating story outline…', 'loading');
 
     try {
+      // Preflight: confirm the AI backend is reachable before committing to
+      // the (potentially long) outline generation, so a bad endpoint fails
+      // fast with a clear message instead of stalling on "Loading…".
+      try {
+        await preflightAIConnection();
+      } catch (connErr) {
+        throw new Error(
+          `Cannot reach AI backend: ${connErr.message} ` +
+          `Open ⚙ Settings and verify the Ollama host (host.docker.internal) and port (11434).`
+        );
+      }
+
+      const cfg = await _loadAIConfig();
+      showAIStatus('Generating story outline…', 'loading', _aiEndpointLabel(cfg));
+
       const data = await apiFetch('/story/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3257,6 +3559,8 @@
       document.getElementById('story-result').classList.add('visible');
       document.getElementById('story-placeholder').style.display = 'none';
       clearMsg('story-msg');
+
+      showAIStatus('Outline generated', 'success', data.title || '', 4000);
 
       // Reset chapter state for the new story
       storyState.id = data.id;
@@ -3289,6 +3593,7 @@
       loadStoryList();
     } catch (e) {
       showMsg('story-msg', e.message, 'error');
+      showAIStatus('Outline generation failed', 'error', e.message);
     } finally {
       setLoading('story-btn', false, 'Generate Outline');
     }
@@ -3305,6 +3610,19 @@
     showMsg('chapter-msg', `Generating Chapter ${chapterNumber}…`, 'loading');
 
     try {
+      // Preflight the AI backend so a connection problem surfaces here too.
+      try {
+        await preflightAIConnection();
+      } catch (connErr) {
+        throw new Error(
+          `Cannot reach AI backend: ${connErr.message} ` +
+          `Open ⚙ Settings and verify the Ollama host (host.docker.internal) and port (11434).`
+        );
+      }
+
+      const cfg = await _loadAIConfig();
+      showAIStatus(`Generating Chapter ${chapterNumber}…`, 'loading', _aiEndpointLabel(cfg));
+
       const body = { chapterNumber, dialogRatio };
       if (customPrompt) body.customPrompt = customPrompt;
 
@@ -3318,6 +3636,7 @@
       storyState.nextChapter = chapterNumber + 1;
       clearMsg('chapter-msg');
       document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
+      showAIStatus(`Chapter ${chapterNumber} generated`, 'success', '', 4000);
       // Refresh character list — auto-extraction may have added new characters.
       await loadCharacters();
       await refreshCharacterVoiceMap();
@@ -3326,6 +3645,7 @@
       updateStoryKnowledgeVisibility();
     } catch (e) {
       showMsg('chapter-msg', e.message, 'error');
+      showAIStatus(`Chapter ${chapterNumber} generation failed`, 'error', e.message);
     } finally {
       setLoading('chapter-btn', false, `Generate Chapter ${storyState.nextChapter}`);
     }
@@ -3526,6 +3846,7 @@
 
     if (totalChunks === 0) {
       bar.classList.remove('visible');
+      _syncAIBarZonosStack();
       return;
     }
 
@@ -3537,6 +3858,14 @@
     progEl.textContent = `${doneChunks} / ${totalChunks} chunks`;
     fillEl.style.width = `${pct}%`;
     bar.classList.add('visible');
+    _syncAIBarZonosStack();
+  }
+
+  /** Keep the AI status bar's `with-zonos` offset in sync with the Zonos bar. */
+  function _syncAIBarZonosStack() {
+    const aiBar = document.getElementById('ai-status-bar');
+    const zonos = document.getElementById('zonos-status-bar');
+    if (aiBar) aiBar.classList.toggle('with-zonos', !!(zonos && zonos.classList.contains('visible')));
   }
 
   // ── TTS prebake (background audio pre-synthesis) ──────────────────────────
@@ -4138,7 +4467,7 @@
 
   // Close modals on Escape key
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeSettings(); closeVoiceSettings(); closeTranscriptEditor(); stopTranscriptPreview(); closeParaCtxMenu(); }
+    if (e.key === 'Escape') { closeSettings(); closeVoiceSettings(); closeTranscriptEditor(); stopTranscriptPreview(); closeParaCtxMenu(); dismissAIStatus(); }
   });
 
   // Enter key shortcut for ask input
@@ -4639,6 +4968,16 @@
       <button class="btn-primary" id="transcript-save-btn" onclick="saveTranscriptEdits()">Save Changes</button>
     </div>
   </div>
+</div>
+
+<!-- ── Global AI activity status bar ─────────────────────────────────────── -->
+<div id="ai-status-bar" class="ai-status-bar" role="status" aria-live="polite" aria-atomic="true" onclick="if(this.classList.contains('error')){dismissAIStatus();}">
+  <span class="ai-status-icon" id="ai-status-icon">⏳</span>
+  <div class="ai-status-body">
+    <div class="ai-status-text" id="ai-status-text">Idle</div>
+    <div class="ai-status-detail" id="ai-status-detail" style="display:none"></div>
+  </div>
+  <button type="button" class="ai-status-dismiss" id="ai-status-dismiss" onclick="event.stopPropagation();dismissAIStatus()">Dismiss</button>
 </div>
 
 <!-- ── Global Zonos activity status bar ──────────────────────────────────── -->

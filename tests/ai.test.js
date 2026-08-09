@@ -69,7 +69,7 @@ describe('AI Transport (lib/ai.js)', () => {
 
       expect(http.request).toHaveBeenCalledWith(
         expect.objectContaining({
-          hostname: 'localhost',
+          hostname: 'host.docker.internal',
           path: '/api/generate',
           method: 'POST',
         }),
@@ -138,7 +138,7 @@ describe('AI Transport (lib/ai.js)', () => {
     it('rejects on network error', async () => {
       mockHttpRequestError('ECONNREFUSED');
       await expect(ai.ask('prompt')).rejects.toThrow(
-        'AI request failed (http://localhost:11434, model=llama3): ECONNREFUSED'
+        'AI request failed (http://host.docker.internal:11434, model=llama3): ECONNREFUSED'
       );
     });
   });
@@ -167,7 +167,7 @@ describe('AI Transport (lib/ai.js)', () => {
       jest.advanceTimersByTime(5000);
 
       await expect(promise).rejects.toThrow(
-        'AI request failed (http://localhost:11434, model=llama3): AI request timed out'
+        'AI request failed (http://host.docker.internal:11434, model=llama3): AI request timed out'
       );
       expect(mockReq.destroy).toHaveBeenCalledTimes(1);
     });

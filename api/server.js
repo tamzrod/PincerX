@@ -50,6 +50,13 @@ const upload = multer({
 });
 
 app.use(express.json());
+app.use((req, res, next) => {
+  if (req.path === '/' || req.path.endsWith('.html')) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 /**
@@ -80,7 +87,7 @@ app.get('/config', (_req, res) => {
     return res.status(500).json({ error: `Could not read config: ${e.message}` });
   }
   return res.json({
-    baseUrl: stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434',
+    baseUrl: stored.baseUrl || process.env.AI_BASE_URL || 'http://host.docker.internal:11434',
     model: stored.model || process.env.AI_MODEL || 'llama3',
     provider: stored.provider || process.env.AI_PROVIDER || 'ollama',
     hasApiKey: Boolean(stored.apiKey || process.env.AI_API_KEY),
@@ -162,7 +169,7 @@ app.get('/models', async (req, res) => {
   }
 
   if (!baseUrl) {
-    baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
+    baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://host.docker.internal:11434';
   }
   if (!provider) {
     provider = stored.provider || process.env.AI_PROVIDER || 'ollama';
@@ -1738,7 +1745,7 @@ if (require.main === module) {
         }
       } catch { /* ignore corrupt config */ }
 
-      const baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://localhost:11434';
+      const baseUrl = stored.baseUrl || process.env.AI_BASE_URL || 'http://host.docker.internal:11434';
       const configuredModel = stored.model || process.env.AI_MODEL || 'llama3';
       const models = await ai.listModels({ baseUrl });
 
