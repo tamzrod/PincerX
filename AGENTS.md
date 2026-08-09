@@ -12,9 +12,10 @@
   ```
 - `apiFetch(url, opts)` wraps `fetch` + `res.json()` and throws on `!res.ok` (error message from `data.error`).
 - Global AI status bar (`#ai-status-bar`) surfaces generation phase + errors via `showAIStatus(text, type, detail, autoHideMs)`. `preflightAIConnection()` probes `/models` before long generation so unreachable backends fail fast instead of stalling on "Loading…".
+- Live AI Conversation preview (`#ai-convo`, collapsible bottom-right panel) shows streaming generation in real time. Backed by SSE streaming endpoints: `POST /story/create/stream` and `POST /story/:id/chapter/stream`. These emit `progress`/`token`/`done`/`error` SSE events. Frontend `streamAIRequest(url, body, handlers)` parses the SSE stream via `fetch` + `ReadableStream.getReader()` (not `EventSource`, which only supports GET). `lib/ai.js#askStream(prompt, options, onToken)` streams from the AI backend (Ollama NDJSON / OpenAI SSE) with a buffered-JSON fallback. `story.js` accepts `onToken`/`onPhase` in `aiOptions` and routes to `askStream` when `onToken` is present.
 
 ## Running
-- `npm test` — 320 tests (jest). `npm start` / `node api/server.js` on port 3000.
+- `npm test` — 340 tests (jest). `npm start` / `node api/server.js` on port 3000.
 
 ## Browser-tool caveat
 The browser automation tool can get stuck on `about:blank` (no tabs) mid-session and aggressively caches inline JS. When it fails, verify via `curl` against the server + server logs instead of fighting the browser.

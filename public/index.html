@@ -967,6 +967,68 @@
 
     .ai-status-dismiss:hover { background: rgba(255,255,255,.22); }
 
+    /* ── AI Conversation preview ───────────────────────────────────────── */
+    /* A collapsible panel that shows the live AI conversation (phase progress
+       + streaming generation text) so the user can see something is happening
+       during long outline/chapter generation. Sits just above the status bar. */
+
+    .ai-convo {
+      position: fixed;
+      right: 18px;
+      bottom: 0;
+      width: 440px;
+      max-width: calc(100vw - 36px);
+      max-height: 60vh;
+      background: #14142a;
+      color: #e8eaf0;
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 12px;
+      border-radius: 10px 10px 0 0;
+      box-shadow: 0 -4px 24px rgba(0,0,0,.45);
+      z-index: 220;
+      display: flex;
+      flex-direction: column;
+      transform: translateY(calc(100% + 12px));
+      transition: transform 0.25s ease;
+      border: 1px solid #2a2a44;
+      border-bottom: none;
+    }
+    .ai-convo.visible { transform: translateY(0); }
+
+    .ai-convo-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #1d1d36;
+      border-radius: 10px 10px 0 0;
+      cursor: pointer;
+      user-select: none;
+      border-bottom: 1px solid #2a2a44;
+    }
+    .ai-convo-title { flex: 1; font-weight: 600; font-family: system-ui, sans-serif; font-size: 13px; }
+    .ai-convo-phase { color: #8ab4ff; font-size: 11px; font-family: system-ui, sans-serif; }
+    .ai-convo-toggle { color: rgba(255,255,255,.6); font-size: 12px; }
+    .ai-convo-toggle:hover { color: #fff; }
+
+    .ai-convo-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.5;
+      color: #c8cae0;
+    }
+    .ai-convo-body.collapsed { display: none; }
+    .ai-convo-body .convo-phase { color: #8ab4ff; font-family: system-ui, sans-serif; }
+    .ai-convo-body .convo-text { color: #c8cae0; }
+    .ai-convo-body .convo-error { color: #ff8a8a; }
+    .ai-convo-body .convo-done { color: #7ee787; font-family: system-ui, sans-serif; }
+    .ai-convo-cursor { display: inline-block; width: 7px; height: 13px; background: #8ab4ff; vertical-align: text-bottom; animation: convo-blink 1s steps(2) infinite; }
+    @keyframes convo-blink { 50% { opacity: 0; } }
+
+
     /* ── Story Writer sub-tabs ─────────────────────────────────────────── */
 
     .story-sub-tabs {
@@ -1985,6 +2047,181 @@
     if (!bar) return;
     if (_aiStatusTimer) { clearTimeout(_aiStatusTimer); _aiStatusTimer = null; }
     bar.classList.remove('visible', 'loading', 'success', 'error', 'with-zonos');
+  }
+
+  // ── AI Conversation preview ──────────────────────────────────────────────
+  // A live, collapsible view of the AI conversation during outline/chapter
+  // generation. Shows each phase label and the streaming generation text as
+  // it arrives, so the user can see something is happening instead of staring
+  // at a spinner. Backed by the SSE streaming endpoints (/story/create/stream
+  // and /story/:id/chapter/stream).
+
+  let _aiConvoTextEl = null;   // current streaming-text element
+  let _aiConvoCollapsed = false;
+
+  function _aiConvoBody() { return document.getElementById('ai-convo-body'); }
+  function _aiConvoPanel() { return document.getElementById('ai-convo'); }
+  function _aiConvoPhase() { return document.getElementById('ai-convo-phase'); }
+
+  function toggleAIConvo() {
+    _aiConvoCollapsed = !_aiConvoCollapsed;
+    const body = _aiConvoBody();
+    const toggle = document.getElementById('ai-convo-toggle');
+    if (body) body.classList.toggle('collapsed', _aiConvoCollapsed);
+    if (toggle) toggle.textContent = _aiConvoCollapsed ? '▸' : '▾';
+  }
+
+  /**
+   * Reset and show the AI Conversation panel at the start of a generation.
+   * @param {string} title - header phase label
+   */
+  function showAIConvo(title) {
+    const panel = _aiConvoPanel();
+    const body = _aiConvoBody();
+    const phase = _aiConvoPhase();
+    if (!panel || !body) return;
+    if (phase) phase.textContent = title || '';
+    body.innerHTML = '';
+    _aiConvoTextEl = null;
+    panel.classList.add('visible');
+    if (_aiConvoCollapsed) { _aiConvoCollapsed = false; toggleAIConvo(); }
+  }
+
+  function hideAIConvo() {
+    const panel = _aiConvoPanel();
+    if (panel) panel.classList.remove('visible');
+  }
+
+  /** Append a phase label line ("● Writing chapter"). */
+  function _aiConvoPhaseLine(label) {
+    const body = _aiConvoBody();
+    if (!body) return;
+    const el = document.createElement('div');
+    el.className = 'convo-phase';
+    el.textContent = `● ${label}`;
+    body.appendChild(el);
+    // A new phase starts a new text block.
+    _aiConvoTextEl = null;
+    body.scrollTop = body.scrollHeight;
+    const phase = _aiConvoPhase();
+    if (phase) phase.textContent = label;
+  }
+
+  /** Ensure a streaming-text span exists and append a token fragment to it. */
+  function _aiConvoToken(text) {
+    const body = _aiConvoBody();
+    if (!body) return;
+    if (!_aiConvoTextEl) {
+      _aiConvoTextEl = document.createElement('span');
+      _aiConvoTextEl.className = 'convo-text';
+      body.appendChild(_aiConvoTextEl);
+    }
+    _aiConvoTextEl.textContent += text;
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function _aiConvoError(msg) {
+    const body = _aiConvoBody();
+    if (!body) return;
+    const el = document.createElement('div');
+    el.className = 'convo-error';
+    el.textContent = `✗ ${msg}`;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function _aiConvoDone(label) {
+    const body = _aiConvoBody();
+    if (!body) return;
+    const el = document.createElement('div');
+    el.className = 'convo-done';
+    el.textContent = `✓ ${label || 'Done'}`;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+    const phase = _aiConvoPhase();
+    if (phase) phase.textContent = '';
+  }
+
+  /**
+   * Stream an SSE POST request and dispatch events to the AI Conversation UI.
+   * Uses fetch + ReadableStream.getReader to parse the Server-Sent Events
+   * stream from a POST body (EventSource only supports GET, so we parse SSE
+   * manually here).
+   *
+   * @param {string} url
+   * @param {object} body - JSON body
+   * @param {object} [handlers]
+   * @param {(result: object) => void} [handlers.onDone] - called with the
+   *   parsed `done` event payload (the final generation result).
+   * @param {(err: Error) => void} [handlers.onError]
+   * @param {string} [handlers.title] - initial phase label for the panel
+   * @returns {Promise<void>}
+   */
+  async function streamAIRequest(url, body, handlers = {}) {
+    showAIConvo(handlers.title || 'Generating');
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        let msg = `HTTP ${response.status}`;
+        try { msg = (await response.json()).error || msg; } catch { /* keep status */ }
+        _aiConvoError(msg);
+        if (handlers.onError) handlers.onError(new Error(msg));
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let doneResult = null;
+
+      // Parse SSE frames. Each frame ends with "\n\n"; within a frame, lines
+      // are "event: X" and "data: {...}".
+      const dispatchFrame = (frame) => {
+        const lines = frame.split('\n');
+        let event = 'message';
+        let dataStr = '';
+        for (const line of lines) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+        }
+        if (!dataStr) return;
+        let data;
+        try { data = JSON.parse(dataStr); } catch { return; }
+        if (event === 'progress') _aiConvoPhaseLine(data.phase || 'Working');
+        else if (event === 'token') _aiConvoToken(data.text || '');
+        else if (event === 'done') doneResult = data;
+        else if (event === 'error') {
+          _aiConvoError(data.error || 'Unknown error');
+          if (handlers.onError) handlers.onError(new Error(data.error || 'Unknown error'));
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf('\n\n')) >= 0) {
+          const frame = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          if (frame.trim()) dispatchFrame(frame);
+        }
+      }
+      // Flush any trailing frame.
+      if (buffer.trim()) dispatchFrame(buffer);
+
+      if (doneResult) {
+        _aiConvoDone(handlers.doneLabel || 'Done');
+        if (handlers.onDone) handlers.onDone(doneResult);
+      }
+    } catch (e) {
+      _aiConvoError(e.message);
+      if (handlers.onError) handlers.onError(e);
+    }
   }
 
   /**
@@ -3636,11 +3873,14 @@
       const body = { title, genre, tone };
       if (storyModel) body.model = storyModel;
 
-      const data = await apiFetch('/story/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const data = await new Promise((resolve, reject) => {
+        streamAIRequest('/story/create/stream', body, {
+          title: 'Outline',
+          doneLabel: 'Outline ready',
+          onDone: resolve,
+          onError: reject,
+        });
+      }).catch((e) => { throw e; });
 
       // Extract human-readable outline text from potentially JSON-wrapped response
       const displayOutline = extractOutlineText(data.outline);
@@ -3713,14 +3953,22 @@
       const cfg = await _loadAIConfig();
       showAIStatus(`Generating Chapter ${chapterNumber}…`, 'loading', _aiEndpointLabel(cfg));
 
-      const body = { chapterNumber, dialogRatio };
+      const lengthSelect = document.getElementById('chapter-length');
+      const length = lengthSelect ? lengthSelect.value : 'default';
+      const storyModelEl = document.getElementById('story-model');
+      const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+      const body = { chapterNumber, dialogRatio, length };
       if (customPrompt) body.customPrompt = customPrompt;
+      if (storyModel) body.model = storyModel;
 
-      const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const data = await new Promise((resolve, reject) => {
+        streamAIRequest(`/story/${encodeURIComponent(storyState.id)}/chapter/stream`, body, {
+          title: `Chapter ${chapterNumber}`,
+          doneLabel: `Chapter ${chapterNumber} ready`,
+          onDone: resolve,
+          onError: reject,
+        });
+      }).catch((e) => { throw e; });
 
       appendChapterToReading(chapterNumber, data.content || '');
       storyState.nextChapter = chapterNumber + 1;
@@ -3752,14 +4000,22 @@
     showMsg('chapter-msg', `Regenerating Chapter ${chapterNumber}…`, 'loading');
 
     try {
-      const body = { chapterNumber, dialogRatio };
+      const lengthSelect = document.getElementById('chapter-length');
+      const length = lengthSelect ? lengthSelect.value : 'default';
+      const storyModelEl = document.getElementById('story-model');
+      const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+      const body = { chapterNumber, dialogRatio, length };
       if (customPrompt) body.customPrompt = customPrompt;
+      if (storyModel) body.model = storyModel;
 
-      const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const data = await new Promise((resolve, reject) => {
+        streamAIRequest(`/story/${encodeURIComponent(storyState.id)}/chapter/stream`, body, {
+          title: `Chapter ${chapterNumber}`,
+          doneLabel: `Chapter ${chapterNumber} regenerated`,
+          onDone: resolve,
+          onError: reject,
+        });
+      }).catch((e) => { throw e; });
 
       // Replace content in-place (keep the section element, replace paragraphs)
       stopTTS(); // stop any ongoing TTS for this chapter
@@ -5017,18 +5273,14 @@
       };
       if (storyModel) reqBody.model = storyModel;
 
-      const response = await fetch(`/story/${encodeURIComponent(storyState.id)}/chapter`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reqBody),
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Generation failed');
-      }
-
-      const result = await response.json();
+      const result = await new Promise((resolve, reject) => {
+        streamAIRequest(`/story/${encodeURIComponent(storyState.id)}/chapter/stream`, reqBody, {
+          title: `Chapter ${reqBody.chapterNumber}`,
+          doneLabel: `Chapter ${reqBody.chapterNumber} ready`,
+          onDone: resolve,
+          onError: reject,
+        });
+      }).catch((e) => { throw e; });
 
       // Reload the story to get updated state
       await loadStory(storyState.id);
@@ -5071,6 +5323,16 @@
       <button class="btn-primary" id="transcript-save-btn" onclick="saveTranscriptEdits()">Save Changes</button>
     </div>
   </div>
+</div>
+
+<!-- ── AI Conversation preview (live AI output) ──────────────────────────── -->
+<div class="ai-convo" id="ai-convo" role="log" aria-live="polite" aria-atomic="false">
+  <div class="ai-convo-header" id="ai-convo-header" onclick="toggleAIConvo()">
+    <span class="ai-convo-title">AI Conversation</span>
+    <span class="ai-convo-phase" id="ai-convo-phase"></span>
+    <span class="ai-convo-toggle" id="ai-convo-toggle">▾</span>
+  </div>
+  <div class="ai-convo-body" id="ai-convo-body"></div>
 </div>
 
 <!-- ── Global AI activity status bar ─────────────────────────────────────── -->

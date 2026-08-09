@@ -534,6 +534,64 @@ describe('POST /story/:id/chapter', () => {
   });
 });
 
+// ─── POST /story/:id/chapter/stream (SSE) ────────────────────────────────────
+
+describe('POST /story/:id/chapter/stream', () => {
+  it('emits progress/token/done SSE events and forwards onPhase/onToken hooks', async () => {
+    // Capture the aiOptions (with the streaming hooks) passed to generateChapter.
+    story.generateChapter.mockImplementation(async (_id, _num, aiOptions) => {
+      aiOptions.onPhase('Writing chapter');
+      aiOptions.onToken('Hello ');
+      aiOptions.onToken('world');
+      return { storyId: '1234-my-story', chapterNumber: 1, content: 'Hello world' };
+    });
+
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter/stream')
+      .send({ chapterNumber: 1, model: 'mistral' })
+      .buffer(true)               // collect the full SSE body
+      .parse((res, cb) => {        // supertest has no SSE parser; collect raw text
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => cb(null, data));
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/event-stream/);
+    const body = res.body; // raw text
+    expect(body).toContain('event: progress');
+    expect(body).toContain('"phase":"Writing chapter"');
+    expect(body).toContain('event: token');
+    expect(body).toContain('"text":"Hello "');
+    expect(body).toContain('event: done');
+    expect(body).toContain('"content":"Hello world"');
+
+    // generateChapter was called with model + the two streaming hooks.
+    const [, , aiOptions] = story.generateChapter.mock.calls[0];
+    expect(aiOptions.model).toBe('mistral');
+    expect(typeof aiOptions.onPhase).toBe('function');
+    expect(typeof aiOptions.onToken).toBe('function');
+  });
+
+  it('emits an error SSE event when generation throws', async () => {
+    story.generateChapter.mockRejectedValue(new Error('AI offline'));
+
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter/stream')
+      .send({ chapterNumber: 1 })
+      .buffer(true)
+      .parse((res, cb) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => cb(null, data));
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('event: error');
+    expect(res.body).toMatch(/AI offline/);
+  });
+});
+
 
 describe('POST /story/create', () => {
   it('returns 201 with the created story on valid input', async () => {

@@ -1467,6 +1467,125 @@ app.post('/story/:id/chapter', async (req, res) => {
 });
 
 /**
+ * Write one Server-Sent Events message to the response. SSE messages are
+ * newline-terminated; each `data:` line carries one JSON blob. Flushing
+ * ensures the client receives partial output immediately (no buffering).
+ */
+function sseEmit(res, event, payload) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+/**
+ * POST /story/:id/chapter/stream
+ * Streaming variant of POST /story/:id/chapter. Same body, but returns an
+ * SSE stream so the UI can show the AI conversation (phase progress + the
+ * chapter text appearing token-by-token) as it is generated.
+ *
+ * Emits:
+ *   event: progress  data: { "phase": "Writing chapter" }
+ *   event: token     data: { "text": "Once upon" }       (per token fragment)
+ *   event: done      data: { ...generateChapter result }
+ *   event: error     data: { "error": "..." }
+ */
+app.post('/story/:id/chapter/stream', async (req, res) => {
+  const { id } = req.params;
+  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model } = req.body;
+
+  // SSE headers. Disable Nagle + proxy buffering so tokens flush promptly.
+  res.set('Content-Type', 'text/event-stream');
+  res.set('Cache-Control', 'no-cache, no-transform');
+  res.set('Connection', 'keep-alive');
+  res.set('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    sseEmit(res, 'error', { error: 'Invalid story ID format.' });
+    return res.end();
+  }
+
+  if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
+    sseEmit(res, 'error', { error: 'Request body must include a positive integer "chapterNumber".' });
+    return res.end();
+  }
+
+  const prompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
+  const aiOptions = {};
+  if (typeof dialogRatio === 'number' && Number.isFinite(dialogRatio)) {
+    aiOptions.dialogRatio = dialogRatio;
+  }
+  if (length === 'short' || length === 'default' || length === 'long') {
+    aiOptions.length = length;
+  }
+  if (Number.isFinite(wordTarget) && wordTarget > 0) {
+    aiOptions.wordTarget = Math.round(wordTarget);
+  }
+  if (typeof model === 'string' && model.trim()) {
+    aiOptions.model = model.trim();
+  }
+
+  // Live-progress hooks → SSE events. onToken streams token fragments so the
+  // user sees the chapter appear in real time; onPhase marks each phase.
+  aiOptions.onPhase = (phase) => {
+    sseEmit(res, 'progress', { phase });
+  };
+  aiOptions.onToken = (text) => {
+    if (text) sseEmit(res, 'token', { text });
+  };
+
+  try {
+    const result = await story.generateChapter(id, chapterNumber, aiOptions, prompt);
+    sseEmit(res, 'done', result);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      sseEmit(res, 'error', { error: e.message });
+    } else {
+      sseEmit(res, 'error', { error: `Chapter generation error: ${e.message}` });
+    }
+  } finally {
+    res.end();
+  }
+});
+
+/**
+ * POST /story/create/stream
+ * Streaming variant of POST /story/create. Emits progress/token/done/error
+ * SSE events while the outline is being generated.
+ */
+app.post('/story/create/stream', async (req, res) => {
+  const { title, genre, tone, model } = req.body;
+
+  res.set('Content-Type', 'text/event-stream');
+  res.set('Cache-Control', 'no-cache, no-transform');
+  res.set('Connection', 'keep-alive');
+  res.set('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const titleErr = validateStringField(title, 'title');
+  if (titleErr) { sseEmit(res, 'error', { error: titleErr }); return res.end(); }
+  const genreErr = validateStringField(genre, 'genre');
+  if (genreErr) { sseEmit(res, 'error', { error: genreErr }); return res.end(); }
+  const toneErr = validateStringField(tone, 'tone');
+  if (toneErr) { sseEmit(res, 'error', { error: toneErr }); return res.end(); }
+
+  const aiOptions = {};
+  if (typeof model === 'string' && model.trim()) {
+    aiOptions.model = model.trim();
+  }
+  aiOptions.onPhase = (phase) => sseEmit(res, 'progress', { phase });
+  aiOptions.onToken = (text) => { if (text) sseEmit(res, 'token', { text }); };
+
+  try {
+    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions);
+    sseEmit(res, 'done', result);
+  } catch (e) {
+    sseEmit(res, 'error', { error: `Story generation error: ${e.message}` });
+  } finally {
+    res.end();
+  }
+});
+
+/**
  * DELETE /story/:id/chapter/:chapterNumber
  * Deletes a specific chapter from an existing story.
  */

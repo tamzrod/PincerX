@@ -247,6 +247,78 @@ describe('AI Transport (lib/ai.js)', () => {
       expect(mockReq.destroy).not.toHaveBeenCalled();
     });
   });
+
+  describe('askStream()', () => {
+    /** Helper to mock http.request with a streaming (multi-chunk) NDJSON body. */
+    function mockHttpStream(chunks, statusCode = 200) {
+      const mockRes = Object.assign(new EventEmitter(), { statusCode });
+      const mockReq = Object.assign(new EventEmitter(), {
+        write: jest.fn(),
+        end: jest.fn(() => {
+          setImmediate(() => {
+            chunks.forEach((c) => mockRes.emit('data', c));
+            mockRes.emit('end');
+          });
+        }),
+      });
+      jest.spyOn(http, 'request').mockImplementation((_opts, cb) => {
+        cb(mockRes);
+        return mockReq;
+      });
+      return { mockReq, mockRes };
+    }
+
+    it('streams Ollama NDJSON tokens and resolves with the full text', async () => {
+      // Ollama streams one JSON object per line; each has a "response" fragment.
+      const chunks = [
+        '{"response":"Hello"}\n',
+        '{"response":" world"}\n',
+        '{"response":"","done":true}\n',
+      ];
+      mockHttpStream(chunks);
+
+      const tokens = [];
+      const text = await ai.askStream('hi', {}, (t) => tokens.push(t));
+
+      expect(text).toBe('Hello world');
+      expect(tokens).toEqual(['Hello', ' world']);
+    });
+
+    it('parses OpenAI-compatible SSE token chunks', async () => {
+      const chunks = [
+        'data: {"choices":[{"delta":{"content":"Once"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":" upon"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":" a time"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ];
+      mockHttpStream(chunks);
+
+      const tokens = [];
+      const text = await ai.askStream('hi', { provider: 'openai' }, (t) => tokens.push(t));
+
+      expect(text).toBe('Once upon a time');
+      expect(tokens).toEqual(['Once', ' upon', ' a time']);
+    });
+
+    it('handles a token chunk split across multiple data events', async () => {
+      // A single NDJSON line delivered in two pieces (no newline until the 2nd).
+      mockHttpStream(['{"response":"par', 't"}\n{"response":"","done":true}\n']);
+      const text = await ai.askStream('hi', {});
+      expect(text).toBe('part');
+    });
+
+    it('falls back to buffered JSON when the backend ignores stream:true', async () => {
+      // Backend returns a single buffered JSON object instead of a stream.
+      mockHttpStream([JSON.stringify({ response: 'buffered reply' })]);
+      const text = await ai.askStream('hi', {});
+      expect(text).toBe('buffered reply');
+    });
+
+    it('rejects with an AI error on a non-200 status', async () => {
+      mockHttpStream([JSON.stringify({ error: 'model not found' })], 404);
+      await expect(ai.askStream('hi', {})).rejects.toThrow('model not found');
+    });
+  });
 });
 
 describe('normalizeBaseUrl()', () => {

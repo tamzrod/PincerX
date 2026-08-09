@@ -104,6 +104,21 @@ describe('story.js — create()', () => {
     expect(ai.ask).toHaveBeenCalledWith(expect.any(String), { model: 'mistral' });
   });
 
+  it('streams the outline via ai.askStream when onToken is provided', async () => {
+    ai.askStream.mockResolvedValue(JSON.stringify({ outline: 'Streamed outline.' }));
+
+    const tokens = [];
+    const result = await storyModule.create('Streamed', 'fantasy', 'epic', {
+      model: 'mistral',
+      onToken: (t) => tokens.push(t),
+      onPhase: () => {},
+    });
+
+    expect(ai.askStream).toHaveBeenCalled();
+    expect(ai.ask).not.toHaveBeenCalled();
+    expect(result.outline).toBe('Streamed outline.');
+  });
+
   it('builds a prompt that includes the title, genre, and tone', async () => {
     ai.ask.mockResolvedValue(JSON.stringify({ outline: 'Details here.' }));
 
@@ -414,6 +429,27 @@ describe('story.js — generateChapter()', () => {
     // Summary and knowledge extraction calls pass the original aiOptions unchanged.
     expect(ai.ask).toHaveBeenNthCalledWith(2, expect.any(String), { model: 'mistral' });
     expect(ai.ask).toHaveBeenNthCalledWith(3, expect.any(String), { model: 'mistral' });
+  });
+
+  it('streams the chapter via ai.askStream when onToken is provided', async () => {
+    writeStory('test-stream-1234');
+    ai.askStream.mockResolvedValueOnce(JSON.stringify({ content: 'Streamed chapter.' }));
+    // Post-generation steps still use ai.ask (mocked).
+    ai.ask
+      .mockResolvedValueOnce('Summary.')
+      .mockResolvedValueOnce('{"extractions":[]}');
+
+    const phases = [];
+    const result = await storyModule.generateChapter('test-stream-1234', 1, {
+      onToken: () => {},
+      onPhase: (p) => phases.push(p),
+    });
+
+    expect(ai.askStream).toHaveBeenCalledTimes(1);
+    expect(result.content).toBe('Streamed chapter.');
+    // Phases are emitted around each step.
+    expect(phases).toContain('Writing chapter');
+    expect(phases).toContain('Done');
   });
 });
 

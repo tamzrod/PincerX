@@ -20,6 +20,8 @@ const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
  * @returns {Promise<{id: string, title: string, genre: string, tone: string, outline: string, createdAt: string}>}
  */
 async function create(title, genre, tone, aiOptions = {}) {
+  const onPhase = aiOptions.onPhase;
+  const onToken = aiOptions.onToken;
   const prompt = [
     'You are a creative writing assistant. Generate a structured story outline with an initial world.',
     'Respond with ONLY a valid JSON object containing exactly these fields:',
@@ -34,7 +36,10 @@ async function create(title, genre, tone, aiOptions = {}) {
     `Tone: ${tone}`,
   ].join('\n');
 
-  const raw = await ai.ask(prompt, aiOptions);
+  if (onPhase) onPhase('Generating outline');
+  const raw = onToken
+    ? await ai.askStream(prompt, aiOptions, onToken)
+    : await ai.ask(prompt, aiOptions);
   const { outline, characters, locations } = parseCreateResponse(raw);
 
   const id = `${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
@@ -46,6 +51,7 @@ async function create(title, genre, tone, aiOptions = {}) {
   fs.writeFileSync(path.join(STORIES_DIR, filename), JSON.stringify(storyObj, null, 2), 'utf8');
 
   // Seed the story RAG store with the initial cast of characters.
+  if (onPhase) onPhase('Saving characters');
   for (const char of characters) {
     const voiceId = pickVoicePreset(char.gender, char.personality);
     const slug    = _slugify(char.name);
@@ -84,6 +90,7 @@ async function create(title, genre, tone, aiOptions = {}) {
     });
   }
 
+  if (onPhase) onPhase('Done');
   return storyObj;
 }
 
@@ -794,6 +801,13 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     maxTokens: chapterTokenBudget(length, wordTarget),
   };
 
+  // Optional live-progress hooks (used by the streaming endpoint to surface
+  // the AI conversation in the UI). onPhase(label) marks a generation phase;
+  // onToken(chunk, meta) streams token fragments. When onToken is provided we
+  // stream the chapter generation so the user sees text appear in real time.
+  const onPhase = aiOptions.onPhase;
+  const onToken = aiOptions.onToken;
+
   const prompt = [
     'You are a creative writing assistant. Write a detailed, immersive chapter of a story.',
     'Respond with ONLY a valid JSON object containing exactly this field:',
@@ -855,7 +869,10 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     `\nNow write Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`,
   ].join('\n');
 
-  const raw = await ai.ask(prompt, askOptions);
+  if (onPhase) onPhase('Writing chapter');
+  const raw = onToken
+    ? await ai.askStream(prompt, askOptions, onToken)
+    : await ai.ask(prompt, askOptions);
   const content = parseChapterContent(raw);
   const chapter = { number: chapterNumber, content, createdAt: new Date().toISOString() };
 
@@ -871,15 +888,19 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   fs.writeFileSync(filepath, JSON.stringify(storyData, null, 2), 'utf8');
 
   // Generate and store a summary of this chapter for future continuity context.
+  if (onPhase) onPhase('Summarizing chapter');
   await _storeChapterSummary(storyId, chapterNumber, content, aiOptions);
 
   // Auto-create character profiles for any new named speakers in the chapter.
+  if (onPhase) onPhase('Extracting characters');
   await _extractNewCharacters(storyId, content, aiOptions);
 
   // Auto-extract knowledge elements from the chapter (new places, systems, arc boundaries, etc.)
+  if (onPhase) onPhase('Extracting world knowledge');
   await _extractChapterKnowledge(storyId, chapterNumber, content, aiOptions);
 
   // Run coherence check on the generated chapter (soft gate - guide, don't freeze)
+  if (onPhase) onPhase('Checking coherence');
   let coherenceResult = null;
   try {
     coherenceResult = await coherence.checkChapter(storyId, content, {
@@ -892,6 +913,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     // Don't fail the chapter generation if coherence check fails
   }
 
+  if (onPhase) onPhase('Done');
   return {
     storyId,
     chapterNumber,
