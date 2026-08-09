@@ -30,6 +30,12 @@ afterEach(() => {
   storyRag.addDoc.mockImplementation(() => {});
   storyRag.removeDoc.mockReturnValue(true);
   storyRag.clearStory.mockImplementation(() => {});
+  // Name & Place Localization: safe defaults (no config, empty entity map).
+  storyRag.getLocalizationConfig.mockReturnValue(null);
+  storyRag.getEntityMapDoc.mockReturnValue(null);
+  storyRag.getEntityMap.mockReturnValue([]);
+  storyRag.saveEntityMapDoc.mockImplementation(() => {});
+  storyRag.setLocalizationConfig.mockImplementation(() => {});
 });
 
 // ─── GET /config + POST /config ───────────────────────────────────────────────
@@ -764,7 +770,7 @@ describe('POST /story/create', () => {
     expect(res.body.genre).toBe('dystopia');
     expect(res.body.tone).toBe('dark');
     expect(res.body.outline).toMatch(/Utopia/);
-    expect(story.create).toHaveBeenCalledWith('Brave New World', 'dystopia', 'dark', {}, '');
+    expect(story.create).toHaveBeenCalledWith('Brave New World', 'dystopia', 'dark', {}, '', '');
   });
 
   it('trims whitespace from title, genre, and tone before passing to story.create', async () => {
@@ -781,7 +787,7 @@ describe('POST /story/create', () => {
       .post('/story/create')
       .send({ title: '  Trimmed  ', genre: '  fantasy  ', tone: '  epic  ' });
 
-    expect(story.create).toHaveBeenCalledWith('Trimmed', 'fantasy', 'epic', {}, '');
+    expect(story.create).toHaveBeenCalledWith('Trimmed', 'fantasy', 'epic', {}, '', '');
   });
 
   it('forwards a model override into story.create aiOptions', async () => {
@@ -793,7 +799,7 @@ describe('POST /story/create', () => {
       .post('/story/create')
       .send({ title: 'T', genre: 'g', tone: 'tn', model: 'mistral' });
 
-    expect(story.create).toHaveBeenCalledWith('T', 'g', 'tn', { model: 'mistral' }, '');
+    expect(story.create).toHaveBeenCalledWith('T', 'g', 'tn', { model: 'mistral' }, '', '');
   });
 
   it('forwards customPrompt (trimmed) into story.create as the 5th arg', async () => {
@@ -805,7 +811,7 @@ describe('POST /story/create', () => {
       .post('/story/create')
       .send({ title: 'T', genre: 'g', tone: 'tn', customPrompt: '  Include a heist subplot.  ' });
 
-    expect(story.create).toHaveBeenCalledWith('T', 'g', 'tn', {}, 'Include a heist subplot.');
+    expect(story.create).toHaveBeenCalledWith('T', 'g', 'tn', {}, 'Include a heist subplot.', '');
   });
 
   it('returns 400 when title is missing', async () => {
@@ -1993,3 +1999,190 @@ describe('Reader Experience endpoints', () => {
   });
 });
 
+
+// ─── Name & Place Localization endpoints ───────────────────────────────────
+
+describe('Name & Place Localization endpoints', () => {
+  beforeEach(() => {
+    // story.get auto-mock returns undefined (no throw) → story "exists".
+    story.get = jest.fn().mockReturnValue({ id: 'loc-test', chapters: [] });
+  });
+
+  describe('GET /story/:id/localization/config', () => {
+    it('returns the stored config when set', async () => {
+      storyRag.getLocalizationConfig.mockReturnValue({ style: 'english_distinctive' });
+      const res = await request(app).get('/story/loc-test/localization/config');
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      expect(res.body.config).toEqual({ style: 'english_distinctive' });
+    });
+
+    it('returns the default config (configured:false) when unset', async () => {
+      storyRag.getLocalizationConfig.mockReturnValue(null);
+      const res = await request(app).get('/story/loc-test/localization/config');
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(false);
+      expect(res.body.config).toEqual({ style: 'original' });
+    });
+
+    it('returns 400 for an invalid story ID', async () => {
+      const res = await request(app).get('/story/Invalid.ID/localization/config');
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 404 when the story does not exist', async () => {
+      story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: loc-test'); });
+      const res = await request(app).get('/story/loc-test/localization/config');
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /story/:id/localization/config', () => {
+    it('validates and stores a config (machine id)', async () => {
+      const res = await request(app)
+        .post('/story/loc-test/localization/config')
+        .send({ style: 'english_distinctive' });
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      expect(res.body.config).toEqual({ style: 'english_distinctive' });
+      expect(storyRag.setLocalizationConfig).toHaveBeenCalledWith('loc-test', { style: 'english_distinctive' });
+    });
+
+    it('normalises a display label sent at the boundary', async () => {
+      const res = await request(app)
+        .post('/story/loc-test/localization/config')
+        .send({ style: 'English — Distinctive' });
+      expect(res.status).toBe(200);
+      expect(res.body.config).toEqual({ style: 'english_distinctive' });
+    });
+
+    it('returns 400 for an invalid style', async () => {
+      const res = await request(app)
+        .post('/story/loc-test/localization/config')
+        .send({ style: 'klingon' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Invalid localization config/);
+    });
+  });
+
+  describe('GET /story/:id/localization/map', () => {
+    it('returns the entities + active flag', async () => {
+      storyRag.getLocalizationConfig.mockReturnValue({ style: 'english_distinctive' });
+      storyRag.getEntityMap.mockReturnValue([
+        { id: 'ent-wei-chen', sourceNames: ['Wei Chen'], canonicalName: 'Cedric Vale', displayName: 'Cedric Vale' },
+      ]);
+      const res = await request(app).get('/story/loc-test/localization/map');
+      expect(res.status).toBe(200);
+      expect(res.body.active).toBe(true);
+      expect(res.body.entities).toHaveLength(1);
+      expect(res.body.entities[0].canonicalName).toBe('Cedric Vale');
+    });
+
+    it('returns active:false + [] when no config is set', async () => {
+      storyRag.getLocalizationConfig.mockReturnValue(null);
+      storyRag.getEntityMap.mockReturnValue([]);
+      const res = await request(app).get('/story/loc-test/localization/map');
+      expect(res.status).toBe(200);
+      expect(res.body.active).toBe(false);
+      expect(res.body.entities).toEqual([]);
+    });
+  });
+
+  describe('POST /story/:id/localization/map (author override)', () => {
+    beforeEach(() => {
+      storyRag._slugify.mockImplementation((s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+      storyRag.getEntityMapDoc.mockReturnValue(null);
+    });
+
+    it('creates a mapping (201) and marks it userApproved + locked', async () => {
+      const res = await request(app)
+        .post('/story/loc-test/localization/map')
+        .send({ entityType: 'character', sourceName: 'Wei Chen', canonicalName: 'Julian Mercer', userApproved: true, locked: true });
+      expect(res.status).toBe(201);
+      expect(res.body.created).toBe(true);
+      expect(res.body.entity.canonicalName).toBe('Julian Mercer');
+      expect(res.body.entity.userApproved).toBe(true);
+      expect(res.body.entity.locked).toBe(true);
+    });
+
+    it('returns 400 when sourceName is missing', async () => {
+      const res = await request(app)
+        .post('/story/loc-test/localization/map')
+        .send({ entityType: 'character', canonicalName: 'X' });
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when canonicalName is missing', async () => {
+      const res = await request(app)
+        .post('/story/loc-test/localization/map')
+        .send({ entityType: 'character', sourceName: 'Wei Chen' });
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 409 on a duplicate canonical name', async () => {
+      storyRag.getEntityMapDoc.mockReturnValue({
+        entities: [{ sourceNames: ['Wei Chen'], canonicalName: 'Cedric Vale', displayName: 'Cedric Vale' }],
+      });
+      const res = await request(app)
+        .post('/story/loc-test/localization/map')
+        .send({ entityType: 'character', sourceName: 'Lin Yue', canonicalName: 'Cedric Vale' });
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/already assigned/);
+    });
+  });
+
+  describe('DELETE /story/:id/localization/map/:entityId', () => {
+    it('returns 200 when a mapping is removed', async () => {
+      const loc = require('../story/story-localization');
+      jest.spyOn(loc, 'removeMapping').mockReturnValue(true);
+      const res = await request(app).delete('/story/loc-test/localization/map/ent-wei-chen');
+      expect(res.status).toBe(200);
+      expect(res.body.removed).toBe(true);
+      loc.removeMapping.mockRestore();
+    });
+
+    it('returns 404 when the mapping does not exist', async () => {
+      const loc = require('../story/story-localization');
+      jest.spyOn(loc, 'removeMapping').mockReturnValue(false);
+      const res = await request(app).delete('/story/loc-test/localization/map/ent-missing');
+      expect(res.status).toBe(404);
+      loc.removeMapping.mockRestore();
+    });
+  });
+
+  describe('POST /story/:id/localize', () => {
+    it('runs localizeStory and returns its result', async () => {
+      const loc = require('../story/story-localization');
+      jest.spyOn(loc, 'localizeStory').mockResolvedValue({
+        localized: true,
+        added: [{ id: 'ent-wei-chen', canonicalName: 'Cedric Vale' }],
+        entities: [{ id: 'ent-wei-chen', canonicalName: 'Cedric Vale' }],
+      });
+      const res = await request(app)
+        .post('/story/loc-test/localize')
+        .send({ model: 'gemma3' });
+      expect(res.status).toBe(200);
+      expect(res.body.localized).toBe(true);
+      expect(loc.localizeStory).toHaveBeenCalledWith('loc-test', { model: 'gemma3' });
+      loc.localizeStory.mockRestore();
+    });
+
+    it('forwards 502 when localizeStory throws', async () => {
+      const loc = require('../story/story-localization');
+      jest.spyOn(loc, 'localizeStory').mockRejectedValue(new Error('boom'));
+      const res = await request(app).post('/story/loc-test/localize').send({});
+      expect(res.status).toBe(502);
+      loc.localizeStory.mockRestore();
+    });
+  });
+
+  describe('POST /story/create forwards localizationStyle', () => {
+    it('passes localizationStyle as the 6th arg to story.create', async () => {
+      story.create.mockResolvedValue({ id: 'x', title: 't', genre: 'g', tone: 'tn', outline: 'o', createdAt: '2026-01-01T00:00:00.000Z' });
+      await request(app)
+        .post('/story/create')
+        .send({ title: 'T', genre: 'g', tone: 'tn', localizationStyle: 'english_distinctive' });
+      expect(story.create).toHaveBeenCalledWith('T', 'g', 'tn', {}, '', 'english_distinctive');
+    });
+  });
+});

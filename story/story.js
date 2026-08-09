@@ -6,6 +6,7 @@ const ai = require('../lib/ai');
 const storyRag = require('./story-rag');
 const coherence = require('./story-coherence');
 const experience = require('./story-experience');
+const localization = require('./story-localization');
 
 // Overridable via env so test files can isolate their stories directory and
 // avoid racing with parallel Jest workers that share data/stories/ by default.
@@ -23,9 +24,13 @@ const STORIES_DIR = process.env.PINCERX_STORIES_DIR
  * @param {string} tone    - The desired tone (e.g. "dark", "humorous").
  * @param {object} [aiOptions] - Options forwarded to ai.ask().
  * @param {string} [customPrompt] - Optional user instructions appended to the outline prompt.
+ * @param {string} [localizationStyle] - Optional Name & Place Localization style
+ *   (machine id or display label). When set and valid, the style is stored as
+ *   the story's localization config and the initial cast/locations are
+ *   localized so canonical names are used from the very first chapter.
  * @returns {Promise<{id: string, title: string, genre: string, tone: string, outline: string, createdAt: string}>}
  */
-async function create(title, genre, tone, aiOptions = {}, customPrompt = '') {
+async function create(title, genre, tone, aiOptions = {}, customPrompt = '', localizationStyle = '') {
   const onPhase = aiOptions.onPhase;
   const onToken = aiOptions.onToken;
   const custom = typeof customPrompt === 'string' ? customPrompt.trim() : '';
@@ -96,6 +101,32 @@ async function create(title, genre, tone, aiOptions = {}, customPrompt = '') {
       title:   loc.title,
       content: loc.description,
     });
+  }
+
+  // ── Name & Place Localization (optional, opt-in) ──────────────────────────
+  // When the author selects a localization style at creation time, store it as
+  // the story's localization config and localise the initial cast + locations
+  // so canonical names are used from the very first chapter. Soft-fails: a
+  // localization error never blocks story creation (the outline is already
+  // saved); the config is still stored so the author can retry via "Localize
+  // Story Names".
+  if (localizationStyle) {
+    const { valid, normalized } = localization.validateConfig({ style: localizationStyle });
+    if (valid) {
+      storyRag.setLocalizationConfig(id, normalized);
+      if (normalized.style !== 'original') {
+        try {
+          if (onPhase) onPhase('Localizing names');
+          const sourceEntities = []
+            .concat(characters.map((c) => ({ name: c.name, type: 'character' })))
+            .concat(locations.map((l) => ({ name: l.title, type: 'place' })))
+            .filter((e) => e.name);
+          await localization.localizeEntities(id, sourceEntities, aiOptions);
+        } catch (e) {
+          console.warn('[story] Initial name localization failed:', e.message);
+        }
+      }
+    }
   }
 
   if (onPhase) onPhase('Done');
@@ -298,6 +329,7 @@ function _buildResumePrompt(p) {
     `Tone: ${p.tone}`,
     `Outline:\n${p.outline}`,
     p.storyLawBlock ? `\n${p.storyLawBlock}` : '',
+    p.canonicalNamesBlock ? `\n${p.canonicalNamesBlock}` : '',
     p.characterContext ? `\n${p.characterContext}` : '',
     p.loreContext ? `\n${p.loreContext}` : '',
     p.prior ? `\nPreviously written chapters:\n${p.prior}` : '',
@@ -366,7 +398,10 @@ function _slugify(str) {
  */
 function _extractSpeakerNames(content) {
   const names = new Set();
-  const re = /\[speaker:([A-Za-z0-9_-]+)\]/g;
+  // Allow spaces in speaker names so multi-word canonical names (e.g.
+  // "Cedric Vale", "Isabella Hart") produced by Name & Place Localization
+  // are captured correctly rather than truncated to the first token.
+  const re = /\[speaker:([A-Za-z0-9 _-]+)\]/g;
   let m;
   while ((m = re.exec(content)) !== null) {
     const name = m[1];
@@ -774,14 +809,21 @@ function _extractCreateFields(parsed) {
  * gender, personality, backstory, and speech style — or an empty string when
  * no characters have been defined for the story.
  *
+ * When `resolveName` is provided (Name & Place Localization active), each
+ * character's name is resolved to its canonical display name so the cast list
+ * shown to the model uses the canonical identity.
+ *
  * @param {Array<object>} characters - Character docs from the story RAG store.
+ * @param {function} [resolveName] - Optional (name) => canonicalName resolver.
  * @returns {string} Formatted character context, or empty string when none exist.
  */
-function buildCharacterContext(characters) {
+function buildCharacterContext(characters, resolveName) {
   if (!characters.length) return '';
+  const resolve = typeof resolveName === 'function' ? resolveName : ((n) => n);
   const lines = ['Cast of Characters:'];
   for (const c of characters) {
-    lines.push(`  ${c.name}${c.role ? ` (${c.role})` : ''}${c.gender ? `, ${c.gender}` : ''}`);
+    const name = resolve(c.name);
+    lines.push(`  ${name}${c.role ? ` (${c.role})` : ''}${c.gender ? `, ${c.gender}` : ''}`);
     if (c.personality) lines.push(`    Personality: ${c.personality}`);
     if (c.backstory) lines.push(`    Backstory: ${c.backstory}`);
     if (c.speechStyle) lines.push(`    Speech style: ${c.speechStyle}`);
@@ -794,14 +836,18 @@ function buildCharacterContext(characters) {
  * Returns a formatted multi-line string of lore titles and their descriptions,
  * or an empty string when no lore entries have been defined for the story.
  *
+ * When `resolveName` is provided, lore titles are resolved to canonical names.
+ *
  * @param {Array<object>} loreEntries - Lore docs from the story RAG store.
+ * @param {function} [resolveName] - Optional (name) => canonicalName resolver.
  * @returns {string} Formatted lore context, or empty string when none exist.
  */
-function buildLoreContext(loreEntries) {
+function buildLoreContext(loreEntries, resolveName) {
   if (!loreEntries.length) return '';
+  const resolve = typeof resolveName === 'function' ? resolveName : ((n) => n);
   const lines = ['World Context:'];
   for (const entry of loreEntries) {
-    lines.push(`  [${entry.title}]`);
+    lines.push(`  [${resolve(entry.title)}]`);
     lines.push(`  ${entry.content}`);
   }
   return lines.join('\n');
@@ -812,16 +858,21 @@ function buildLoreContext(loreEntries) {
  * Uses character names when character profiles are defined; falls back to the
  * generic [speaker:male] / [speaker:female] format otherwise.
  *
+ * When `resolveName` is provided, speaker-tag examples use canonical names so
+ * the model emits [speaker:Cedric Vale] rather than the source name.
+ *
  * @param {Array<object>} characters - Character docs from the story RAG store.
+ * @param {function} [resolveName] - Optional (name) => canonicalName resolver.
  * @returns {string} A single instruction sentence for the AI prompt.
  */
-function buildSpeakerTagInstruction(characters) {
+function buildSpeakerTagInstruction(characters, resolveName) {
+  const resolve = typeof resolveName === 'function' ? resolveName : ((n) => n);
   if (!characters.length) {
     return 'Speaker tags: [speaker:narrator] for narrative prose, [speaker:male] for male character speech, [speaker:female] for female character speech.';
   }
   const examples = characters
     .slice(0, 4) // limit examples to 4 to keep the instruction line concise in the prompt
-    .map((c) => `[speaker:${c.name}]`)
+    .map((c) => `[speaker:${resolve(c.name)}]`)
     .join(', ');
   return (
     `Speaker tags: [speaker:narrator] for narrative prose, and use the character's exact name in the speaker tag for their dialogue (e.g., ${examples}). ` +
@@ -959,6 +1010,17 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   const characters = storyRag.listDocs(storyId, 'character');
   const loreEntries = storyRag.listDocs(storyId, 'lore');
 
+  // ── Name & Place Localization (canonical identity) ───────────────────────
+  // When localization is active, load the entity map once and resolve names to
+  // their canonical display names in the character/lore/speaker-tag context.
+  // The canonical-names block is also injected into the prompt so the model
+  // uses canonical names consistently (and never reverts on regeneration).
+  const locMap = localization.isActive(storyId) ? localization.loadEntityMap(storyId) : null;
+  const resolveName = locMap
+    ? (name) => localization.resolveNameWithMap(locMap, name)
+    : null;
+  const canonicalNamesBlock = locMap ? localization.buildCanonicalNamesBlock(storyId) : '';
+
   // Chapter summaries replace full prior-chapter text to keep the context window
   // from growing unboundedly as the story progresses.  Fall back to full text
   // for stories that pre-date the summary feature.
@@ -980,9 +1042,9 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
       .join('\n\n');
   }
 
-  const characterContext = buildCharacterContext(characters);
-  const loreContext = buildLoreContext(loreEntries);
-  const speakerTagInstruction = buildSpeakerTagInstruction(characters);
+  const characterContext = buildCharacterContext(characters, resolveName);
+  const loreContext = buildLoreContext(loreEntries, resolveName);
+  const speakerTagInstruction = buildSpeakerTagInstruction(characters, resolveName);
   const storyLawBlock = buildStoryLawBlock(storyId, storyData);
   const lengthPolicy = buildLengthPolicy(length, wordTarget);
 
@@ -1123,7 +1185,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
         remainingLengthPolicy: buildLengthPolicy(length, resumeBudget.remainingWords),
         dialogRatio, narrationRatio, speakerTagInstruction,
         title: storyData.title, genre: storyData.genre, tone: storyData.tone, outline: storyData.outline,
-        storyLawBlock, characterContext, loreContext, prior,
+        storyLawBlock, canonicalNamesBlock, characterContext, loreContext, prior,
         experienceObjectiveBlock, customPrompt,
       })
     : [
@@ -1182,6 +1244,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
         `Tone: ${storyData.tone}`,
         `Outline:\n${storyData.outline}`,
         storyLawBlock ? `\n${storyLawBlock}` : '',
+        canonicalNamesBlock ? `\n${canonicalNamesBlock}` : '',
         characterContext ? `\n${characterContext}` : '',
         loreContext ? `\n${loreContext}` : '',
         prior ? `\nPreviously written chapters:\n${prior}` : '',
@@ -1303,6 +1366,29 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   // Auto-extract knowledge elements from the chapter (new places, systems, arc boundaries, etc.)
   if (onPhase) onPhase('Extracting world knowledge');
   await _extractChapterKnowledge(storyId, chapterNumber, content, aiOptions);
+
+  // ── Localize newly discovered entities (Name & Place Localization) ────────
+  // When localization is active, any entities the chapter introduced (new
+  // characters / places / lore) that aren't already mapped receive a canonical
+  // name in a SINGLE batched LLM call, so the model is never asked to rename the
+  // same character every chapter. Soft-fails: a localization error never
+  // blocks the chapter (already saved) and never changes existing mappings.
+  if (localization.isActive(storyId)) {
+    if (onPhase) onPhase('Localizing names');
+    try {
+      const afterChars = storyRag.listDocs(storyId, 'character') || [];
+      const afterLore = storyRag.listDocs(storyId, 'lore') || [];
+      const afterPlaces = storyRag.listDocs(storyId, 'place') || [];
+      const newEntities = []
+        .concat(afterChars.map((c) => ({ name: c.name, type: 'character' })))
+        .concat(afterPlaces.map((p) => ({ name: p.title, type: 'place' })))
+        .concat(afterLore.map((l) => ({ name: l.title, type: 'place' })))
+        .filter((e) => e.name);
+      await localization.localizeEntities(storyId, newEntities, aiOptions);
+    } catch (e) {
+      console.warn('[story] New-entity localization failed:', e.message);
+    }
+  }
 
   // Run coherence check on the generated chapter (soft gate - guide, don't freeze)
   if (onPhase) onPhase('Checking coherence');

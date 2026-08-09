@@ -27,6 +27,7 @@
 
 const ai = require('../lib/ai');
 const storyRag = require('./story-rag');
+const localization = require('./story-localization');
 
 /** Confidence thresholds */
 const CONFIDENCE_HIGH = 0.8;
@@ -163,7 +164,27 @@ async function checkCharacterConsistency(storyId, content, characters, aiOptions
 
   // Extract speakers from chapter
   const speakers = extractSpeakers(content);
-  const characterMap = new Map(characters.map(c => [c.name.toLowerCase(), c]));
+
+  // ── Name & Place Localization: recognise canonical names + source aliases ──
+  // When localization is active, a chapter may refer to "Cedric Vale" while the
+  // character profile still lists the source name "Wei Chen" (the entity map is
+  // the source of truth — profiles are not mutated). Build the characterMap so
+  // that BOTH the source name AND the canonical name resolve to the SAME
+  // character, so coherence never reports them as two different characters.
+  const locMap = localization.isActive(storyId) ? localization.loadEntityMap(storyId) : null;
+  const resolveName = locMap
+    ? (name) => localization.resolveNameWithMap(locMap, name)
+    : null;
+  const characterMap = new Map();
+  for (const c of characters) {
+    characterMap.set(c.name.toLowerCase(), c);
+    if (locMap) {
+      const canonical = localization.resolveNameWithMap(locMap, c.name);
+      if (canonical && canonical.toLowerCase() !== c.name.toLowerCase()) {
+        characterMap.set(canonical.toLowerCase(), c);
+      }
+    }
+  }
 
   // Check each named speaker
   for (const speaker of speakers) {
@@ -173,16 +194,22 @@ async function checkCharacterConsistency(storyId, content, characters, aiOptions
       continue;
     }
 
-    // Build character context for AI check
-    const prompt = buildCharacterCheckPrompt(char, content);
+    // Build character context for AI check. Pass the canonical display name
+    // (when localization is active) so the LLM sees the same name the chapter
+    // uses — otherwise it would flag a "name change" that is actually the same
+    // entity.
+    const prompt = buildCharacterCheckPrompt(char, content, resolveName);
     
     try {
       const raw = await ai.ask(prompt, aiOptions);
       const result = parseCoherenceResponse(raw);
 
+      // Display name used in user-facing warnings (canonical when localized).
+      const displayName = resolveName ? resolveName(char.name) : char.name;
+
       if (result.issues && result.issues.length > 0) {
         for (const issue of result.issues) {
-          warnings.push(`${char.name}: ${issue.description}`);
+          warnings.push(`${displayName}: ${issue.description}`);
           suggestions.push(`Consider: ${issue.suggestion}`);
         }
       }
@@ -190,7 +217,7 @@ async function checkCharacterConsistency(storyId, content, characters, aiOptions
       // Extract boundary conditions from response
       if (result.boundaries && result.boundaries.length > 0) {
         for (const boundary of result.boundaries) {
-          boundaries.push(`${char.name}: ${boundary}`);
+          boundaries.push(`${displayName}: ${boundary}`);
         }
       }
     } catch {
@@ -498,7 +525,9 @@ async function whatIf(storyId, question, aiOptions = {}) {
  */
 function extractSpeakers(content) {
   const speakers = new Set();
-  const re = /\[speaker:([A-Za-z0-9_-]+)\]/g;
+  // Allow spaces so multi-word canonical names (e.g. "Cedric Vale") from Name &
+  // Place Localization are recognised, not truncated to "Cedric".
+  const re = /\[speaker:([A-Za-z0-9 _-]+)\]/g;
   let match;
   while ((match = re.exec(content)) !== null) {
     const name = match[1];
@@ -513,7 +542,9 @@ function extractSpeakers(content) {
  * Build prompt for character consistency checking.
  * (KDE-ENGINE-002 Beta: Asks "When does this trait stop being true?")
  */
-function buildCharacterCheckPrompt(character, content) {
+function buildCharacterCheckPrompt(character, content, resolveName) {
+  const resolve = typeof resolveName === 'function' ? resolveName : ((n) => n);
+  const name = resolve(character.name);
   return [
     'You are a creative writing assistant checking character consistency.',
     'Evaluate if the chapter maintains consistency with this character profile.',
@@ -523,7 +554,7 @@ function buildCharacterCheckPrompt(character, content) {
     '- When does this character trait stop being true? (Boundary Detection)',
     '',
     'Character Profile:',
-    `Name: ${character.name}`,
+    `Name: ${name}`,
     `Role: ${character.role}`,
     `Gender: ${character.gender}`,
     `Personality: ${character.personality}`,

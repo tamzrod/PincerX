@@ -13,6 +13,7 @@ const story = require('../story/story');
 const storyRag = require('../story/story-rag');
 const coherence = require('../story/story-coherence');
 const experience = require('../story/story-experience');
+const localization = require('../story/story-localization');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1397,7 +1398,7 @@ app.get('/story/:id', (req, res) => {
  * model (optional) overrides the configured AI model for this generation only.
  */
 app.post('/story/create', async (req, res) => {
-  const { title, genre, tone, model, customPrompt } = req.body;
+  const { title, genre, tone, model, customPrompt, localizationStyle } = req.body;
 
   const titleErr = validateStringField(title, 'title');
   if (titleErr) return res.status(400).json({ error: titleErr });
@@ -1413,9 +1414,10 @@ app.post('/story/create', async (req, res) => {
     aiOptions.model = model.trim();
   }
   const prompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
+  const locStyle = typeof localizationStyle === 'string' ? localizationStyle.trim() : '';
 
   try {
-    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions, prompt);
+    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions, prompt, locStyle);
     return res.status(201).json(result);
   } catch (e) {
     return res.status(502).json({ error: `Story generation error: ${e.message}` });
@@ -1623,7 +1625,7 @@ app.post('/story/:id/chapter/stream', async (req, res) => {
  * SSE events while the outline is being generated.
  */
 app.post('/story/create/stream', async (req, res) => {
-  const { title, genre, tone, model, customPrompt } = req.body;
+  const { title, genre, tone, model, customPrompt, localizationStyle } = req.body;
 
   res.set('Content-Type', 'text/event-stream');
   res.set('Cache-Control', 'no-cache, no-transform');
@@ -1643,11 +1645,12 @@ app.post('/story/create/stream', async (req, res) => {
     aiOptions.model = model.trim();
   }
   const prompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
+  const locStyle = typeof localizationStyle === 'string' ? localizationStyle.trim() : '';
   aiOptions.onPhase = (phase) => sseEmit(res, 'progress', { phase });
   aiOptions.onToken = (text) => { if (text) sseEmit(res, 'token', { text }); };
 
   try {
-    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions, prompt);
+    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions, prompt, locStyle);
     sseEmit(res, 'done', result);
   } catch (e) {
     sseEmit(res, 'error', { error: `Story generation error: ${e.message}` });
@@ -2091,6 +2094,190 @@ app.post('/story/:id/experience/analyze', async (req, res) => {
     return res.json(result);
   } catch (e) {
     return res.status(502).json({ error: `Reader Experience analysis error: ${e.message}` });
+  }
+});
+
+// ─── Name & Place Localization Endpoints ────────────────────────────────────
+
+/**
+ * GET /story/:id/localization/config
+ * Returns the story's Name & Place Localization config (style), or the default
+ * placeholder config when none has been set yet.
+ */
+app.get('/story/:id/localization/config', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const config = storyRag.getLocalizationConfig(id);
+  return res.json({ config: config || localization.DEFAULT_CONFIG, configured: Boolean(config) });
+});
+
+/**
+ * POST /story/:id/localization/config
+ * Body: { "style": "original" | "english" | "english_distinctive" | "custom" }
+ * Validates and stores the Name & Place Localization config for a story.
+ * Preserves any existing canonical entity mappings.
+ */
+app.post('/story/:id/localization/config', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const { style } = (req.body && req.body.config) ? req.body.config : (req.body || {});
+  const { valid, errors, normalized } = localization.validateConfig({ style });
+  if (!valid) {
+    return res.status(400).json({ error: 'Invalid localization config: ' + errors.join(' ') });
+  }
+
+  storyRag.setLocalizationConfig(id, normalized);
+  return res.json({ config: normalized, configured: true });
+});
+
+/**
+ * GET /story/:id/localization/map
+ * Returns the canonical entity mappings array for a story ([] when none).
+ */
+app.get('/story/:id/localization/map', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const config = storyRag.getLocalizationConfig(id);
+  return res.json({
+    config: config || localization.DEFAULT_CONFIG,
+    entities: storyRag.getEntityMap(id),
+    active: localization.isActive(id),
+  });
+});
+
+/**
+ * POST /story/:id/localization/map
+ * Body: { "entityType": "...", "sourceName": "...", "canonicalName": "...",
+ *         "userApproved"?: boolean, "locked"?: boolean }
+ * Add or update a single canonical mapping. Used for author overrides — when
+ * userApproved/locked is true the mapping becomes authoritative and the system
+ * will not silently change it. Prevents duplicate canonical names.
+ */
+app.post('/story/:id/localization/map', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const { entityType, sourceName, canonicalName, userApproved, locked } = req.body || {};
+  if (typeof sourceName !== 'string' || !sourceName.trim()) {
+    return res.status(400).json({ error: 'Request body must include a non-empty "sourceName" string.' });
+  }
+  if (typeof canonicalName !== 'string' || !canonicalName.trim()) {
+    return res.status(400).json({ error: 'Request body must include a non-empty "canonicalName" string.' });
+  }
+
+  try {
+    const { entity, created } = localization.addOrUpdateMapping(id, {
+      entityType: typeof entityType === 'string' ? entityType.trim() : 'character',
+      sourceName: sourceName.trim(),
+      canonicalName: canonicalName.trim(),
+      userApproved: userApproved === true,
+      locked: locked === true,
+    });
+    return res.status(created ? 201 : 200).json({ entity, created });
+  } catch (e) {
+    return res.status(409).json({ error: e.message });
+  }
+});
+
+/**
+ * DELETE /story/:id/localization/map/:entityId
+ * Remove a canonical mapping by entity id.
+ */
+app.delete('/story/:id/localization/map/:entityId', (req, res) => {
+  const { id, entityId } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const removed = localization.removeMapping(id, entityId);
+  if (!removed) return res.status(404).json({ error: 'Mapping not found.' });
+  return res.json({ removed: true });
+});
+
+/**
+ * POST /story/:id/localize
+ * Body: { "model"?: "..." }
+ * The explicit "Localize Story Names" operation for an existing story. Scans
+ * existing story knowledge, identifies unmapped characters/places/organizations,
+ * and assigns canonical names via a single LLM call. Does NOT rewrite
+ * historical chapters — only future generation context is updated. Soft-fails
+ * (200 with localized:false) when localization is inactive or the LLM is
+ * unreachable.
+ */
+app.post('/story/:id/localize', async (req, res) => {
+  const { id } = req.params;
+  const { model } = req.body || {};
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const aiOptions = {};
+  if (typeof model === 'string' && model.trim()) aiOptions.model = model.trim();
+
+  try {
+    const result = await localization.localizeStory(id, aiOptions);
+    return res.json(result);
+  } catch (e) {
+    return res.status(502).json({ error: `Localization error: ${e.message}` });
   }
 });
 

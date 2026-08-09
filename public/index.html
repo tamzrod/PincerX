@@ -1658,6 +1658,24 @@
             </div>
           </details>
 
+          <details id="localization-details" style="margin-bottom:8px;">
+            <summary style="font-size:12px;font-weight:600;cursor:pointer;color:#4a6cf7">🌐 Name &amp; Place Localization (optional)</summary>
+            <div id="localization-config" style="margin-top:8px;font-size:12px;">
+              <p style="color:#888;margin-bottom:6px;">Use distinctive English-readable names &amp; places consistently across the whole story. Assigns a stable canonical identity per entity.</p>
+              <label for="nlo-style" style="font-size:12px;">Style</label>
+              <select id="nlo-style" style="width:100%;margin-bottom:6px;border:1px solid #d0d5dd;border-radius:5px;padding:6px 8px;font-size:13px;font-family:inherit"></select>
+              <div class="row" style="gap:6px;margin-bottom:6px;">
+                <button type="button" class="btn-secondary" id="nlo-save-btn" onclick="saveLocalizationConfig()" style="flex:1;font-size:12px;">Save Style</button>
+                <button type="button" class="btn-secondary" id="nlo-localize-btn" onclick="localizeStoryNames()" style="flex:1;font-size:12px;">🌍 Localize Story Names</button>
+              </div>
+              <div class="msg" id="nlo-msg" style="font-size:11px;margin-bottom:6px;"></div>
+              <div id="nlo-entity-panel" style="display:none;border:1px solid #e3e8ee;border-radius:5px;padding:6px;max-height:220px;overflow-y:auto;background:#fbfcfe;">
+                <div style="font-weight:600;margin-bottom:4px;color:#4a6cf7;">Canonical Names</div>
+                <div id="nlo-entity-list"></div>
+              </div>
+            </div>
+          </details>
+
           <div class="row">
             <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
             <button class="btn-danger" id="reset-story-btn" onclick="resetStory()" style="display:none">Reset</button>
@@ -2040,6 +2058,22 @@
   };
   const REX_DEFAULTS = { primary: 'curiosity', secondary: 'suspense', intensity: 'moderate', pacing: 'moderate' };
   let _rexOptionsBuilt = false;
+
+  // ── Name & Place Localization option table (author intent) ────────────────
+  // Declared at the top of this script (same block as the page-load init) so
+  // the init can populate the #nlo-style dropdown without a temporal-dead-zone
+  // reference (the same class of bug that once left the Reader Experience
+  // selects blank). Values are stable machine-readable ids; the matching
+  // display labels live in NLO_LABELS (used for <option> text).
+  const NLO_STYLES = ['original', 'english', 'english_distinctive', 'custom'];
+  const NLO_LABELS = {
+    original: 'Original',
+    english: 'English',
+    english_distinctive: 'English — Distinctive',
+    custom: 'Custom',
+  };
+  const NLO_DEFAULTS = { style: 'original' };
+  let _nloOptionsBuilt = false;
 
   function switchTab(name) {
     document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -4030,6 +4064,8 @@
     if (_expPlaceholder) _expPlaceholder.style.display = '';
     const _expSummary = document.getElementById('experience-summary');
     if (_expSummary) _expSummary.style.display = 'none';
+    // Reset Name & Place Localization UI
+    resetLocalizationUI();
   }
 
   /**
@@ -4083,6 +4119,10 @@
       const body = { title, genre, tone };
       if (storyModel) body.model = storyModel;
       if (customPrompt.trim()) body.customPrompt = customPrompt.trim();
+      // Forward the selected Name & Place Localization style so initial entities
+      // get canonical names at creation time.
+      const _nloStyle = (document.getElementById('nlo-style') || {}).value || '';
+      if (_nloStyle && _nloStyle !== NLO_DEFAULTS.style) body.localizationStyle = _nloStyle;
 
       const data = await new Promise((resolve, reject) => {
         streamAIRequest('/story/create/stream', body, {
@@ -4130,6 +4170,9 @@
 
       // Load story knowledge and coherence panel
       updateStoryKnowledgeVisibility();
+      // Refresh the Name & Place Localization panel so any canonical names
+      // assigned during story creation are visible immediately.
+      loadLocalizationState();
       // Refresh saved stories list so the new entry appears
       loadStoryList();
     } catch (e) {
@@ -4695,6 +4738,9 @@
       storyState.experience = {};
       loadReaderExperienceConfig();
 
+      // Load the Name & Place Localization config + entity mappings.
+      loadLocalizationState();
+
       switchTab('story');
     } catch (e) {
       showMsg('story-msg', `Failed to load story: ${e.message}`, 'error');
@@ -5077,6 +5123,8 @@
   populateStoryModelSelect();
   // Populate the Reader Experience dropdown options once on load.
   _populateReaderExperienceOptions();
+  // Populate the Name & Place Localization style dropdown once on load.
+  _populateLocalizationOptions();
 
   // ── Story Knowledge & Coherence Functions ─────────────────────────────────
 
@@ -5692,6 +5740,166 @@
     } catch (e) {
       showMsg('rex-msg', e.message, 'error');
     }
+  }
+
+  // ── Name & Place Localization (canonical identity) ──────────────────────
+
+  function _populateLocalizationOptions() {
+    const sel = document.getElementById('nlo-style');
+    if (!sel || _nloOptionsBuilt) return;
+    sel.innerHTML = '';
+    for (const id of NLO_STYLES) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = NLO_LABELS[id] || id;
+      sel.appendChild(opt);
+    }
+    sel.value = NLO_DEFAULTS.style;
+    _nloOptionsBuilt = true;
+  }
+
+  function _applyLocalizationSelection(style) {
+    const sel = document.getElementById('nlo-style');
+    if (!sel) return;
+    const v = (typeof style === 'string' && style) ? style : NLO_DEFAULTS.style;
+    sel.value = NLO_STYLES.includes(v) ? v : NLO_DEFAULTS.style;
+  }
+
+  function _renderLocalizationEntityPanel(entities) {
+    const panel = document.getElementById('nlo-entity-panel');
+    const list = document.getElementById('nlo-entity-list');
+    if (!panel || !list) return;
+    const ents = Array.isArray(entities) ? entities : [];
+    if (ents.length === 0) {
+      panel.style.display = 'none';
+      list.innerHTML = '';
+      return;
+    }
+    panel.style.display = '';
+    list.innerHTML = '';
+    for (const e of ents) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #f0f2f7;font-size:11px;';
+      const src = document.createElement('span');
+      src.textContent = (e.sourceNames && e.sourceNames[0]) || e.sourceName || '';
+      src.style.cssText = 'color:#888;flex:0 0 auto;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      const arrow = document.createElement('span');
+      arrow.textContent = '→';
+      arrow.style.color = '#4a6cf7';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = e.displayName || e.canonicalName || '';
+      input.style.cssText = 'flex:1;border:1px solid #d0d5dd;border-radius:4px;padding:3px 5px;font-size:11px;';
+      input.dataset.entityId = e.id || '';
+      input.dataset.sourceName = (e.sourceNames && e.sourceNames[0]) || e.sourceName || '';
+      input.dataset.entityType = e.entityType || 'character';
+      const lock = document.createElement('span');
+      lock.textContent = (e.userApproved || e.locked) ? '🔒' : '';
+      lock.style.cssText = 'flex:0 0 auto;color:#4a6cf7;font-size:12px;';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.textContent = '✓';
+      saveBtn.title = 'Save & lock this canonical name';
+      saveBtn.style.cssText = 'flex:0 0 auto;font-size:11px;padding:2px 6px;cursor:pointer;';
+      saveBtn.onclick = () => _saveLocalizationMapping(input, lock);
+      row.appendChild(src);
+      row.appendChild(arrow);
+      row.appendChild(input);
+      row.appendChild(lock);
+      row.appendChild(saveBtn);
+      list.appendChild(row);
+    }
+  }
+
+  async function _saveLocalizationMapping(inputEl, lockEl) {
+    if (!storyState.id || !inputEl) return;
+    const canonicalName = inputEl.value.trim();
+    if (!canonicalName) { showMsg('nlo-msg', 'Canonical name cannot be empty.', 'error'); return; }
+    const body = {
+      entityType: inputEl.dataset.entityType || 'character',
+      sourceName: inputEl.dataset.sourceName || '',
+      canonicalName,
+      userApproved: true,
+      locked: true,
+    };
+    try {
+      await apiFetch(`/story/${encodeURIComponent(storyState.id)}/localization/map`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (lockEl) lockEl.textContent = '🔒';
+      showMsg('nlo-msg', 'Canonical name locked. Future chapters will use it.', 'success');
+    } catch (e) {
+      showMsg('nlo-msg', e.message, 'error');
+    }
+  }
+
+  async function saveLocalizationConfig() {
+    if (!storyState.id) {
+      showMsg('nlo-msg', 'Create or load a story first.', 'error');
+      return;
+    }
+    const style = document.getElementById('nlo-style').value;
+    try {
+      const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/localization/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ style }),
+      });
+      _applyLocalizationSelection(data.config && data.config.style);
+      showMsg('nlo-msg', 'Localization style saved.', 'success');
+    } catch (e) {
+      showMsg('nlo-msg', e.message, 'error');
+    }
+  }
+
+  async function loadLocalizationState() {
+    if (!storyState.id) { _applyLocalizationSelection(NLO_DEFAULTS.style); _renderLocalizationEntityPanel([]); return; }
+    try {
+      const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/localization/map`);
+      _applyLocalizationSelection(data.config && data.config.style);
+      _renderLocalizationEntityPanel(data.entities || []);
+    } catch (e) {
+      // Not all stories have localization configured yet — default + empty panel.
+      _applyLocalizationSelection(NLO_DEFAULTS.style);
+      _renderLocalizationEntityPanel([]);
+    }
+  }
+
+  async function localizeStoryNames() {
+    if (!storyState.id) {
+      showMsg('nlo-msg', 'Create or load a story first.', 'error');
+      return;
+    }
+    const btn = document.getElementById('nlo-localize-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Localizing…'; }
+    clearMsg('nlo-msg');
+    const storyModelEl = document.getElementById('story-model');
+    const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+    try {
+      const result = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/localize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: storyModel || undefined }),
+      });
+      if (result.localized) {
+        _renderLocalizationEntityPanel(result.entities || []);
+        showMsg('nlo-msg', `Localized ${result.added || 0} new entit${(result.added || 0) === 1 ? 'y' : 'ies'}.`, 'success');
+      } else {
+        showMsg('nlo-msg', result.reason || 'Localization did not run (style is "Original" or no new entities).', 'error');
+      }
+    } catch (e) {
+      showMsg('nlo-msg', e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '🌍 Localize Story Names'; }
+    }
+  }
+
+  function resetLocalizationUI() {
+    _applyLocalizationSelection(NLO_DEFAULTS.style);
+    _renderLocalizationEntityPanel([]);
+    clearMsg('nlo-msg');
   }
 
   /**

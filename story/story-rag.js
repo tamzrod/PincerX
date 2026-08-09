@@ -38,6 +38,8 @@ const VALID_STORY_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * - reader_experience: config, currentState, readerQuestions, knowledgeManagement,
  *   trajectory, lastChapterNumber, lastObjective, lastFindings (evolving Reader
  *   Experience state — see story/story-experience.js)
+ * - entity_map: config (Name & Place Localization style), entities (canonical
+ *   identity mappings — see story/story-localization.js). Single doc per story.
  */
 const VALID_TYPES = [
   'character',
@@ -49,6 +51,7 @@ const VALID_TYPES = [
   'arc_boundary',
   'summary',
   'reader_experience',
+  'entity_map',
 ];
 
 /**
@@ -580,6 +583,103 @@ function setExperienceConfig(storyId, config) {
   return merged;
 }
 
+// ── Name & Place Localization (single entity_map doc per story) ──────────────
+
+/**
+ * Document id used for the per-story Name & Place Localization entity map.
+ * Stored as type 'entity_map' so it participates in the existing RAG
+ * storage/retrieval mechanisms (no second storage system). The doc holds BOTH
+ * the author-intent config (style) and the canonical entity mappings, mirroring
+ * the reader_experience single-doc pattern.
+ */
+const ENTITY_MAP_DOC_ID = 'entity-map';
+
+/**
+ * Load the full Name & Place Localization doc for a story (config + entity
+ * mappings). Returns null when no doc has been created yet.
+ *
+ * @param {string} storyId
+ * @returns {object|null}
+ */
+function getEntityMapDoc(storyId) {
+  _assertValidStoryId(storyId);
+  const doc = getDoc(storyId, ENTITY_MAP_DOC_ID);
+  if (!doc) return null;
+  return doc;
+}
+
+/**
+ * Persist the full entity map doc (creates or replaces). Preserves any fields
+ * not present in the incoming state (merge semantics, like saveExperienceState).
+ *
+ * @param {string} storyId
+ * @param {object} state - { config?, entities?, ... }
+ * @returns {object} The merged doc.
+ */
+function saveEntityMapDoc(storyId, state) {
+  _assertValidStoryId(storyId);
+  const existing = getDoc(storyId, ENTITY_MAP_DOC_ID) || {};
+  const merged = {
+    ...existing,
+    ...state,
+    id: ENTITY_MAP_DOC_ID,
+    type: 'entity_map',
+    updatedAt: new Date().toISOString(),
+  };
+  addDoc(storyId, merged);
+  return merged;
+}
+
+/**
+ * Get the Name & Place Localization author-intent config for a story.
+ * Returns null when the author has not enabled localization yet (which signals
+ * that canonical-name injection/synthesis should be skipped — keeping
+ * generation backward-compatible for stories that pre-date the feature).
+ *
+ * @param {string} storyId
+ * @returns {object|null}
+ */
+function getLocalizationConfig(storyId) {
+  const doc = getEntityMapDoc(storyId);
+  if (!doc || !doc.config) return null;
+  return doc.config;
+}
+
+/**
+ * Set (or replace) the Name & Place Localization config for a story.
+ * Preserves any previously-assigned entity mappings.
+ *
+ * @param {string} storyId
+ * @param {object} config
+ * @returns {object} The merged doc.
+ */
+function setLocalizationConfig(storyId, config) {
+  _assertValidStoryId(storyId);
+  const existing = getDoc(storyId, ENTITY_MAP_DOC_ID) || {};
+  const merged = {
+    ...existing,
+    id: ENTITY_MAP_DOC_ID,
+    type: 'entity_map',
+    config,
+    updatedAt: new Date().toISOString(),
+  };
+  addDoc(storyId, merged);
+  return merged;
+}
+
+/**
+ * Get the canonical entity mappings array for a story. Returns [] when no
+ * mappings have been assigned yet (even if a config/style is set).
+ *
+ * @param {string} storyId
+ * @returns {Array<object>}
+ */
+function getEntityMap(storyId) {
+  const doc = getEntityMapDoc(storyId);
+  if (!doc || !Array.isArray(doc.entities)) return [];
+  return doc.entities;
+}
+
 module.exports = {
   addDoc,
   removeDoc,
@@ -599,4 +699,10 @@ module.exports = {
   getExperienceState,
   saveExperienceState,
   EXPERIENCE_DOC_ID,
+  getEntityMapDoc,
+  saveEntityMapDoc,
+  getLocalizationConfig,
+  setLocalizationConfig,
+  getEntityMap,
+  ENTITY_MAP_DOC_ID,
 };

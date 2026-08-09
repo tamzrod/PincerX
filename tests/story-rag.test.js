@@ -462,3 +462,66 @@ describe('storyRag reader_experience', () => {
   });
 });
 
+
+// ── Name & Place Localization: entity_map storage ──────────────────────────
+
+describe('storyRag entity_map (Name & Place Localization) storage', () => {
+  it('getEntityMapDoc returns null when no entity_map doc exists', () => {
+    expect(storyRag.getEntityMapDoc(TEST_STORY_ID)).toBeNull();
+  });
+
+  it('saveEntityMapDoc persists config + entities and re-reads them', () => {
+    storyRag.saveEntityMapDoc(TEST_STORY_ID, {
+      config: { style: 'english_distinctive' },
+      entities: [
+        { id: 'ent-wei-chen', entityType: 'character', sourceNames: ['Wei Chen'], canonicalName: 'Cedric Vale', displayName: 'Cedric Vale' },
+      ],
+    });
+    const doc = storyRag.getEntityMapDoc(TEST_STORY_ID);
+    expect(doc).not.toBeNull();
+    expect(doc.id).toBe(storyRag.ENTITY_MAP_DOC_ID);
+    expect(doc.type).toBe('entity_map');
+    expect(doc.config.style).toBe('english_distinctive');
+    expect(doc.entities).toHaveLength(1);
+    expect(doc.entities[0].canonicalName).toBe('Cedric Vale');
+  });
+
+  it('setLocalizationConfig stores config without clobbering existing entities', () => {
+    storyRag.saveEntityMapDoc(TEST_STORY_ID, {
+      entities: [{ id: 'ent-x', sourceNames: ['X'], canonicalName: 'Y' }],
+    });
+    storyRag.setLocalizationConfig(TEST_STORY_ID, { style: 'english' });
+    const doc = storyRag.getEntityMapDoc(TEST_STORY_ID);
+    expect(doc.config.style).toBe('english');
+    expect(doc.entities).toHaveLength(1);
+    expect(doc.entities[0].canonicalName).toBe('Y');
+  });
+
+  it('getLocalizationConfig returns the stored config', () => {
+    storyRag.setLocalizationConfig(TEST_STORY_ID, { style: 'custom' });
+    expect(storyRag.getLocalizationConfig(TEST_STORY_ID)).toEqual({ style: 'custom' });
+  });
+
+  it('getEntityMap returns the entities array (or [] when none)', () => {
+    expect(storyRag.getEntityMap(TEST_STORY_ID)).toEqual([]);
+    storyRag.saveEntityMapDoc(TEST_STORY_ID, {
+      entities: [{ id: 'ent-a', canonicalName: 'A' }, { id: 'ent-b', canonicalName: 'B' }],
+    });
+    expect(storyRag.getEntityMap(TEST_STORY_ID)).toHaveLength(2);
+  });
+
+  it('saveEntityMapDoc preserves a previously-stored config when only entities are passed', () => {
+    storyRag.setLocalizationConfig(TEST_STORY_ID, { style: 'english_distinctive' });
+    storyRag.saveEntityMapDoc(TEST_STORY_ID, { entities: [{ id: 'ent-z', canonicalName: 'Z' }] });
+    const doc = storyRag.getEntityMapDoc(TEST_STORY_ID);
+    expect(doc.config.style).toBe('english_distinctive');
+    expect(doc.entities).toHaveLength(1);
+  });
+
+  it('includes entity_map in listDocsByType grouping', () => {
+    storyRag.saveEntityMapDoc(TEST_STORY_ID, { config: { style: 'english' }, entities: [] });
+    const grouped = storyRag.listDocsByType(TEST_STORY_ID);
+    expect(grouped.entity_map).toHaveLength(1);
+    expect(grouped.entity_map[0].config.style).toBe('english');
+  });
+});
