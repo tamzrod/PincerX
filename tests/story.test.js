@@ -451,6 +451,77 @@ describe('story.js — generateChapter()', () => {
     expect(phases).toContain('Writing chapter');
     expect(phases).toContain('Done');
   });
+
+  it('builds a coherence-guided regeneration prompt when regenerate is set', async () => {
+    // Pre-existing chapter to regenerate (so its original content is referenced).
+    writeStory('test-regen-1234', {
+      chapters: [{ number: 1, content: 'Kael panicked and froze.', createdAt: '2024-01-01T00:00:00.000Z' }],
+    });
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: 'Kael reacted calmly and tested the ability.' }))
+      .mockResolvedValueOnce('Summary.')
+      .mockResolvedValueOnce('{"extractions":[]}');
+
+    await storyModule.generateChapter('test-regen-1234', 1, {
+      regenerate: {
+        evidence: 'Kael\'s power activation contradicts his established fear.',
+        recommendation: 'Have Kael react calmly and test the new ability.',
+        customInstruction: 'Keep the dialogue minimal.',
+      },
+    });
+
+    const prompt = ai.ask.mock.calls[0][0];
+    // Regeneration framing, not the generic "write" framing.
+    expect(prompt).toMatch(/Regenerate/);
+    // The three coherence inputs are all present in the prompt.
+    expect(prompt).toContain('Kael\'s power activation contradicts his established fear.');
+    expect(prompt).toContain('Have Kael react calmly and test the new ability.');
+    expect(prompt).toContain('Keep the dialogue minimal.');
+    // Original chapter content is referenced for preservation.
+    expect(prompt).toContain('Kael panicked and froze.');
+    // The custom instruction is framed as an ADDITIONAL constraint, not a replacement.
+    expect(prompt).toMatch(/do NOT ignore the coherence correction/i);
+  });
+
+  it('regenerates using the recommendation alone when customInstruction is empty', async () => {
+    writeStory('test-regen-no-custom-1234', {
+      chapters: [{ number: 1, content: 'Original text.', createdAt: '2024-01-01T00:00:00.000Z' }],
+    });
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: 'Fixed chapter.' }))
+      .mockResolvedValueOnce('Summary.')
+      .mockResolvedValueOnce('{"extractions":[]}');
+
+    await storyModule.generateChapter('test-regen-no-custom-1234', 1, {
+      regenerate: {
+        evidence: 'Evidence here.',
+        recommendation: 'Fix recommendation.',
+        customInstruction: '',
+      },
+    });
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('Evidence here.');
+    expect(prompt).toContain('Fix recommendation.');
+    // No "Also apply the following user instruction" block when empty.
+    expect(prompt).not.toMatch(/Also apply the following user instruction/);
+  });
+
+  it('preserves the original chapter on generation failure', async () => {
+    const original = 'Kael panicked and froze.';
+    writeStory('test-regen-fail-1234', {
+      chapters: [{ number: 1, content: original, createdAt: '2024-01-01T00:00:00.000Z' }],
+    });
+    ai.ask.mockRejectedValueOnce(new Error('AI offline'));
+
+    await expect(storyModule.generateChapter('test-regen-fail-1234', 1, {
+      regenerate: { evidence: 'e', recommendation: 'r' },
+    })).rejects.toThrow('AI offline');
+
+    // The on-disk chapter is unchanged because the write only happens on success.
+    const saved = JSON.parse(fs.readFileSync(path.join(STORIES_DIR, 'test-regen-fail-1234.json'), 'utf8'));
+    expect(saved.chapters[0].content).toBe(original);
+  });
 });
 
 // ── story.js — deleteChapter() ───────────────────────────────────────────────

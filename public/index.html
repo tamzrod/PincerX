@@ -1238,6 +1238,74 @@
       color: #8a6d3b;
     }
 
+    /* ── Coherence-guided regeneration ─────────────────────────────────── */
+
+    .coherence-regen {
+      margin-top: 14px;
+      padding: 12px;
+      background: #fff4f5;
+      border: 1px solid #f0c9cd;
+      border-radius: 6px;
+    }
+
+    .coherence-regen-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #c9302c;
+      margin-bottom: 6px;
+    }
+
+    .coherence-regen-recommendation {
+      background: #fff;
+      border-radius: 4px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: #555;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+
+    .coherence-regen label {
+      display: block;
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 3px;
+    }
+
+    .coherence-regen textarea {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 5px;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      min-height: 54px;
+      resize: vertical;
+      margin-bottom: 10px;
+    }
+
+    .coherence-regen-btn {
+      width: 100%;
+      background: #c9302c;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .coherence-regen-btn:hover:not(:disabled) {
+      background: #b02a26;
+    }
+
+    .coherence-regen-btn:disabled {
+      background: #c9a0a0;
+      cursor: not-allowed;
+    }
+
     /* ── Add knowledge form ─────────────────────────────────────────────── */
 
     .add-knowledge-form {
@@ -1799,6 +1867,15 @@
             <div class="coherence-boundaries" id="coherence-boundaries-panel" style="display:none">
               <strong style="font-size:12px;color:#8a6d3b">Established Boundaries:</strong>
               <div id="coherence-boundaries-list"></div>
+            </div>
+
+            <!-- Coherence-guided regeneration (shown only when warnings exist) -->
+            <div class="coherence-regen" id="coherence-regen" style="display:none">
+              <div class="coherence-regen-title">🔄 Regenerate Affected Chapter</div>
+              <div class="coherence-regen-recommendation" id="coherence-regen-recommendation"></div>
+              <label for="coherence-regen-custom">Custom instructions (optional)</label>
+              <textarea id="coherence-regen-custom" placeholder="e.g. Make Kael react calmly and immediately test the new ability."></textarea>
+              <button class="coherence-regen-btn" id="coherence-regen-btn" onclick="regenerateChapterFromCoherence()">🔄 Regenerate Chapter</button>
             </div>
           </div>
 
@@ -5097,7 +5174,7 @@
         },
       );
 
-      displayCoherenceResult(result);
+      displayCoherenceResult(result, latestChapter.number);
       showMsg('coherence-check-msg', 'Check complete!', 'success');
     } catch (e) {
       showMsg('coherence-check-msg', 'Check failed: ' + e.message, 'error');
@@ -5109,8 +5186,15 @@
 
   /**
    * Display coherence check results
+   * @param {object} result - Coherence result from the API.
+   * @param {number} [chapterNumber] - Chapter the result applies to (for regeneration).
    */
-  function displayCoherenceResult(result) {
+  function displayCoherenceResult(result, chapterNumber) {
+    // Track which chapter + result the regeneration controls apply to.
+    if (typeof chapterNumber === 'number') {
+      storyState.coherence = { result, chapterNumber };
+    }
+
     // Update stats
     document.getElementById('coherence-confidence').textContent = result.confidence ? Math.round(result.confidence * 100) + '%' : '—';
 
@@ -5154,7 +5238,9 @@
       });
     }
 
-    if (result.suggestions && result.suggestions.length > 0 && result.suggestions[0] !== 'No issues detected') {
+    const hasSuggestions = result.suggestions && result.suggestions.length > 0
+      && result.suggestions[0] !== 'No issues detected';
+    if (hasSuggestions) {
       result.suggestions.forEach((s) => {
         const div = document.createElement('div');
         div.className = 'coherence-warning suggestion';
@@ -5173,6 +5259,119 @@
       ).join('');
     } else {
       boundariesPanel.style.display = 'none';
+    }
+
+    // Coherence-guided regeneration: show only when there are warnings AND we
+    // know which chapter to regenerate. Hide (and reset) when the chapter passes.
+    const regenPanel = document.getElementById('coherence-regen');
+    const regenBtn = document.getElementById('coherence-regen-btn');
+    const regenCustom = document.getElementById('coherence-regen-custom');
+    const regenRec = document.getElementById('coherence-regen-recommendation');
+    const hasWarnings = result.warnings && result.warnings.length > 0;
+    const canRegen = hasWarnings && storyState.coherence && storyState.coherence.chapterNumber;
+    if (canRegen) {
+      regenPanel.style.display = 'block';
+      // The recommendation is the joined suggestions (coherence "how to fix").
+      const recommendation = hasSuggestions ? result.suggestions.join('\n') : '';
+      regenRec.textContent = recommendation || 'No specific recommendation — regenerate to address the detected warnings.';
+      if (regenBtn) { regenBtn.disabled = false; regenBtn.innerHTML = '🔄 Regenerate Chapter'; }
+      if (regenCustom) regenCustom.disabled = false;
+    } else {
+      regenPanel.style.display = 'none';
+      if (regenCustom) regenCustom.value = '';
+    }
+  }
+
+  /**
+   * Regenerate the coherence-flagged chapter using the coherence recommendation
+   * plus an optional user instruction. Only the affected chapter is replaced;
+   * coherence is re-checked automatically afterward.
+   */
+  async function regenerateChapterFromCoherence() {
+    const ctx = storyState.coherence;
+    if (!storyState.id || !ctx || !ctx.chapterNumber || !ctx.result) return;
+
+    const btn = document.getElementById('coherence-regen-btn');
+    const customEl = document.getElementById('coherence-regen-custom');
+    const customInstruction = customEl ? customEl.value.trim() : '';
+    const chapterNumber = ctx.chapterNumber;
+    const result = ctx.result;
+    const recommendation = (result.suggestions && result.suggestions.length > 0
+      && result.suggestions[0] !== 'No issues detected')
+      ? result.suggestions.join('\n')
+      : '';
+
+    // Prevent duplicate regeneration requests.
+    if (btn && btn.disabled) return;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Regenerating…';
+    }
+    if (customEl) customEl.disabled = true;
+    clearMsg('coherence-check-msg');
+
+    try {
+      const lengthSelect = document.getElementById('chapter-length');
+      const length = lengthSelect ? lengthSelect.value : 'default';
+      const storyModelEl = document.getElementById('story-model');
+      const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+      const body = {
+        chapterNumber,
+        length,
+        regenerate: {
+          evidence: result.evidence || '',
+          recommendation,
+          customInstruction,
+        },
+      };
+      if (storyModel) body.model = storyModel;
+
+      const data = await new Promise((resolve, reject) => {
+        streamAIRequest(`/story/${encodeURIComponent(storyState.id)}/chapter/stream`, body, {
+          title: `Chapter ${chapterNumber} (coherence fix)`,
+          doneLabel: `Chapter ${chapterNumber} regenerated`,
+          onDone: resolve,
+          onError: reject,
+        });
+      }).catch((e) => { throw e; });
+
+      // Replace ONLY the affected chapter in the reading view (in-place update).
+      appendChapterToReading(chapterNumber, data.content || '');
+
+      // Reload story state so the new chapter content is reflected everywhere.
+      await loadStory(storyState.id);
+
+      // Re-run coherence on the regenerated chapter automatically.
+      const regenerated = (storyState.chapters || []).find((c) => c.number === chapterNumber);
+      if (regenerated) {
+        const recheck = await apiFetch(
+          `/story/${encodeURIComponent(storyState.id)}/coherence/check`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chapterContent: regenerated.content }),
+          },
+        );
+        displayCoherenceResult(recheck, chapterNumber);
+        showMsg('coherence-check-msg',
+          recheck.warnings && recheck.warnings.length > 0
+            ? `Chapter ${chapterNumber} regenerated — ${recheck.warnings.length} warning(s) remain. You can iterate again.`
+            : `Chapter ${chapterNumber} regenerated and passed coherence check.`,
+          recheck.warnings && recheck.warnings.length > 0 ? 'loading' : 'success');
+      } else {
+        showMsg('coherence-check-msg', `Chapter ${chapterNumber} regenerated.`, 'success');
+      }
+
+      showAIStatus(`Chapter ${chapterNumber} regenerated`, 'success', '', 4000);
+      await loadCharacters();
+      await refreshCharacterVoiceMap();
+      updateStoryKnowledgeVisibility();
+    } catch (e) {
+      // Original chapter is preserved on failure (server only writes on success).
+      showMsg('coherence-check-msg', 'Regeneration failed: ' + e.message, 'error');
+      showAIStatus(`Chapter ${chapterNumber} regeneration failed`, 'error', e.message);
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔄 Regenerate Chapter'; }
+      if (customEl) customEl.disabled = false;
     }
   }
 

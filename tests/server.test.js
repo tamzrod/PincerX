@@ -465,6 +465,29 @@ describe('POST /story/:id/chapter', () => {
     );
   });
 
+  it('forwards a coherence-guided regenerate object into generateChapter aiOptions', async () => {
+    story.generateChapter.mockResolvedValue({ storyId: '1234-my-story', chapterNumber: 1, content: 'fixed' });
+
+    await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({
+        chapterNumber: 1,
+        regenerate: {
+          evidence: 'Power contradicts fear.',
+          recommendation: 'Have Kael stay calm.',
+          customInstruction: '  Keep dialogue minimal.  ',
+        },
+      });
+
+    const [, , aiOptions] = story.generateChapter.mock.calls[0];
+    expect(aiOptions.regenerate).toEqual({
+      evidence: 'Power contradicts fear.',
+      recommendation: 'Have Kael stay calm.',
+      // customInstruction is trimmed by the endpoint.
+      customInstruction: 'Keep dialogue minimal.',
+    });
+  });
+
   it('returns 400 when story ID contains invalid characters', async () => {
     const res = await request(app)
       .post('/story/my.story_id/chapter')
@@ -589,6 +612,38 @@ describe('POST /story/:id/chapter/stream', () => {
     expect(res.status).toBe(200);
     expect(res.body).toContain('event: error');
     expect(res.body).toMatch(/AI offline/);
+  });
+
+  it('forwards a coherence-guided regenerate object through the stream endpoint', async () => {
+    story.generateChapter.mockImplementation(async () => ({
+      storyId: '1234-my-story', chapterNumber: 1, content: 'fixed chapter',
+    }));
+
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter/stream')
+      .send({
+        chapterNumber: 1,
+        regenerate: {
+          evidence: 'Power contradicts fear.',
+          recommendation: 'Have Kael stay calm.',
+          customInstruction: 'Keep dialogue minimal.',
+        },
+      })
+      .buffer(true)
+      .parse((res, cb) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => cb(null, data));
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('event: done');
+    const [, , aiOptions] = story.generateChapter.mock.calls[0];
+    expect(aiOptions.regenerate).toEqual({
+      evidence: 'Power contradicts fear.',
+      recommendation: 'Have Kael stay calm.',
+      customInstruction: 'Keep dialogue minimal.',
+    });
   });
 });
 

@@ -808,8 +808,47 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   const onPhase = aiOptions.onPhase;
   const onToken = aiOptions.onToken;
 
+  // Coherence-guided regeneration: when `aiOptions.regenerate` is present we
+  // are re-writing an EXISTING chapter to fix a detected coherence issue. The
+  // recommendation must always be honored; an optional customInstruction is an
+  // additional creative constraint that must NOT override the coherence fix.
+  const regenerate = aiOptions.regenerate;
+  const isRegen = Boolean(regenerate);
+  const originalChapter = isRegen
+    ? (storyData.chapters || []).find((c) => c.number === chapterNumber)
+    : null;
+  const originalContent = originalChapter ? originalChapter.content : '';
+
+  const coherenceRegenBlock = isRegen ? [
+    '',
+    '═══════════════════════════════════════════════════════════════',
+    'COHERENCE-GUIDED REGENERATION',
+    '═══════════════════════════════════════════════════════════════',
+    'You are regenerating an EXISTING chapter to fix a detected coherence issue.',
+    'Preserve the chapter\'s intended events, continuity, and narrative purpose.',
+    'Do NOT introduce unrelated changes.',
+    '',
+    regenerate.evidence
+      ? `Address the detected coherence issue:\n${regenerate.evidence}`
+      : '',
+    regenerate.recommendation
+      ? `Follow this recommendation:\n${regenerate.recommendation}`
+      : '',
+    regenerate.customInstruction
+      ? 'Also apply the following user instruction (an ADDITIONAL creative constraint —\ndo NOT ignore the coherence correction merely because this is provided):\n' + regenerate.customInstruction
+      : '',
+    originalContent
+      ? `Original chapter (for reference — preserve its events and narrative purpose):\n${originalContent}`
+      : '',
+    '',
+    'Produce a COMPLETE replacement chapter.',
+    '═══════════════════════════════════════════════════════════════',
+  ].filter(Boolean).join('\n') : '';
+
   const prompt = [
-    'You are a creative writing assistant. Write a detailed, immersive chapter of a story.',
+    isRegen
+      ? 'You are a creative writing assistant. Regenerate a chapter of a story to resolve a coherence issue.'
+      : 'You are a creative writing assistant. Write a detailed, immersive chapter of a story.',
     'Respond with ONLY a valid JSON object containing exactly this field:',
     '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
     '',
@@ -865,8 +904,11 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     characterContext ? `\n${characterContext}` : '',
     loreContext ? `\n${loreContext}` : '',
     prior ? `\nPreviously written chapters:\n${prior}` : '',
+    coherenceRegenBlock || '',
     customPrompt ? `\nAdditional instructions: ${customPrompt}` : '',
-    `\nNow write Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`,
+    isRegen
+      ? `\nNow regenerate Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`
+      : `\nNow write Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`,
   ].join('\n');
 
   if (onPhase) onPhase('Writing chapter');

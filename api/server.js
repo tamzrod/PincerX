@@ -1430,7 +1430,7 @@ app.post('/story/create', async (req, res) => {
  */
 app.post('/story/:id/chapter', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model } = req.body;
+  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model, regenerate } = req.body;
 
   if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
@@ -1453,6 +1453,13 @@ app.post('/story/:id/chapter', async (req, res) => {
   }
   if (typeof model === 'string' && model.trim()) {
     aiOptions.model = model.trim();
+  }
+  if (regenerate && typeof regenerate === 'object') {
+    aiOptions.regenerate = {
+      evidence: typeof regenerate.evidence === 'string' ? regenerate.evidence : '',
+      recommendation: typeof regenerate.recommendation === 'string' ? regenerate.recommendation : '',
+      customInstruction: typeof regenerate.customInstruction === 'string' ? regenerate.customInstruction.trim() : '',
+    };
   }
 
   try {
@@ -1490,7 +1497,7 @@ function sseEmit(res, event, payload) {
  */
 app.post('/story/:id/chapter/stream', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model } = req.body;
+  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model, regenerate } = req.body;
 
   // SSE headers. Disable Nagle + proxy buffering so tokens flush promptly.
   res.set('Content-Type', 'text/event-stream');
@@ -1522,6 +1529,14 @@ app.post('/story/:id/chapter/stream', async (req, res) => {
   }
   if (typeof model === 'string' && model.trim()) {
     aiOptions.model = model.trim();
+  }
+  // Coherence-guided regeneration context. Forwarded verbatim into the prompt.
+  if (regenerate && typeof regenerate === 'object') {
+    aiOptions.regenerate = {
+      evidence: typeof regenerate.evidence === 'string' ? regenerate.evidence : '',
+      recommendation: typeof regenerate.recommendation === 'string' ? regenerate.recommendation : '',
+      customInstruction: typeof regenerate.customInstruction === 'string' ? regenerate.customInstruction.trim() : '',
+    };
   }
 
   // Live-progress hooks → SSE events. onToken streams token fragments so the
