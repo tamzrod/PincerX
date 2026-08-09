@@ -938,7 +938,14 @@
       margin-top: 2px;
     }
 
-    .ai-status-bar.error .ai-status-detail { color: #ffb4b4; }
+    .ai-status-bar.error .ai-status-detail {
+      color: #ffb4b4;
+      white-space: pre-wrap;
+      overflow: visible;
+      text-overflow: clip;
+      max-height: 140px;
+      overflow-y: auto;
+    }
 
     .ai-status-bar.error {
       background: #2a1010;
@@ -1757,14 +1764,16 @@
   window.addEventListener('error', (e) => {
     if (typeof showAIStatus === 'function') {
       showAIStatus('Unexpected error', 'error',
-        (e.error && e.error.message) || e.message || 'Unknown error');
+        (e.error && e.error.message) || e.message || 'Unknown error',
+        (e.error && e.error.stack) || '');
     }
   });
   window.addEventListener('unhandledrejection', (e) => {
     if (typeof showAIStatus === 'function') {
       const reason = e.reason;
       showAIStatus('Unexpected error', 'error',
-        (reason && reason.message) || String(reason) || 'Unknown rejection');
+        (reason && reason.message) || String(reason) || 'Unknown rejection',
+        (reason && reason.stack) || '');
     }
   });
 </script>
@@ -1923,11 +1932,11 @@
    */
   function showAIStatus(text, type, detail, autoHideMs) {
     const bar = document.getElementById('ai-status-bar');
+    if (!bar) return;
     const textEl = document.getElementById('ai-status-text');
     const detailEl = document.getElementById('ai-status-detail');
     const iconEl = document.getElementById('ai-status-icon');
     const dismissBtn = document.getElementById('ai-status-dismiss');
-    if (!bar) return;
 
     if (_aiStatusTimer) { clearTimeout(_aiStatusTimer); _aiStatusTimer = null; }
 
@@ -1938,18 +1947,20 @@
     const zonos = document.getElementById('zonos-status-bar');
     bar.classList.toggle('with-zonos', zonos && zonos.classList.contains('visible'));
 
-    textEl.textContent = text;
-    if (detail) {
-      detailEl.textContent = detail;
-      detailEl.style.display = '';
-    } else {
-      detailEl.style.display = 'none';
+    if (textEl) textEl.textContent = text;
+    if (detailEl) {
+      if (detail) {
+        detailEl.textContent = detail;
+        detailEl.style.display = '';
+      } else {
+        detailEl.style.display = 'none';
+      }
     }
 
     const icons = { loading: '⏳', success: '✓', error: '⚠' };
-    iconEl.textContent = icons[type] || '⏳';
+    if (iconEl) iconEl.textContent = icons[type] || '⏳';
 
-    dismissBtn.style.display = type === 'loading' ? 'none' : '';
+    if (dismissBtn) dismissBtn.style.display = type === 'loading' ? 'none' : '';
 
     if (type === 'success' && autoHideMs) {
       _aiStatusTimer = setTimeout(() => dismissAIStatus(), autoHideMs);
@@ -4943,7 +4954,7 @@
 
       // Refresh character list (new characters may have been added)
       loadCharacters();
-      loadStoryCharacterVoices();
+      refreshCharacterVoiceMap();
     } catch (e) {
       showMsg('chapter-msg', e.message, 'error');
     } finally {
