@@ -1416,13 +1416,15 @@ app.post('/story/create', async (req, res) => {
 
 /**
  * POST /story/:id/chapter
- * Body: { "chapterNumber": 1, "customPrompt": "...", "dialogRatio": 60 }
+ * Body: { "chapterNumber": 1, "customPrompt": "...", "dialogRatio": 60, "length": "default", "wordTarget": 2000 }
  * Generates a chapter for an existing story and saves it to data/stories/.
  * dialogRatio (0–100) controls the percentage of character dialogue vs narration.
+ * length ("short" | "default" | "long") selects the chapter word-count preset.
+ * wordTarget (positive int) optionally overrides the preset with an exact word count.
  */
 app.post('/story/:id/chapter', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber, customPrompt, dialogRatio } = req.body;
+  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget } = req.body;
 
   if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
@@ -1436,6 +1438,12 @@ app.post('/story/:id/chapter', async (req, res) => {
   const aiOptions = {};
   if (typeof dialogRatio === 'number' && Number.isFinite(dialogRatio)) {
     aiOptions.dialogRatio = dialogRatio;
+  }
+  if (length === 'short' || length === 'default' || length === 'long') {
+    aiOptions.length = length;
+  }
+  if (Number.isFinite(wordTarget) && wordTarget > 0) {
+    aiOptions.wordTarget = Math.round(wordTarget);
   }
 
   try {

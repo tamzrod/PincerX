@@ -92,10 +92,31 @@ async function create(title, genre, tone, aiOptions = {}) {
  * @typedef {'short' | 'default' | 'long'} ChapterLength
  */
 const CHAPTER_LENGTH_PRESETS = {
-  short: { minWords: 500, targetWords: 600, maxWords: 700 },
-  default: { minWords: 900, targetWords: 1200, maxWords: 1400 },
-  long: { minWords: 1600, targetWords: 1900, maxWords: 2200 },
+  short: { minWords: 800, targetWords: 1100, maxWords: 1400 },
+  default: { minWords: 1400, targetWords: 1900, maxWords: 2400 },
+  long: { minWords: 2500, targetWords: 3200, maxWords: 4000 },
 };
+
+/**
+ * Rough tokens-per-word estimate used to size the model's generation budget.
+ * 1 word ≈ 1.3 tokens on average; we pad generously so the model is never
+ * cut off short of the requested length. Capped to keep requests sane.
+ */
+const TOKENS_PER_WORD = 1.6;
+const MAX_TOKEN_BUDGET = 8192;
+
+/**
+ * Compute a generation token budget (max output tokens) for a chapter from
+ * the active length preset or explicit word target.
+ * @param {string} length
+ * @param {number} [wordTarget]
+ * @returns {number}
+ */
+function chapterTokenBudget(length, wordTarget) {
+  const preset = CHAPTER_LENGTH_PRESETS[length] || CHAPTER_LENGTH_PRESETS.default;
+  const words = (typeof wordTarget === 'number' && wordTarget > 0) ? wordTarget : preset.maxWords;
+  return Math.min(MAX_TOKEN_BUDGET, Math.max(1024, Math.round(words * TOKENS_PER_WORD)));
+}
 
 /** Generic speaker names that are never real character profiles. */
 const GENERIC_SPEAKERS = new Set(['narrator', 'male', 'female']);
@@ -765,6 +786,14 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   const storyLawBlock = buildStoryLawBlock(storyId, storyData);
   const lengthPolicy = buildLengthPolicy(length, wordTarget);
 
+  // Give the model a generation budget sized to the requested length so it
+  // isn't artificially capped short of the word target (the default Ollama /
+  // OpenAI budget can be far smaller than a full chapter needs).
+  const askOptions = {
+    ...aiOptions,
+    maxTokens: chapterTokenBudget(length, wordTarget),
+  };
+
   const prompt = [
     'You are a creative writing assistant. Write a detailed, immersive chapter of a story.',
     'Respond with ONLY a valid JSON object containing exactly this field:',
@@ -826,7 +855,7 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     `\nNow write Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`,
   ].join('\n');
 
-  const raw = await ai.ask(prompt, aiOptions);
+  const raw = await ai.ask(prompt, askOptions);
   const content = parseChapterContent(raw);
   const chapter = { number: chapterNumber, content, createdAt: new Date().toISOString() };
 
@@ -990,7 +1019,7 @@ function deleteStory(storyId) {
   return { storyId };
 }
 
-module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get, pickVoicePreset, normalizeChapterParagraphs, buildLengthPolicy, CHAPTER_LENGTH_PRESETS };
+module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get, pickVoicePreset, normalizeChapterParagraphs, buildLengthPolicy, chapterTokenBudget, CHAPTER_LENGTH_PRESETS };
 
 /**
  * Return summary metadata for every saved story, newest first.

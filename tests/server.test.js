@@ -435,6 +435,21 @@ describe('POST /story/:id/chapter', () => {
     expect(story.generateChapter).toHaveBeenCalledWith('1234-my-story', 1, {}, '');
   });
 
+  it('forwards length, wordTarget, and dialogRatio into aiOptions', async () => {
+    story.generateChapter.mockResolvedValue({ storyId: '1234-my-story', chapterNumber: 1, content: 'x' });
+
+    await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({ chapterNumber: 1, length: 'long', wordTarget: 2500, dialogRatio: 40 });
+
+    expect(story.generateChapter).toHaveBeenCalledWith(
+      '1234-my-story',
+      1,
+      { length: 'long', wordTarget: 2500, dialogRatio: 40 },
+      '',
+    );
+  });
+
   it('returns 400 when story ID contains invalid characters', async () => {
     const res = await request(app)
       .post('/story/my.story_id/chapter')

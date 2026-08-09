@@ -406,7 +406,12 @@ describe('story.js — generateChapter()', () => {
     await storyModule.generateChapter('test-opts-1234', 1, { model: 'mistral' });
 
     expect(ai.ask).toHaveBeenCalledTimes(3);
-    expect(ai.ask).toHaveBeenNthCalledWith(1, expect.any(String), { model: 'mistral' });
+    // Chapter call gets a length-sized token budget added on top of aiOptions.
+    expect(ai.ask).toHaveBeenNthCalledWith(1, expect.any(String), {
+      model: 'mistral',
+      maxTokens: storyModule.chapterTokenBudget('default'),
+    });
+    // Summary and knowledge extraction calls pass the original aiOptions unchanged.
     expect(ai.ask).toHaveBeenNthCalledWith(2, expect.any(String), { model: 'mistral' });
     expect(ai.ask).toHaveBeenNthCalledWith(3, expect.any(String), { model: 'mistral' });
   });
@@ -886,22 +891,22 @@ describe('story.js — buildLengthPolicy()', () => {
   it('returns correct policy for short preset', () => {
     const policy = storyModule.buildLengthPolicy('short');
     expect(policy).toContain('LENGTH POLICY (MANDATORY)');
-    expect(policy).toContain('500–700 words');
-    expect(policy).toContain('600 words');
+    expect(policy).toContain('800–1400 words');
+    expect(policy).toContain('1100 words');
   });
 
   it('returns correct policy for default preset', () => {
     const policy = storyModule.buildLengthPolicy('default');
     expect(policy).toContain('LENGTH POLICY (MANDATORY)');
-    expect(policy).toContain('900–1400 words');
-    expect(policy).toContain('1200 words');
+    expect(policy).toContain('1400–2400 words');
+    expect(policy).toContain('1900 words');
   });
 
   it('returns correct policy for long preset', () => {
     const policy = storyModule.buildLengthPolicy('long');
     expect(policy).toContain('LENGTH POLICY (MANDATORY)');
-    expect(policy).toContain('1600–2200 words');
-    expect(policy).toContain('1900 words');
+    expect(policy).toContain('2500–4000 words');
+    expect(policy).toContain('3200 words');
   });
 
   it('returns correct policy for wordTarget override', () => {
@@ -913,7 +918,7 @@ describe('story.js — buildLengthPolicy()', () => {
 
   it('defaults to default preset for unknown length', () => {
     const policy = storyModule.buildLengthPolicy('unknown');
-    expect(policy).toContain('900–1400 words');
+    expect(policy).toContain('1400–2400 words');
   });
 
   it('includes structure guidance in preset policies', () => {
@@ -934,26 +939,48 @@ describe('story.js — buildLengthPolicy()', () => {
 describe('story.js — CHAPTER_LENGTH_PRESETS', () => {
   it('short preset has correct word counts', () => {
     expect(storyModule.CHAPTER_LENGTH_PRESETS.short).toEqual({
-      minWords: 500,
-      targetWords: 600,
-      maxWords: 700,
+      minWords: 800,
+      targetWords: 1100,
+      maxWords: 1400,
     });
   });
 
   it('default preset has correct word counts', () => {
     expect(storyModule.CHAPTER_LENGTH_PRESETS.default).toEqual({
-      minWords: 900,
-      targetWords: 1200,
-      maxWords: 1400,
+      minWords: 1400,
+      targetWords: 1900,
+      maxWords: 2400,
     });
   });
 
   it('long preset has correct word counts', () => {
     expect(storyModule.CHAPTER_LENGTH_PRESETS.long).toEqual({
-      minWords: 1600,
-      targetWords: 1900,
-      maxWords: 2200,
+      minWords: 2500,
+      targetWords: 3200,
+      maxWords: 4000,
     });
+  });
+});
+
+// ── story.js — chapterTokenBudget() ────────────────────────────────────────
+
+describe('story.js — chapterTokenBudget()', () => {
+  it('sizes the budget from the preset maxWords', () => {
+    expect(storyModule.chapterTokenBudget('default')).toBe(2400 * 1.6);
+    expect(storyModule.chapterTokenBudget('long')).toBe(4000 * 1.6);
+    expect(storyModule.chapterTokenBudget('short')).toBe(1400 * 1.6);
+  });
+
+  it('wordTarget overrides the preset', () => {
+    expect(storyModule.chapterTokenBudget('short', 2000)).toBe(2000 * 1.6);
+  });
+
+  it('clamps to the maximum budget', () => {
+    expect(storyModule.chapterTokenBudget('default', 100000)).toBeLessThanOrEqual(8192);
+  });
+
+  it('clamps to a sensible minimum', () => {
+    expect(storyModule.chapterTokenBudget('default', 10)).toBeGreaterThanOrEqual(1024);
   });
 });
 
@@ -994,7 +1021,7 @@ describe('story.js — generateChapter length options', () => {
 
     const prompt = ai.ask.mock.calls[0][0];
     expect(prompt).toContain('LENGTH POLICY (MANDATORY)');
-    expect(prompt).toContain('900–1400 words');
+    expect(prompt).toContain('1400–2400 words');
   });
 
   it('uses short length when specified', async () => {
@@ -1006,7 +1033,7 @@ describe('story.js — generateChapter length options', () => {
     await storyModule.generateChapter('test-length-short-1234', 1, { length: 'short' });
 
     const prompt = ai.ask.mock.calls[0][0];
-    expect(prompt).toContain('500–700 words');
+    expect(prompt).toContain('800–1400 words');
   });
 
   it('uses long length when specified', async () => {
@@ -1018,7 +1045,19 @@ describe('story.js — generateChapter length options', () => {
     await storyModule.generateChapter('test-length-long-1234', 1, { length: 'long' });
 
     const prompt = ai.ask.mock.calls[0][0];
-    expect(prompt).toContain('1600–2200 words');
+    expect(prompt).toContain('2500–4000 words');
+  });
+
+  it('passes a token budget sized to the requested length to ai.ask', async () => {
+    writeStory('test-length-budget-1234');
+    ai.ask
+      .mockResolvedValueOnce(JSON.stringify({ content: '[speaker:narrator] Test.' }))
+      .mockResolvedValueOnce('Summary.');
+
+    await storyModule.generateChapter('test-length-budget-1234', 1, { length: 'long' });
+
+    const askOptions = ai.ask.mock.calls[0][1];
+    expect(askOptions.maxTokens).toBe(storyModule.chapterTokenBudget('long'));
   });
 
   it('uses wordTarget when specified', async () => {
@@ -1047,6 +1086,6 @@ describe('story.js — generateChapter length options', () => {
 
     const prompt = ai.ask.mock.calls[0][0];
     expect(prompt).toContain('exactly 2000 words');
-    expect(prompt).not.toContain('500–700 words');
+    expect(prompt).not.toContain('800–1400 words');
   });
 });

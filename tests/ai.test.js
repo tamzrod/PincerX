@@ -95,6 +95,30 @@ describe('AI Transport (lib/ai.js)', () => {
       expect(body.model).toBe('mistral');
     });
 
+    it('forwards maxTokens as num_predict for the default Ollama provider', async () => {
+      const { mockReq } = mockHttpRequest({ response: 'ok' });
+      await ai.ask('prompt', { maxTokens: 4096 });
+      const body = JSON.parse(mockReq.write.mock.calls[0][0]);
+      expect(body.num_predict).toBe(4096);
+      expect(body.max_tokens).toBeUndefined();
+    });
+
+    it('forwards maxTokens as max_tokens for OpenAI-compatible providers', async () => {
+      const { mockReq } = mockHttpRequest({ choices: [{ message: { content: 'ok' } }] });
+      await ai.ask('prompt', { provider: 'openai', maxTokens: 3000 });
+      const body = JSON.parse(mockReq.write.mock.calls[0][0]);
+      expect(body.max_tokens).toBe(3000);
+      expect(body.num_predict).toBeUndefined();
+    });
+
+    it('omits any token budget when maxTokens is not a positive number', async () => {
+      const { mockReq } = mockHttpRequest({ response: 'ok' });
+      await ai.ask('prompt', { maxTokens: 0 });
+      const body = JSON.parse(mockReq.write.mock.calls[0][0]);
+      expect(body.num_predict).toBeUndefined();
+      expect(body.max_tokens).toBeUndefined();
+    });
+
     it('resolves with empty string when response field is absent', async () => {
       mockHttpRequest({ done: true }); // no 'response' field
       const result = await ai.ask('prompt');

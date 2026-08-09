@@ -1512,6 +1512,12 @@
             <input type="range" id="chapter-dialog-ratio" min="0" max="100" step="5" value="60" oninput="document.getElementById('chapter-dialog-ratio-val').textContent=this.value+'%'" />
             <span class="slider-val" id="chapter-dialog-ratio-val">60%</span>
           </div>
+          <label for="chapter-length">Chapter Length</label>
+          <select id="chapter-length" style="margin-bottom:12px">
+            <option value="short">Short (~1100 words)</option>
+            <option value="default" selected>Default (~1900 words)</option>
+            <option value="long">Long (~3200 words)</option>
+          </select>
           <div class="row">
             <button class="btn-primary" id="chapter-btn" onclick="generateNextChapter()">Generate Chapter 1</button>
           </div>
@@ -4915,6 +4921,8 @@
 
     const customPrompt = document.getElementById('chapter-custom-prompt').value.trim();
     const dialogRatio = parseInt(document.getElementById('chapter-dialog-ratio').value, 10);
+    const lengthSelect = document.getElementById('chapter-length');
+    const length = lengthSelect ? lengthSelect.value : 'default';
 
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>Writing…';
@@ -4931,6 +4939,7 @@
           chapterNumber: storyState.chapters ? storyState.chapters.length + 1 : 1,
           customPrompt,
           dialogRatio,
+          length,
         }),
       });
 
