@@ -5,6 +5,7 @@ const path = require('path');
 const ai = require('../lib/ai');
 const storyRag = require('./story-rag');
 const coherence = require('./story-coherence');
+const experience = require('./story-experience');
 
 const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
 
@@ -848,6 +849,61 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     '═══════════════════════════════════════════════════════════════',
   ].filter(Boolean).join('\n') : '';
 
+  // ── Reader Experience synthesis (soft, opt-in) ────────────────────────────
+  // Synthesis only runs when the author has configured Reader Experience for
+  // this story (a config doc in the RAG store). When inactive, behaviour is
+  // identical to the pre-feature pipeline. On any failure the previous Reader
+  // Experience state is preserved and chapter generation continues normally.
+  let experienceObjective = null;
+  let experienceSynthesis = null;
+  if (storyRag.getExperienceConfig(storyId)) {
+    if (onPhase) onPhase('Synthesizing reader experience');
+    try {
+      // When regenerating, reuse the stored objective for the chapter so the
+      // regenerated text targets the same reader experience (and folds in the
+      // experience findings from the prior analysis as extra guidance).
+      const regenExperience = isRegen && regenerate.experience ? regenerate.experience : null;
+      if (regenExperience && regenExperience.objective) {
+        experienceObjective = regenExperience.objective;
+        experienceSynthesis = { synthesized: true, objective: experienceObjective, chapter1: chapterNumber <= 1, reused: true };
+      } else {
+        experienceSynthesis = await experience.synthesizeObjective(storyId, chapterNumber, aiOptions);
+        experienceObjective = experienceSynthesis.objective || null;
+      }
+    } catch (e) {
+      console.warn('[story] Reader Experience synthesis failed:', e.message);
+      experienceSynthesis = { synthesized: false, objective: null, error: e.message };
+    }
+  }
+
+  const experienceObjectiveBlock = experienceObjective
+    ? experience.buildChapterObjectiveBlock(experienceObjective)
+    : '';
+
+  // When regenerating, fold Reader Experience findings into the regen block as
+  // an ADDITIONAL constraint (alongside coherence + custom instruction) — it
+  // must never erase the coherence correction or the experience objective.
+  const experienceRegenBlock = (isRegen && regenerate.experience && regenerate.experience.findings)
+    ? [
+        '',
+        '═══════════════════════════════════════════════════════════════',
+        'READER EXPERIENCE FEEDBACK (additional constraint)',
+        '═══════════════════════════════════════════════════════════════',
+        'The previous version of this chapter did not fully deliver the intended',
+        'reader experience. Address the findings below in addition to the coherence',
+        'fix and any custom instruction — do NOT drop the coherence correction.',
+        '',
+        `Findings: ${JSON.stringify(regenerate.experience.findings.observed || {})}`,
+        regenerate.experience.findings.recommendation
+          ? `Experience recommendation: ${regenerate.experience.findings.recommendation}`
+          : '',
+        (regenerate.experience.findings.issues || []).length
+          ? `Issues: ${regenerate.experience.findings.issues.join('; ')}`
+          : '',
+        '═══════════════════════════════════════════════════════════════',
+      ].filter(Boolean).join('\n')
+    : '';
+
   const prompt = [
     isRegen
       ? 'You are a creative writing assistant. Regenerate a chapter of a story to resolve a coherence issue.'
@@ -908,6 +964,8 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     loreContext ? `\n${loreContext}` : '',
     prior ? `\nPreviously written chapters:\n${prior}` : '',
     coherenceRegenBlock || '',
+    experienceRegenBlock || '',
+    experienceObjectiveBlock || '',
     customPrompt ? `\nAdditional instructions: ${customPrompt}` : '',
     isRegen
       ? `\nNow regenerate Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`
@@ -958,12 +1016,35 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     // Don't fail the chapter generation if coherence check fails
   }
 
+  // Reader Experience post-generation analysis (soft, opt-in). Never blocks
+  // the chapter from being saved; on failure the previous state is preserved
+  // and a failure note is surfaced alongside the coherence result.
+  let experienceResult = null;
+  if (experienceObjective) {
+    if (onPhase) onPhase('Analyzing reader experience');
+    try {
+      const analysis = await experience.analyzeChapter(storyId, chapterNumber, content, experienceObjective, aiOptions);
+      experienceResult = analysis.analyzed
+        ? analysis.findings
+        : { analyzed: false, error: analysis.error };
+    } catch (e) {
+      console.warn('[story] Reader Experience analysis failed:', e.message);
+      experienceResult = { analyzed: false, error: e.message };
+    }
+  }
+
   if (onPhase) onPhase('Done');
   return {
     storyId,
     chapterNumber,
     content,
     coherence: coherenceResult,
+    experience: experienceResult,
+    experienceObjective: experienceSynthesis ? {
+      synthesized: experienceSynthesis.synthesized,
+      chapter1: experienceSynthesis.chapter1,
+      objective: experienceObjective,
+    } : null,
   };
 }
 

@@ -35,6 +35,9 @@ const VALID_STORY_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * - parameter: genre, tone, bans
  * - arc_boundary: phase, constraints, allowedEvents, forbiddenEvents
  * - summary: chapterNumber, content
+ * - reader_experience: config, currentState, readerQuestions, knowledgeManagement,
+ *   trajectory, lastChapterNumber, lastObjective, lastFindings (evolving Reader
+ *   Experience state — see story/story-experience.js)
  */
 const VALID_TYPES = [
   'character',
@@ -45,6 +48,7 @@ const VALID_TYPES = [
   'parameter',
   'arc_boundary',
   'summary',
+  'reader_experience',
 ];
 
 /**
@@ -497,6 +501,85 @@ function formatKnowledgeForPrompt(storyId, options = {}) {
   return parts.join('\n\n');
 }
 
+// ── Reader Experience state (single evolving doc per story) ──────────────────
+
+/**
+ * Document id used for the per-story Reader Experience state doc.
+ * Stored as type 'reader_experience' so it participates in the existing
+ * RAG storage/retrieval mechanisms (no second storage system).
+ */
+const EXPERIENCE_DOC_ID = 'reader-experience';
+
+/**
+ * Load the full Reader Experience state doc for a story (config + evolving
+ * state). Returns null when no doc has been created yet.
+ *
+ * @param {string} storyId
+ * @returns {object|null}
+ */
+function getExperienceState(storyId) {
+  _assertValidStoryId(storyId);
+  const doc = getDoc(storyId, EXPERIENCE_DOC_ID);
+  if (!doc) return null;
+  return doc;
+}
+
+/**
+ * Persist the full Reader Experience state doc (creates or replaces).
+ *
+ * @param {string} storyId
+ * @param {object} state
+ */
+function saveExperienceState(storyId, state) {
+  _assertValidStoryId(storyId);
+  const existing = getDoc(storyId, EXPERIENCE_DOC_ID) || {};
+  const merged = {
+    ...existing,
+    ...state,
+    id: EXPERIENCE_DOC_ID,
+    type: 'reader_experience',
+    updatedAt: new Date().toISOString(),
+  };
+  addDoc(storyId, merged);
+  return merged;
+}
+
+/**
+ * Get the Reader Experience author-intent config for a story.
+ * Returns null when the author has not configured Reader Experience yet
+ * (which also signals that synthesis/analysis should be skipped — keeping
+ * generation backward-compatible for stories that pre-date the feature).
+ *
+ * @param {string} storyId
+ * @returns {object|null}
+ */
+function getExperienceConfig(storyId) {
+  const state = getExperienceState(storyId);
+  if (!state || !state.config) return null;
+  return state.config;
+}
+
+/**
+ * Set (or replace) the Reader Experience author-intent config for a story.
+ * Preserves any previously-evolved state (currentState, trajectory, etc.).
+ *
+ * @param {string} storyId
+ * @param {object} config
+ */
+function setExperienceConfig(storyId, config) {
+  _assertValidStoryId(storyId);
+  const existing = getDoc(storyId, EXPERIENCE_DOC_ID) || {};
+  const merged = {
+    ...existing,
+    id: EXPERIENCE_DOC_ID,
+    type: 'reader_experience',
+    config,
+    updatedAt: new Date().toISOString(),
+  };
+  addDoc(storyId, merged);
+  return merged;
+}
+
 module.exports = {
   addDoc,
   removeDoc,
@@ -511,4 +594,9 @@ module.exports = {
   isValidType,
   VALID_TYPES,
   _slugify,
+  getExperienceConfig,
+  setExperienceConfig,
+  getExperienceState,
+  saveExperienceState,
+  EXPERIENCE_DOC_ID,
 };

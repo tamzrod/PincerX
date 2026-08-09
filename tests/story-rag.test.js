@@ -389,3 +389,76 @@ describe('storyRag formatKnowledgeForPrompt()', () => {
     expect(result).toBe('');
   });
 });
+
+// ── reader_experience type + state helpers ─────────────────────────────────
+
+describe('storyRag reader_experience', () => {
+  it('accepts reader_experience as a valid type', () => {
+    expect(storyRag.isValidType('reader_experience')).toBe(true);
+    expect(storyRag.VALID_TYPES).toContain('reader_experience');
+  });
+
+  it('stores and retrieves a reader_experience doc via addDoc/getDoc', () => {
+    storyRag.addDoc(TEST_STORY_ID, {
+      id: 'reader-experience',
+      type: 'reader_experience',
+      config: { primary: 'Curiosity', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' },
+    });
+    const doc = storyRag.getDoc(TEST_STORY_ID, 'reader-experience');
+    expect(doc).not.toBeNull();
+    expect(doc.type).toBe('reader_experience');
+    expect(doc.config.primary).toBe('Curiosity');
+  });
+
+  it('getExperienceConfig returns null when no config is set', () => {
+    expect(storyRag.getExperienceConfig(TEST_STORY_ID)).toBeNull();
+  });
+
+  it('setExperienceConfig stores config and getExperienceConfig returns it', () => {
+    const config = { primary: 'Mystery', secondary: 'Wonder', intensity: 'Low', pacing: 'Slow' };
+    storyRag.setExperienceConfig(TEST_STORY_ID, config);
+    const got = storyRag.getExperienceConfig(TEST_STORY_ID);
+    expect(got).toEqual(config);
+  });
+
+  it('setExperienceConfig preserves previously evolved state', () => {
+    storyRag.setExperienceConfig(TEST_STORY_ID, { primary: 'Curiosity', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' });
+    storyRag.saveExperienceState(TEST_STORY_ID, {
+      currentState: { curiosity: 72, tension: 48 },
+      readerQuestions: ['Who is Cedric?'],
+      trajectory: [{ chapterNumber: 1, movement: 'calm → curiosity', passed: true }],
+      lastChapterNumber: 1,
+    });
+    // Replacing the config must not wipe the evolved state.
+    storyRag.setExperienceConfig(TEST_STORY_ID, { primary: 'Suspense', secondary: 'Tension', intensity: 'High', pacing: 'Fast' });
+    const state = storyRag.getExperienceState(TEST_STORY_ID);
+    expect(state.config.primary).toBe('Suspense');
+    expect(state.currentState.curiosity).toBe(72);
+    expect(state.readerQuestions).toEqual(['Who is Cedric?']);
+    expect(state.trajectory).toHaveLength(1);
+  });
+
+  it('saveExperienceState merges into the existing doc and stamps metadata', () => {
+    storyRag.setExperienceConfig(TEST_STORY_ID, { primary: 'Curiosity', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' });
+    storyRag.saveExperienceState(TEST_STORY_ID, { currentState: { curiosity: 80 }, lastChapterNumber: 2 });
+    const state = storyRag.getExperienceState(TEST_STORY_ID);
+    expect(state.id).toBe('reader-experience');
+    expect(state.type).toBe('reader_experience');
+    expect(state.currentState.curiosity).toBe(80);
+    expect(state.lastChapterNumber).toBe(2);
+    expect(state.config.primary).toBe('Curiosity');
+    expect(state.updatedAt).toBeTruthy();
+  });
+
+  it('getExperienceState returns null when no doc exists', () => {
+    expect(storyRag.getExperienceState('empty-story-rex-999')).toBeNull();
+  });
+
+  it('includes reader_experience in listDocsByType grouping', () => {
+    storyRag.addDoc(TEST_STORY_ID, { id: 'reader-experience', type: 'reader_experience', config: { primary: 'Curiosity' } });
+    const grouped = storyRag.listDocsByType(TEST_STORY_ID);
+    expect(grouped.reader_experience).toHaveLength(1);
+    expect(grouped.reader_experience[0].config.primary).toBe('Curiosity');
+  });
+});
+

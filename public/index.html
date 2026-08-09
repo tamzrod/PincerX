@@ -1627,6 +1627,24 @@
           </div>
           <label for="story-custom-prompt">Custom instructions (optional)</label>
           <textarea id="story-custom-prompt" placeholder="e.g. Include a heist subplot and a morally grey mentor…" style="min-height:70px;margin-bottom:8px;"></textarea>
+
+          <details id="reader-experience-details" style="margin-bottom:8px;">
+            <summary style="font-size:12px;font-weight:600;cursor:pointer;color:#4a6cf7">🎯 Reader Experience (optional)</summary>
+            <div id="reader-experience-config" style="margin-top:8px;font-size:12px;">
+              <p style="color:#888;margin-bottom:6px;">Author intent for the listener's emotional journey. When set, chapters are synthesised against this objective.</p>
+              <label for="rex-primary" style="font-size:12px;">Primary</label>
+              <select id="rex-primary" style="width:100%;margin-bottom:6px;border:1px solid #d0d5dd;border-radius:5px;padding:6px 8px;font-size:13px;font-family:inherit"></select>
+              <label for="rex-secondary" style="font-size:12px;">Secondary</label>
+              <select id="rex-secondary" style="width:100%;margin-bottom:6px;border:1px solid #d0d5dd;border-radius:5px;padding:6px 8px;font-size:13px;font-family:inherit"></select>
+              <label for="rex-intensity" style="font-size:12px;">Emotional Intensity</label>
+              <select id="rex-intensity" style="width:100%;margin-bottom:6px;border:1px solid #d0d5dd;border-radius:5px;padding:6px 8px;font-size:13px;font-family:inherit"></select>
+              <label for="rex-pacing" style="font-size:12px;">Pacing</label>
+              <select id="rex-pacing" style="width:100%;margin-bottom:8px;border:1px solid #d0d5dd;border-radius:5px;padding:6px 8px;font-size:13px;font-family:inherit"></select>
+              <button type="button" class="btn-secondary" id="rex-save-btn" onclick="saveReaderExperienceConfig()" style="width:100%;font-size:12px;">Save Reader Experience</button>
+              <div class="msg" id="rex-msg" style="font-size:11px;"></div>
+            </div>
+          </details>
+
           <div class="row">
             <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
             <button class="btn-danger" id="reset-story-btn" onclick="resetStory()" style="display:none">Reset</button>
@@ -1724,6 +1742,7 @@
         <button class="story-sub-tab" id="subtab-outline" onclick="switchStorySubTab('outline')">📋 Outline</button>
         <button class="story-sub-tab" id="subtab-knowledge" onclick="switchStorySubTab('knowledge')">💡 Story Knowledge</button>
         <button class="story-sub-tab" id="subtab-coherence" onclick="switchStorySubTab('coherence')">🔍 Coherence</button>
+        <button class="story-sub-tab" id="subtab-experience" onclick="switchStorySubTab('experience')">🎯 Experience</button>
       </div>
 
       <!-- Chapters sub-panel (PRIMARY - shown first, visible by default) -->
@@ -1883,6 +1902,51 @@
 
           <div id="coherence-placeholder" style="text-align:center;padding:30px;color:#aaa;font-size:13px">
             Generate a chapter and check its coherence to see results here.
+          </div>
+        </div>
+
+        <!-- Reader Experience sub-panel -->
+        <div class="story-sub-panel" id="panel-experience">
+          <p style="font-size:12px;color:#888;margin-bottom:10px;">
+            Tracks whether each chapter delivers the intended listener experience (curiosity, tension, mystery…).
+            Separate from coherence. Configure author intent in the 🎯 Reader Experience section on the left.
+          </p>
+
+          <div id="experience-config-summary" style="margin-bottom:12px;font-size:12px;color:#555;"></div>
+
+          <button class="btn-primary" id="check-experience-btn" onclick="checkReaderExperience()" style="margin-bottom:12px">🎯 Analyse Latest Chapter</button>
+          <div class="msg" id="experience-check-msg"></div>
+
+          <div id="experience-results">
+            <div class="coherence-summary" id="experience-summary" style="display:none">
+              <div class="coherence-stat">
+                <div class="coherence-stat-value" id="experience-passed">—</div>
+                <div class="coherence-stat-label">Experience</div>
+              </div>
+              <div class="coherence-stat">
+                <div class="coherence-stat-value" id="experience-chapter">—</div>
+                <div class="coherence-stat-label">Chapter</div>
+              </div>
+              <div class="coherence-stat">
+                <div class="coherence-stat-value" id="experience-issues-count">—</div>
+                <div class="coherence-stat-label">Issues</div>
+              </div>
+            </div>
+
+            <div class="coherence-warnings" id="experience-findings"></div>
+
+            <div class="coherence-evidence" id="experience-recommendation" style="display:none">
+              <strong>Recommendation:</strong> <span id="experience-recommendation-text"></span>
+            </div>
+
+            <div class="coherence-mechanism" id="experience-objective-panel" style="display:none">
+              <strong>Chapter objective (synthesised):</strong><br />
+              <span id="experience-objective-text" style="white-space:pre-wrap;font-size:12px;"></span>
+            </div>
+          </div>
+
+          <div id="experience-placeholder" style="text-align:center;padding:30px;color:#aaa;font-size:13px">
+            Set a Reader Experience config and generate a chapter to see the experience analysis here.
           </div>
         </div>
       </div>
@@ -3902,6 +3966,13 @@
     // Clear character manager
     document.getElementById('char-list').innerHTML = '';
     document.getElementById('char-section').style.display = 'none';
+    // Clear Reader Experience findings/state
+    storyState.experience = {};
+    _renderExperienceConfigSummary(null);
+    const _expPlaceholder = document.getElementById('experience-placeholder');
+    if (_expPlaceholder) _expPlaceholder.style.display = '';
+    const _expSummary = document.getElementById('experience-summary');
+    if (_expSummary) _expSummary.style.display = 'none';
   }
 
   /**
@@ -4532,6 +4603,11 @@
       // Load story knowledge and coherence panel
       updateStoryKnowledgeVisibility();
 
+      // Load the Reader Experience config + clear stale findings for the
+      // freshly-loaded story.
+      storyState.experience = {};
+      loadReaderExperienceConfig();
+
       switchTab('story');
     } catch (e) {
       showMsg('story-msg', `Failed to load story: ${e.message}`, 'error');
@@ -4912,6 +4988,8 @@
   // AI backend so the user can pick a model before generating. Non-blocking —
   // failures leave the "Auto (use Settings)" option in place.
   populateStoryModelSelect();
+  // Populate the Reader Experience dropdown options once on load.
+  _populateReaderExperienceOptions();
 
   // ── Story Knowledge & Coherence Functions ─────────────────────────────────
 
@@ -5321,14 +5399,28 @@
       const length = lengthSelect ? lengthSelect.value : 'default';
       const storyModelEl = document.getElementById('story-model');
       const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+
+      // Fold Reader Experience findings + objective into the regeneration
+      // request as additional constraints (never replacing coherence). These
+      // are only present when Reader Experience is active for the story.
+      const rexState = storyState.experience || {};
+      const rexFindings = rexState.findings || null;
+      const rexObjective = rexState.objective || null;
+      const regenerateBody = {
+        evidence: result.evidence || '',
+        recommendation,
+        customInstruction,
+      };
+      if (rexFindings || rexObjective) {
+        regenerateBody.experience = {
+          findings: rexFindings,
+          objective: rexObjective,
+        };
+      }
       const body = {
         chapterNumber,
         length,
-        regenerate: {
-          evidence: result.evidence || '',
-          recommendation,
-          customInstruction,
-        },
+        regenerate: regenerateBody,
       };
       if (storyModel) body.model = storyModel;
 
@@ -5359,6 +5451,34 @@
           },
         );
         displayCoherenceResult(recheck, chapterNumber);
+
+        // Re-run Reader Experience analysis on the regenerated chapter when
+        // an objective is available (soft — never blocks the regeneration).
+        if (rexObjective) {
+          try {
+            const rexRecheck = await apiFetch(
+              `/story/${encodeURIComponent(storyState.id)}/experience/analyze`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chapterNumber,
+                  chapterContent: regenerated.content,
+                  objective: rexObjective,
+                  model: storyModel || undefined,
+                }),
+              },
+            );
+            displayExperienceResult(
+              rexRecheck.analyzed ? rexRecheck.findings : { analyzed: false, error: rexRecheck.error },
+              chapterNumber,
+              { objective: rexObjective, synthesized: true, chapter1: chapterNumber <= 1 },
+            );
+          } catch (rexErr) {
+            displayExperienceResult({ analyzed: false, error: rexErr.message }, chapterNumber, { objective: rexObjective });
+          }
+        }
+
         showMsg('coherence-check-msg',
           recheck.warnings && recheck.warnings.length > 0
             ? `Chapter ${chapterNumber} regenerated — ${recheck.warnings.length} warning(s) remain. You can iterate again.`
@@ -5381,6 +5501,239 @@
     }
   }
 
+  // ── Reader Experience ─────────────────────────────────────────────────────
+
+  /** Category / level options mirrored from story-experience.js on the server. */
+  const REX_CATEGORIES = ['Curiosity', 'Tension', 'Emotion', 'Mystery', 'Wonder', 'Suspense', 'Triumph'];
+  const REX_INTENSITY = ['Low', 'Moderate', 'High'];
+  const REX_PACING = ['Slow', 'Moderate', 'Fast'];
+  let _rexOptionsBuilt = false;
+
+  /** Populate the four Reader Experience dropdowns once. */
+  function _populateReaderExperienceOptions() {
+    if (_rexOptionsBuilt) return;
+    const fill = (id, opts) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = opts.map((o) => `<option value="${o}">${o}</option>`).join('');
+    };
+    fill('rex-primary', REX_CATEGORIES);
+    fill('rex-secondary', REX_CATEGORIES);
+    fill('rex-intensity', REX_INTENSITY);
+    fill('rex-pacing', REX_PACING);
+    // Sensible default secondary distinct from primary.
+    const sec = document.getElementById('rex-secondary');
+    if (sec) sec.value = 'Tension';
+    _rexOptionsBuilt = true;
+  }
+
+  /**
+   * Load the stored Reader Experience config for the current story and
+   * populate the dropdowns + summary. Falls back to defaults when unset.
+   */
+  async function loadReaderExperienceConfig() {
+    _populateReaderExperienceOptions();
+    if (!storyState.id) {
+      _renderExperienceConfigSummary(null);
+      return;
+    }
+    try {
+      const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/experience/config`);
+      const cfg = data.config || {};
+      const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+      set('rex-primary', cfg.primary);
+      set('rex-secondary', cfg.secondary);
+      set('rex-intensity', cfg.intensity);
+      set('rex-pacing', cfg.pacing);
+      _renderExperienceConfigSummary(data.configured ? cfg : null);
+    } catch (e) {
+      _renderExperienceConfigSummary(null);
+    }
+  }
+
+  function _renderExperienceConfigSummary(cfg) {
+    const el = document.getElementById('experience-config-summary');
+    if (!el) return;
+    if (!cfg) {
+      el.innerHTML = '<em style="color:#aaa">Reader Experience not configured. Set intent on the left to activate synthesis.</em>';
+      return;
+    }
+    el.innerHTML = `Configured intent — Primary: <strong>${escapeHtml(cfg.primary)}</strong>, ` +
+      `Secondary: <strong>${escapeHtml(cfg.secondary)}</strong>, ` +
+      `Intensity: <strong>${escapeHtml(cfg.intensity)}</strong>, ` +
+      `Pacing: <strong>${escapeHtml(cfg.pacing)}</strong>.`;
+  }
+
+  /** Persist the dropdown values as the story's Reader Experience config. */
+  async function saveReaderExperienceConfig() {
+    if (!storyState.id) {
+      showMsg('rex-msg', 'Create or load a story first.', 'error');
+      return;
+    }
+    const config = {
+      primary: document.getElementById('rex-primary').value,
+      secondary: document.getElementById('rex-secondary').value,
+      intensity: document.getElementById('rex-intensity').value,
+      pacing: document.getElementById('rex-pacing').value,
+    };
+    try {
+      const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/experience/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config }),
+      });
+      _renderExperienceConfigSummary(data.config);
+      showMsg('rex-msg', 'Reader Experience saved. Chapters will be synthesised against this intent.', 'success');
+    } catch (e) {
+      showMsg('rex-msg', e.message, 'error');
+    }
+  }
+
+  /**
+   * Manually analyse the latest chapter against its Reader Experience objective.
+   * Uses the stored objective for the chapter when available.
+   */
+  async function checkReaderExperience() {
+    if (!storyState.id || !storyState.chapters || storyState.chapters.length === 0) {
+      showMsg('experience-check-msg', 'No chapters to analyse.', 'error');
+      return;
+    }
+    const btn = document.getElementById('check-experience-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Analysing…'; }
+    clearMsg('experience-check-msg');
+
+    const latest = storyState.chapters[storyState.chapters.length - 1];
+    try {
+      // Pull the stored state to get the last objective/findings.
+      const stateData = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/experience/state`);
+      const state = stateData.state || {};
+      const objective = (state.lastObjective) || null;
+      if (!objective) {
+        showMsg('experience-check-msg', 'No Reader Experience objective found. Generate a chapter after setting the config.', 'error');
+        return;
+      }
+      const storyModelEl = document.getElementById('story-model');
+      const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+      const result = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/experience/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chapterNumber: latest.number,
+          chapterContent: latest.content,
+          objective,
+          model: storyModel || undefined,
+        }),
+      });
+      displayExperienceResult(
+        result.analyzed ? result.findings : { analyzed: false, error: result.error },
+        latest.number,
+        { objective, synthesized: true, chapter1: latest.number <= 1 },
+      );
+      showMsg('experience-check-msg', 'Analysis complete.', 'success');
+    } catch (e) {
+      showMsg('experience-check-msg', 'Analysis failed: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '🎯 Analyse Latest Chapter'; }
+    }
+  }
+
+  /**
+   * Render Reader Experience findings in the Experience sub-panel.
+   * @param {object} findings - Analysis findings (or { analyzed:false, error }).
+   * @param {number} chapterNumber
+   * @param {object} [objectiveCtx] - { objective, synthesized, chapter1 }
+   */
+  function displayExperienceResult(findings, chapterNumber, objectiveCtx) {
+    // Cache for regeneration (the regenerate flow forwards these).
+    storyState.experience = storyState.experience || {};
+    if (findings) storyState.experience.findings = findings;
+    if (objectiveCtx && objectiveCtx.objective) storyState.experience.objective = objectiveCtx.objective;
+
+    const placeholder = document.getElementById('experience-placeholder');
+    if (placeholder) placeholder.style.display = 'none';
+
+    const summary = document.getElementById('experience-summary');
+    summary.style.display = 'flex';
+
+    document.getElementById('experience-chapter').textContent = chapterNumber || '—';
+
+    const passedEl = document.getElementById('experience-passed');
+    if (!findings || findings.analyzed === false) {
+      passedEl.textContent = findings && findings.error ? 'ERR' : '—';
+      passedEl.className = 'coherence-stat-value coherence-level-low';
+      document.getElementById('experience-issues-count').textContent = '—';
+    } else {
+      passedEl.textContent = findings.passed ? 'PASS' : 'NEEDS WORK';
+      passedEl.className = 'coherence-stat-value coherence-level-' + (findings.passed ? 'high' : 'medium');
+      document.getElementById('experience-issues-count').textContent =
+        (findings.issues || []).length;
+    }
+
+    // Findings list (concise ✓/⚠ lines from observed dimensions + issues).
+    const container = document.getElementById('experience-findings');
+    container.innerHTML = '';
+
+    if (!findings || findings.analyzed === false) {
+      const msg = (findings && findings.error) ? findings.error : 'Experience analysis unavailable (LLM unreachable).';
+      const div = document.createElement('div');
+      div.className = 'coherence-warning issue';
+      div.textContent = '⚠️ ' + msg + ' — previous state preserved.';
+      container.appendChild(div);
+    } else {
+      const observed = findings.observed || {};
+      for (const [dim, val] of Object.entries(observed)) {
+        const v = String(val).toLowerCase();
+        const good = /increased|unchanged|sustained/.test(v) && !/too early|decreased/.test(v);
+        const warn = /too early|decreased|too late|flat|missing/.test(v);
+        const div = document.createElement('div');
+        div.className = 'coherence-warning ' + (warn ? 'issue' : 'suggestion');
+        div.textContent = (warn ? '⚠️ ' : (good ? '✓ ' : '• ')) + dim + ': ' + val;
+        container.appendChild(div);
+      }
+      (findings.issues || []).forEach((issue) => {
+        const div = document.createElement('div');
+        div.className = 'coherence-warning issue';
+        div.textContent = '⚠️ ' + issue;
+        container.appendChild(div);
+      });
+    }
+
+    // Recommendation
+    const recEl = document.getElementById('experience-recommendation');
+    const recText = document.getElementById('experience-recommendation-text');
+    if (findings && findings.analyzed !== false && findings.recommendation) {
+      recEl.style.display = 'block';
+      recText.textContent = findings.recommendation;
+    } else {
+      recEl.style.display = 'none';
+    }
+
+    // Objective preview
+    const objPanel = document.getElementById('experience-objective-panel');
+    const objText = document.getElementById('experience-objective-text');
+    const objective = objectiveCtx && objectiveCtx.objective;
+    if (objective) {
+      objPanel.style.display = 'block';
+      const lines = [];
+      if (objective.emotionalTrajectory && objective.emotionalTrajectory.length) {
+        lines.push('Trajectory: ' + objective.emotionalTrajectory.join(' → '));
+      }
+      if (objective.narrativeObjectives && objective.narrativeObjectives.length) {
+        lines.push('Objectives: ' + objective.narrativeObjectives.join('; '));
+      }
+      if (objective.readerShouldDiscover && objective.readerShouldDiscover.length) {
+        lines.push('Discover: ' + objective.readerShouldDiscover.join('; '));
+      }
+      if (objective.readerShouldNotDiscover && objective.readerShouldNotDiscover.length) {
+        lines.push('Withhold: ' + objective.readerShouldNotDiscover.join('; '));
+      }
+      if (objective.nextChapterPull) lines.push('Next pull: ' + objective.nextChapterPull);
+      objText.textContent = lines.join('\n') || JSON.stringify(objective, null, 2);
+    } else {
+      objPanel.style.display = 'none';
+    }
+  }
+
   /**
    * Handle chapter generation response (show coherence banner if needed)
    */
@@ -5390,8 +5743,15 @@
       banner.classList.add('visible');
     }
 
+    // Display Reader Experience findings alongside coherence (soft subsystem).
+    if (result.experience) {
+      displayExperienceResult(result.experience, result.chapterNumber, result.experienceObjective);
+    }
+
     // Refresh knowledge
     loadStoryKnowledge();
+    // Refresh the Reader Experience config summary + state display.
+    loadReaderExperienceConfig();
 
     // Update chapter button text
     const nextNum = (storyState.chapters ? storyState.chapters.length : 0) + 1;

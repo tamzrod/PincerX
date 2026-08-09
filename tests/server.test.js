@@ -1725,3 +1725,159 @@ describe('PATCH /story/:id/chapter/:num', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// ─── Reader Experience endpoints ────────────────────────────────────────────
+
+describe('Reader Experience endpoints', () => {
+  beforeEach(() => {
+    // story.get auto-mock returns undefined (no throw) → story "exists".
+    story.get = jest.fn().mockReturnValue({ id: 'rex-test', chapters: [] });
+  });
+
+  describe('GET /story/:id/experience/config', () => {
+    it('returns the stored config when set', async () => {
+      storyRag.getExperienceConfig.mockReturnValue({ primary: 'Curiosity', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' });
+      const res = await request(app).get('/story/rex-test/experience/config');
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      expect(res.body.config.primary).toBe('Curiosity');
+    });
+
+    it('returns the default config (configured:false) when unset', async () => {
+      storyRag.getExperienceConfig.mockReturnValue(null);
+      const res = await request(app).get('/story/rex-test/experience/config');
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(false);
+      expect(res.body.config).toBeDefined();
+      expect(res.body.config.primary).toBeTruthy();
+    });
+
+    it('returns 400 for an invalid story ID', async () => {
+      const res = await request(app).get('/story/Invalid.ID/experience/config');
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 404 when the story does not exist', async () => {
+      story.get = jest.fn().mockImplementation(() => { throw new Error('Story not found: rex-test'); });
+      const res = await request(app).get('/story/rex-test/experience/config');
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /story/:id/experience/config', () => {
+    it('validates and stores a config', async () => {
+      const res = await request(app)
+        .post('/story/rex-test/experience/config')
+        .send({ config: { primary: 'Mystery', secondary: 'Wonder', intensity: 'Low', pacing: 'Slow' } });
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      expect(storyRag.setExperienceConfig).toHaveBeenCalledWith('rex-test', expect.objectContaining({ primary: 'Mystery' }));
+    });
+
+    it('returns 400 for an invalid config', async () => {
+      const res = await request(app)
+        .post('/story/rex-test/experience/config')
+        .send({ config: { primary: 'Boredom', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' } });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Invalid Reader Experience config/);
+    });
+
+    it('returns 400 when primary === secondary', async () => {
+      const res = await request(app)
+        .post('/story/rex-test/experience/config')
+        .send({ config: { primary: 'Curiosity', secondary: 'Curiosity', intensity: 'High', pacing: 'Moderate' } });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('GET /story/:id/experience/state', () => {
+    it('returns the stored state', async () => {
+      storyRag.getExperienceState.mockReturnValue({ config: { primary: 'Curiosity' }, currentState: { curiosity: 80 }, lastChapterNumber: 2 });
+      const res = await request(app).get('/story/rex-test/experience/state');
+      expect(res.status).toBe(200);
+      expect(res.body.state.currentState.curiosity).toBe(80);
+    });
+
+    it('returns state:null when no state exists', async () => {
+      storyRag.getExperienceState.mockReturnValue(null);
+      const res = await request(app).get('/story/rex-test/experience/state');
+      expect(res.status).toBe(200);
+      expect(res.body.state).toBeNull();
+    });
+  });
+
+  describe('POST /story/:id/experience/synthesize', () => {
+    it('forwards chapterNumber + model to synthesizeObjective', async () => {
+      const experience = require('../story/story-experience');
+      const synthSpy = jest.spyOn(experience, 'synthesizeObjective').mockResolvedValue({ synthesized: true, objective: { chapter1: true }, chapter1: true });
+      const res = await request(app)
+        .post('/story/rex-test/experience/synthesize')
+        .send({ chapterNumber: 1, model: 'gemma3:27b' });
+      expect(res.status).toBe(200);
+      expect(synthSpy).toHaveBeenCalledWith('rex-test', 1, { model: 'gemma3:27b' });
+      synthSpy.mockRestore();
+    });
+
+    it('returns 400 when chapterNumber is missing', async () => {
+      const res = await request(app).post('/story/rex-test/experience/synthesize').send({});
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /story/:id/experience/analyze', () => {
+    it('forwards content + objective + model to analyzeChapter', async () => {
+      const experience = require('../story/story-experience');
+      const analyzeSpy = jest.spyOn(experience, 'analyzeChapter').mockResolvedValue({ analyzed: true, findings: { passed: true } });
+      const res = await request(app)
+        .post('/story/rex-test/experience/analyze')
+        .send({ chapterNumber: 2, chapterContent: 'Chapter text.', objective: { nextChapterPull: 'x' }, model: 'gemma3:27b' });
+      expect(res.status).toBe(200);
+      expect(analyzeSpy).toHaveBeenCalledWith('rex-test', 2, 'Chapter text.', expect.objectContaining({ nextChapterPull: 'x' }), { model: 'gemma3:27b' });
+      analyzeSpy.mockRestore();
+    });
+
+    it('returns 400 when objective is missing', async () => {
+      const res = await request(app)
+        .post('/story/rex-test/experience/analyze')
+        .send({ chapterNumber: 2, chapterContent: 'text' });
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when chapterContent is empty', async () => {
+      const res = await request(app)
+        .post('/story/rex-test/experience/analyze')
+        .send({ chapterNumber: 2, chapterContent: '', objective: { x: 1 } });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /story/:id/chapter — experience forwarding', () => {
+    it('forwards regenerate.experience into generateChapter aiOptions', async () => {
+      story.generateChapter.mockResolvedValue({ storyId: 'rex-test', chapterNumber: 1, content: 'c' });
+      const findings = { passed: false, recommendation: 'r' };
+      const objective = { nextChapterPull: 'q' };
+      await request(app)
+        .post('/story/rex-test/chapter')
+        .send({
+          chapterNumber: 1,
+          regenerate: {
+            evidence: 'e',
+            recommendation: 'rec',
+            experience: { findings, objective },
+          },
+        });
+      const [, , aiOptions] = story.generateChapter.mock.calls[0];
+      expect(aiOptions.regenerate.experience).toEqual({ findings, objective });
+    });
+
+    it('works without regenerate.experience (backward compatible)', async () => {
+      story.generateChapter.mockResolvedValue({ storyId: 'rex-test', chapterNumber: 1, content: 'c' });
+      await request(app)
+        .post('/story/rex-test/chapter')
+        .send({ chapterNumber: 1, regenerate: { evidence: 'e', recommendation: 'rec' } });
+      const [, , aiOptions] = story.generateChapter.mock.calls[0];
+      expect(aiOptions.regenerate.experience).toBeUndefined();
+    });
+  });
+});
+

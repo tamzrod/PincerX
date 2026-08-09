@@ -17,7 +17,19 @@
 - Outline custom prompt: `story.js#create(title, genre, tone, aiOptions, customPrompt)` appends an "Additional instructions" block to the outline prompt when `customPrompt` is non-empty (mirrors the chapter `customPrompt` pattern). The Story Details section has a `#story-custom-prompt` textarea under the Model dropdown; `generateStory()` forwards it as `body.customPrompt` (only when non-empty). Both `POST /story/create` and `POST /story/create/stream` accept and trim `customPrompt`.
 
 ## Running
-- `npm test` — 348 tests (jest). `npm start` / `node api/server.js` on port 3000.
+- `npm test` — 409 tests (jest). `npm start` / `node api/server.js` on port 3000.
+
+## Reader Experience (emotional trajectory) subsystem
+- Author-intent config (`story/story-experience.js#validateConfig`/`DEFAULT_CONFIG`): Primary/Secondary ∈ {Curiosity,Tension,Emotion,Mystery,Wonder,Suspense,Triumph}, Intensity ∈ {Low,Moderate,High}, Pacing ∈ {Slow,Moderate,Fast}. Stored as a per-story `reader_experience` RAG doc via `storyRag.setExperienceConfig`/`getExperienceConfig`/`getExperienceState`/`saveExperienceState` (added to `VALID_TYPES` — do NOT create a second storage system).
+- Pipeline (`story.js#generateChapter`): before generation, `experience.synthesizeObjective(id, chapterNumber, aiOptions)` produces a structured chapter objective (currentState/targetState/readerQuestions/knowledgeManagement reveal-withhold-foreshadow/emotionalTrajectory/readerShouldDiscover/readerShouldNotDiscover/characterObjective/endingState/nextChapterPull). `experience.buildChapterObjectiveBlock(objective)` injects a compact block into the chapter prompt (does NOT dump the whole internal state). After generation + coherence, `experience.analyzeChapter(...)` soft-runs and returns findings (`{passed, observed, issues, recommendation}`); result includes `experience` + `experienceObjective`. State evolves in RAG (`trajectory`, `readerQuestions`, `currentState`).
+- Chapter 1 is special: acquisition framing (immediate engagement, story promise, Chapter 2 anticipation, "Why should a new listener continue listening?"). Later chapters optimise for retention. No fixed hook formula — the synthesis LLM decides.
+- Regeneration (`aiOptions.regenerate.experience = { findings, objective }`): folds experience feedback + objective into the regen prompt as additional constraints (never replacing coherence). The regen path reuses the provided objective (no new synthesis call) and re-analyses the regenerated chapter.
+- Model propagation: `aiOptions.model` is forwarded to synthesis + analysis calls (maxTokens/streaming hooks stripped). Never hardcodes/falls back to another model.
+- Repetition detection (`experience.detectRepetition`) scans chapter summaries via `storyRag.listDocs(id,'summary')`; flags `protagonist_wins` etc. and feeds the evidence into the synthesis prompt.
+- Soft-fail: synthesis/analysis failures never block the chapter from saving; previous Reader Experience state is preserved. An unreachable LLM is reported via `error` on the result (do NOT mock Ollama to reproduce it).
+- API endpoints (`api/server.js`): `GET/POST /story/:id/experience/config`, `GET /story/:id/experience/state`, `POST /story/:id/experience/synthesize`, `POST /story/:id/experience/analyze`. The chapter + chapter/stream endpoints accept `regenerate.experience`.
+- UI: 🎯 Reader Experience config section (4 dropdowns, collapsible) in Story Details + an Experience sub-tab showing findings (✓/⚠), recommendation, and the synthesised objective preview. `regenerateChapterFromCoherence` forwards stored findings/objective; after regen it re-analyses experience.
+- Tests: `tests/story-experience.test.js`, `tests/story-experience-integration.test.js`, +reader_experience tests in `tests/story-rag.test.js`, +experience endpoint tests in `tests/server.test.js`. Mock `ai.ask`/`story-rag`; no live LLM required.
 
 ## Browser-tool caveat
 The browser automation tool can get stuck on `about:blank` (no tabs) mid-session and aggressively caches inline JS. When it fails, verify via `curl` against the server + server logs instead of fighting the browser.

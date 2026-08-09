@@ -12,6 +12,7 @@ const { ingest } = require('../ingest');
 const story = require('../story/story');
 const storyRag = require('../story/story-rag');
 const coherence = require('../story/story-coherence');
+const experience = require('../story/story-experience');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1461,6 +1462,15 @@ app.post('/story/:id/chapter', async (req, res) => {
       recommendation: typeof regenerate.recommendation === 'string' ? regenerate.recommendation : '',
       customInstruction: typeof regenerate.customInstruction === 'string' ? regenerate.customInstruction.trim() : '',
     };
+    // Reader Experience findings/objective are folded into the regeneration
+    // prompt as additional constraints (never replacing coherence). Both are
+    // optional and only present when Reader Experience is active for the story.
+    if (regenerate.experience && typeof regenerate.experience === 'object') {
+      aiOptions.regenerate.experience = {
+        findings: regenerate.experience.findings || null,
+        objective: regenerate.experience.objective || null,
+      };
+    }
   }
 
   try {
@@ -1538,6 +1548,12 @@ app.post('/story/:id/chapter/stream', async (req, res) => {
       recommendation: typeof regenerate.recommendation === 'string' ? regenerate.recommendation : '',
       customInstruction: typeof regenerate.customInstruction === 'string' ? regenerate.customInstruction.trim() : '',
     };
+    if (regenerate.experience && typeof regenerate.experience === 'object') {
+      aiOptions.regenerate.experience = {
+        findings: regenerate.experience.findings || null,
+        objective: regenerate.experience.objective || null,
+      };
+    }
   }
 
   // Live-progress hooks → SSE events. onToken streams token fragments so the
@@ -1882,6 +1898,161 @@ app.post('/story/:id/coherence/whatif', async (req, res) => {
     return res.json(result);
   } catch (e) {
     return res.status(502).json({ error: `What-if analysis error: ${e.message}` });
+  }
+});
+
+// ─── Reader Experience Endpoints ────────────────────────────────────────────
+
+/**
+ * GET /story/:id/experience/config
+ * Returns the story's Reader Experience author-intent config, or the default
+ * placeholder config when none has been set yet.
+ */
+app.get('/story/:id/experience/config', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const config = storyRag.getExperienceConfig(id);
+  return res.json({ config: config || experience.DEFAULT_CONFIG, configured: Boolean(config) });
+});
+
+/**
+ * POST /story/:id/experience/config
+ * Body: { "config": { "primary": "...", "secondary": "...", "intensity": "...", "pacing": "..." } }
+ * Validates and stores the Reader Experience author-intent config for a story.
+ */
+app.post('/story/:id/experience/config', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const { config } = req.body;
+  const { valid, errors, normalized } = experience.validateConfig(config);
+  if (!valid) {
+    return res.status(400).json({ error: 'Invalid Reader Experience config: ' + errors.join(' ') });
+  }
+
+  storyRag.setExperienceConfig(id, normalized);
+  return res.json({ config: normalized, configured: true });
+});
+
+/**
+ * GET /story/:id/experience/state
+ * Returns the full evolving Reader Experience state (currentState, reader
+ * questions, knowledge management, trajectory, last objective/findings).
+ */
+app.get('/story/:id/experience/state', (req, res) => {
+  const { id } = req.params;
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const state = storyRag.getExperienceState(id);
+  return res.json({ state: state || null });
+});
+
+/**
+ * POST /story/:id/experience/synthesize
+ * Body: { "chapterNumber": N, "model": "..." }
+ * Synthesise a Reader Experience objective for a chapter without generating
+ * the chapter. Soft-fails (200 with synthesized:false) when no config is set
+ * or the LLM is unreachable.
+ */
+app.post('/story/:id/experience/synthesize', async (req, res) => {
+  const { id } = req.params;
+  const { chapterNumber, model } = req.body;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
+    return res.status(400).json({ error: 'Request body must include a positive integer "chapterNumber".' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const aiOptions = {};
+  if (typeof model === 'string' && model.trim()) aiOptions.model = model.trim();
+
+  try {
+    const result = await experience.synthesizeObjective(id, chapterNumber, aiOptions);
+    return res.json(result);
+  } catch (e) {
+    return res.status(502).json({ error: `Reader Experience synthesis error: ${e.message}` });
+  }
+});
+
+/**
+ * POST /story/:id/experience/analyze
+ * Body: { "chapterNumber": N, "chapterContent": "...", "objective": {...}, "model": "..." }
+ * Analyse an existing chapter against a Reader Experience objective.
+ * Soft-fails (200 with analyzed:false) when the LLM is unreachable.
+ */
+app.post('/story/:id/experience/analyze', async (req, res) => {
+  const { id } = req.params;
+  const { chapterNumber, chapterContent, objective, model } = req.body;
+
+  if (!id || !STORY_ID_RE.test(id)) {
+    return res.status(400).json({ error: 'Invalid story ID format.' });
+  }
+  if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
+    return res.status(400).json({ error: 'Request body must include a positive integer "chapterNumber".' });
+  }
+  const contentErr = validateStringField(chapterContent, 'chapterContent');
+  if (contentErr) return res.status(400).json({ error: contentErr });
+  if (!objective || typeof objective !== 'object') {
+    return res.status(400).json({ error: 'Request body must include an "objective" object.' });
+  }
+  try {
+    story.get(id);
+  } catch (e) {
+    if (e.message.startsWith('Story not found')) {
+      return res.status(404).json({ error: e.message });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const aiOptions = {};
+  if (typeof model === 'string' && model.trim()) aiOptions.model = model.trim();
+
+  try {
+    const result = await experience.analyzeChapter(id, chapterNumber, chapterContent, objective, aiOptions);
+    return res.json(result);
+  } catch (e) {
+    return res.status(502).json({ error: `Reader Experience analysis error: ${e.message}` });
   }
 });
 
