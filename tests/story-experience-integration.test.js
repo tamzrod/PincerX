@@ -88,7 +88,7 @@ describe('story.generateChapter — Reader Experience integration', () => {
     writeStory('rex-int-1234');
     CREATED_IDS.push('rex-int-1234');
     mockRagBasics();
-    storyRag.getExperienceConfig.mockReturnValue({ primary: 'Curiosity', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' });
+    storyRag.getExperienceConfig.mockReturnValue({ primary: 'curiosity', secondary: 'suspense', intensity: 'high', pacing: 'moderate' });
 
     ai.ask
       .mockResolvedValueOnce(SYNTH_RESPONSE)                                  // synthesis
@@ -154,7 +154,7 @@ describe('story.generateChapter — Reader Experience integration', () => {
     writeStory('rex-fail-1234');
     CREATED_IDS.push('rex-fail-1234');
     mockRagBasics();
-    storyRag.getExperienceConfig.mockReturnValue({ primary: 'Curiosity', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' });
+    storyRag.getExperienceConfig.mockReturnValue({ primary: 'curiosity', secondary: 'suspense', intensity: 'high', pacing: 'moderate' });
 
     ai.ask
       .mockRejectedValueOnce(new Error('AI offline'))                       // synthesis fails
@@ -177,9 +177,9 @@ describe('story.generateChapter — Reader Experience integration', () => {
     });
     CREATED_IDS.push('rex-regen-1234');
     mockRagBasics();
-    storyRag.getExperienceConfig.mockReturnValue({ primary: 'Curiosity', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' });
+    storyRag.getExperienceConfig.mockReturnValue({ primary: 'curiosity', secondary: 'suspense', intensity: 'high', pacing: 'moderate' });
 
-    const objective = { ...JSON.parse(SYNTH_RESPONSE), chapter1: true, config: { primary: 'Curiosity' } };
+    const objective = { ...JSON.parse(SYNTH_RESPONSE), chapter1: true, config: { primary: 'curiosity' } };
     const findings = { passed: false, observed: { mystery: 'decreased too early' }, recommendation: 'Preserve the mystery.', issues: ['Revealed too early.'] };
 
     // Regeneration reuses the provided objective (no synthesis call), so the

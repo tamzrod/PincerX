@@ -45,19 +45,81 @@ const storyRag = require('./story-rag');
 /**
  * Experience categories the author can prioritise (author intent, NOT the
  * detailed writing-rule list — strategies are derived dynamically).
+ *
+ * Values are stable machine-readable identifiers (snake_case). The matching
+ * human-readable labels (for the UI + LLM prompt) live in CATEGORY_LABELS.
  */
 const EXPERIENCE_CATEGORIES = [
-  'Curiosity',
-  'Tension',
-  'Emotion',
-  'Mystery',
-  'Wonder',
-  'Suspense',
-  'Triumph',
+  'curiosity',
+  'suspense',
+  'tension',
+  'mystery',
+  'emotional_investment',
+  'wonder',
+  'humor',
+  'excitement',
+  'romance',
+  'triumph',
 ];
 
-const INTENSITY_LEVELS = ['Low', 'Moderate', 'High'];
-const PACING_LEVELS = ['Slow', 'Moderate', 'Fast'];
+const INTENSITY_LEVELS = ['low', 'moderate', 'high'];
+const PACING_LEVELS = ['slow', 'moderate', 'fast'];
+
+/**
+ * Machine value → display label. The UI dropdowns use these as their option
+ * text (the option *value* stays the machine id), and the synthesis prompt
+ * uses these so the LLM reads natural-language intent.
+ */
+const CATEGORY_LABELS = {
+  curiosity: 'Curiosity',
+  suspense: 'Suspense',
+  tension: 'Tension',
+  mystery: 'Mystery',
+  emotional_investment: 'Emotional Investment',
+  wonder: 'Wonder',
+  humor: 'Humor',
+  excitement: 'Excitement',
+  romance: 'Romance',
+  triumph: 'Triumph',
+};
+
+const INTENSITY_LABELS = { low: 'Low', moderate: 'Moderate', high: 'High' };
+const PACING_LABELS = { slow: 'Slow', moderate: 'Moderate', fast: 'Fast' };
+
+/** Resolve any machine value or display label to its canonical machine id. */
+function _canonicalizeCategory(value) {
+  if (typeof value !== 'string') return null;
+  const v = value.trim().toLowerCase();
+  if (EXPERIENCE_CATEGORIES.includes(v)) return v;
+  // Accept the display label (e.g. "Emotional Investment") as a courtesy at
+  // the API boundary so a client sending labels is still normalised.
+  for (const id of EXPERIENCE_CATEGORIES) {
+    if (CATEGORY_LABELS[id].toLowerCase() === v) return id;
+  }
+  return null;
+}
+
+function _canonicalizeLevel(value, allowed, labels) {
+  if (typeof value !== 'string') return null;
+  const v = value.trim().toLowerCase();
+  if (allowed.includes(v)) return v;
+  for (const id of allowed) {
+    if (labels[id].toLowerCase() === v) return id;
+  }
+  return null;
+}
+
+function _categoryLabel(id) {
+  return CATEGORY_LABELS[id] || id;
+}
+
+function _intensityLabel(id) {
+  return INTENSITY_LABELS[id] || id;
+}
+
+function _pacingLabel(id) {
+  return PACING_LABELS[id] || id;
+}
 
 /**
  * Default config used by the API/UI as placeholder values. A story only
@@ -66,10 +128,10 @@ const PACING_LEVELS = ['Slow', 'Moderate', 'Fast'];
  * pre-date the feature keep the original generation behaviour unchanged.
  */
 const DEFAULT_CONFIG = {
-  primary: 'Curiosity',
-  secondary: 'Tension',
-  intensity: 'Moderate',
-  pacing: 'Moderate',
+  primary: 'curiosity',
+  secondary: 'suspense',
+  intensity: 'moderate',
+  pacing: 'moderate',
 };
 
 /**
@@ -112,15 +174,16 @@ function validateConfig(config) {
     return { valid: false, errors: ['Config must be an object.'], normalized: null };
   }
 
-  const primary = _normalizeCategory(config.primary);
-  const secondary = _normalizeCategory(config.secondary);
-  const intensity = _normalizeChoice(config.intensity, INTENSITY_LEVELS);
-  const pacing = _normalizeChoice(config.pacing, PACING_LEVELS);
+  const primary = _canonicalizeCategory(config.primary);
+  const secondary = _canonicalizeCategory(config.secondary);
+  const intensity = _canonicalizeLevel(config.intensity, INTENSITY_LEVELS, INTENSITY_LABELS);
+  const pacing = _canonicalizeLevel(config.pacing, PACING_LEVELS, PACING_LABELS);
 
-  if (!primary) errors.push(`Invalid primary category. Must be one of: ${EXPERIENCE_CATEGORIES.join(', ')}.`);
-  if (!secondary) errors.push(`Invalid secondary category. Must be one of: ${EXPERIENCE_CATEGORIES.join(', ')}.`);
-  if (!intensity) errors.push(`Invalid intensity. Must be one of: ${INTENSITY_LEVELS.join(', ')}.`);
-  if (!pacing) errors.push(`Invalid pacing. Must be one of: ${PACING_LEVELS.join(', ')}.`);
+  const categoryList = EXPERIENCE_CATEGORIES.map(_categoryLabel).join(', ');
+  if (!primary) errors.push(`Invalid primary category. Must be one of: ${categoryList}.`);
+  if (!secondary) errors.push(`Invalid secondary category. Must be one of: ${categoryList}.`);
+  if (!intensity) errors.push(`Invalid intensity. Must be one of: ${INTENSITY_LEVELS.map(_intensityLabel).join(', ')}.`);
+  if (!pacing) errors.push(`Invalid pacing. Must be one of: ${PACING_LEVELS.map(_pacingLabel).join(', ')}.`);
 
   if (primary && secondary && primary === secondary) {
     errors.push('Secondary category must differ from primary.');
@@ -135,18 +198,6 @@ function validateConfig(config) {
     errors: [],
     normalized: { primary, secondary, intensity, pacing },
   };
-}
-
-function _normalizeCategory(value) {
-  if (typeof value !== 'string') return null;
-  const v = value.trim().toLowerCase();
-  return EXPERIENCE_CATEGORIES.find((c) => c.toLowerCase() === v) || null;
-}
-
-function _normalizeChoice(value, allowed) {
-  if (typeof value !== 'string') return null;
-  const v = value.trim().toLowerCase();
-  return allowed.find((a) => a.toLowerCase() === v) || null;
 }
 
 /**
@@ -304,10 +355,26 @@ function _buildSynthesisPrompt(ctx) {
     'emotional trajectory so far.',
     '',
     `Author intent (Reader Experience config):`,
-    `  Primary: ${config.primary}`,
-    `  Secondary: ${config.secondary}`,
-    `  Emotional intensity: ${config.intensity}`,
-    `  Pacing: ${config.pacing}`,
+    `  Primary: ${_categoryLabel(config.primary)} (${config.primary})`,
+    `  Secondary: ${_categoryLabel(config.secondary)} (${config.secondary})`,
+    `  Emotional intensity: ${_intensityLabel(config.intensity)} (${config.intensity})`,
+    `  Pacing: ${_pacingLabel(config.pacing)} (${config.pacing})`,
+    '',
+    'How to interpret this author intent:',
+    `  - Primary (${_categoryLabel(config.primary)}) is the DOMINANT experience the listener should have.`,
+    '    Decide HOW to create it from the actual story state — do NOT apply a fixed recipe.',
+    `  - Secondary (${_categoryLabel(config.secondary)}) is a SUPPORTING experience. Use it for contrast`,
+    '    or relief when appropriate; it must NOT dominate or appear in every scene, and must NOT',
+    '    contradict the primary experience.',
+    `  - Intensity (${_intensityLabel(config.intensity)}) controls how strongly the primary experience`,
+    '    drives THIS chapter. "high" = a major driver, not "make everything extreme";',
+    '    "low" = a subtle influence; "moderate" = clearly noticeable but balanced.',
+    `  - Pacing (${_pacingLabel(config.pacing)}) controls how quickly the experience changes, NOT sentence`,
+    '    length. "slow" = let atmosphere, interaction, discovery and emotion develop;',
+    '    "moderate" = balanced progression; "fast" = shorter beats, quicker escalation,',
+    '    more frequent shifts in situation.',
+    'Do NOT reduce the intent to a shallow instruction like "make it curious and suspenseful".',
+    'Derive concrete, story-specific narrative objectives from the current state below.',
     '',
     `Current reader state (0-100): ${JSON.stringify(currentState)}`,
     `Open reader questions: ${JSON.stringify(readerQuestions)}`,
@@ -729,6 +796,9 @@ module.exports = {
   EXPERIENCE_CATEGORIES,
   INTENSITY_LEVELS,
   PACING_LEVELS,
+  CATEGORY_LABELS,
+  INTENSITY_LABELS,
+  PACING_LABELS,
   STATE_DIMENSIONS,
   DEFAULT_CONFIG,
 };

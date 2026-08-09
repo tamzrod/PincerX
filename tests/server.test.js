@@ -15,6 +15,7 @@ const feedback = require('../lib/feedback');
 const { ingest } = require('../ingest');
 const story = require('../story/story');
 const storyRag = require('../story/story-rag');
+const experience = require('../story/story-experience');
 
 // Import the app — must happen after jest.mock() calls
 let app;
@@ -1736,11 +1737,11 @@ describe('Reader Experience endpoints', () => {
 
   describe('GET /story/:id/experience/config', () => {
     it('returns the stored config when set', async () => {
-      storyRag.getExperienceConfig.mockReturnValue({ primary: 'Curiosity', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' });
+      storyRag.getExperienceConfig.mockReturnValue({ primary: 'curiosity', secondary: 'suspense', intensity: 'high', pacing: 'moderate' });
       const res = await request(app).get('/story/rex-test/experience/config');
       expect(res.status).toBe(200);
       expect(res.body.configured).toBe(true);
-      expect(res.body.config.primary).toBe('Curiosity');
+      expect(res.body.config.primary).toBe('curiosity');
     });
 
     it('returns the default config (configured:false) when unset', async () => {
@@ -1749,7 +1750,11 @@ describe('Reader Experience endpoints', () => {
       expect(res.status).toBe(200);
       expect(res.body.configured).toBe(false);
       expect(res.body.config).toBeDefined();
-      expect(res.body.config.primary).toBeTruthy();
+      expect(res.body.config).toEqual(experience.DEFAULT_CONFIG);
+      expect(res.body.config.primary).toBe('curiosity');
+      expect(res.body.config.secondary).toBe('suspense');
+      expect(res.body.config.intensity).toBe('moderate');
+      expect(res.body.config.pacing).toBe('moderate');
     });
 
     it('returns 400 for an invalid story ID', async () => {
@@ -1765,13 +1770,25 @@ describe('Reader Experience endpoints', () => {
   });
 
   describe('POST /story/:id/experience/config', () => {
-    it('validates and stores a config', async () => {
+    it('validates and stores a config (machine values)', async () => {
       const res = await request(app)
         .post('/story/rex-test/experience/config')
-        .send({ config: { primary: 'Mystery', secondary: 'Wonder', intensity: 'Low', pacing: 'Slow' } });
+        .send({ config: { primary: 'mystery', secondary: 'wonder', intensity: 'low', pacing: 'slow' } });
       expect(res.status).toBe(200);
       expect(res.body.configured).toBe(true);
-      expect(storyRag.setExperienceConfig).toHaveBeenCalledWith('rex-test', expect.objectContaining({ primary: 'Mystery' }));
+      expect(res.body.config).toEqual({ primary: 'mystery', secondary: 'wonder', intensity: 'low', pacing: 'slow' });
+      expect(storyRag.setExperienceConfig).toHaveBeenCalledWith('rex-test', expect.objectContaining({ primary: 'mystery' }));
+    });
+
+    it('normalises display labels sent at the boundary to machine values', async () => {
+      const res = await request(app)
+        .post('/story/rex-test/experience/config')
+        .send({ config: { primary: 'Emotional Investment', secondary: 'Humor', intensity: 'High', pacing: 'Fast' } });
+      expect(res.status).toBe(200);
+      expect(res.body.config).toEqual({
+        primary: 'emotional_investment', secondary: 'humor', intensity: 'high', pacing: 'fast',
+      });
+      expect(storyRag.setExperienceConfig).toHaveBeenCalledWith('rex-test', expect.objectContaining({ primary: 'emotional_investment' }));
     });
 
     it('returns 400 for an invalid config', async () => {
@@ -1785,7 +1802,7 @@ describe('Reader Experience endpoints', () => {
     it('returns 400 when primary === secondary', async () => {
       const res = await request(app)
         .post('/story/rex-test/experience/config')
-        .send({ config: { primary: 'Curiosity', secondary: 'Curiosity', intensity: 'High', pacing: 'Moderate' } });
+        .send({ config: { primary: 'curiosity', secondary: 'curiosity', intensity: 'high', pacing: 'moderate' } });
       expect(res.status).toBe(400);
     });
   });

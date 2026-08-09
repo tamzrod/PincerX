@@ -1996,6 +1996,37 @@
   });
 </script>
 <script>
+  // ── Reader Experience option tables (author intent) ───────────────────────
+  // Declared at the very top of this script so the page-load init call
+  // (further down) can populate the dropdowns without hitting a
+  // temporal-dead-zone reference, which previously left all four selects
+  // blank. Values are stable machine-readable ids; the matching display
+  // labels live in REX_LABELS (used for <option> text and the config summary).
+  const REX_CATEGORIES = [
+    'curiosity', 'suspense', 'tension', 'mystery', 'emotional_investment',
+    'wonder', 'humor', 'excitement', 'romance', 'triumph',
+  ];
+  const REX_INTENSITY = ['low', 'moderate', 'high'];
+  const REX_PACING = ['slow', 'moderate', 'fast'];
+  const REX_LABELS = {
+    curiosity: 'Curiosity',
+    suspense: 'Suspense',
+    tension: 'Tension',
+    mystery: 'Mystery',
+    emotional_investment: 'Emotional Investment',
+    wonder: 'Wonder',
+    humor: 'Humor',
+    excitement: 'Excitement',
+    romance: 'Romance',
+    triumph: 'Triumph',
+    low: 'Low',
+    moderate: 'Moderate',
+    high: 'High',
+    slow: 'Slow',
+    fast: 'Fast',
+  };
+  const REX_DEFAULTS = { primary: 'curiosity', secondary: 'suspense', intensity: 'moderate', pacing: 'moderate' };
+  let _rexOptionsBuilt = false;
 
   function switchTab(name) {
     document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -5503,28 +5534,47 @@
 
   // ── Reader Experience ─────────────────────────────────────────────────────
 
-  /** Category / level options mirrored from story-experience.js on the server. */
-  const REX_CATEGORIES = ['Curiosity', 'Tension', 'Emotion', 'Mystery', 'Wonder', 'Suspense', 'Triumph'];
-  const REX_INTENSITY = ['Low', 'Moderate', 'High'];
-  const REX_PACING = ['Slow', 'Moderate', 'Fast'];
-  let _rexOptionsBuilt = false;
+  // The option tables (REX_CATEGORIES / REX_INTENSITY / REX_PACING / REX_LABELS
+  // / REX_DEFAULTS / _rexOptionsBuilt) are declared at the top of this script so
+  // the page-load init can populate the dropdowns before this point is reached.
 
-  /** Populate the four Reader Experience dropdowns once. */
+  /**
+   * Populate the four Reader Experience dropdowns once and apply the default
+   * author-intent selection so the selects are never blank on first load.
+   * Options carry the machine-readable id as their value and the display
+   * label as their text; the value sent to the backend is therefore the
+   * canonical machine id the validator expects.
+   */
   function _populateReaderExperienceOptions() {
     if (_rexOptionsBuilt) return;
     const fill = (id, opts) => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.innerHTML = opts.map((o) => `<option value="${o}">${o}</option>`).join('');
+      el.innerHTML = opts.map((o) => `<option value="${o}">${escapeHtml(REX_LABELS[o] || o)}</option>`).join('');
     };
     fill('rex-primary', REX_CATEGORIES);
     fill('rex-secondary', REX_CATEGORIES);
     fill('rex-intensity', REX_INTENSITY);
     fill('rex-pacing', REX_PACING);
-    // Sensible default secondary distinct from primary.
-    const sec = document.getElementById('rex-secondary');
-    if (sec) sec.value = 'Tension';
+    // Show the default author-intent selection immediately (curiosity /
+    // suspense / moderate / moderate) so the selects are never empty before a
+    // story is loaded or before the config is first saved.
+    _applyReaderExperienceSelection(REX_DEFAULTS);
     _rexOptionsBuilt = true;
+  }
+
+  /** Set the four dropdowns to a (already-normalized) config object. */
+  function _applyReaderExperienceSelection(cfg) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+    set('rex-primary', cfg.primary);
+    set('rex-secondary', cfg.secondary);
+    set('rex-intensity', cfg.intensity);
+    set('rex-pacing', cfg.pacing);
+  }
+
+  /** Human-readable label for a machine id (for the config summary). */
+  function _rexLabel(value) {
+    return REX_LABELS[value] || value || '';
   }
 
   /**
@@ -5534,19 +5584,17 @@
   async function loadReaderExperienceConfig() {
     _populateReaderExperienceOptions();
     if (!storyState.id) {
+      _applyReaderExperienceSelection(REX_DEFAULTS);
       _renderExperienceConfigSummary(null);
       return;
     }
     try {
       const data = await apiFetch(`/story/${encodeURIComponent(storyState.id)}/experience/config`);
-      const cfg = data.config || {};
-      const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
-      set('rex-primary', cfg.primary);
-      set('rex-secondary', cfg.secondary);
-      set('rex-intensity', cfg.intensity);
-      set('rex-pacing', cfg.pacing);
+      const cfg = data.config || REX_DEFAULTS;
+      _applyReaderExperienceSelection(cfg);
       _renderExperienceConfigSummary(data.configured ? cfg : null);
     } catch (e) {
+      _applyReaderExperienceSelection(REX_DEFAULTS);
       _renderExperienceConfigSummary(null);
     }
   }
@@ -5558,10 +5606,10 @@
       el.innerHTML = '<em style="color:#aaa">Reader Experience not configured. Set intent on the left to activate synthesis.</em>';
       return;
     }
-    el.innerHTML = `Configured intent — Primary: <strong>${escapeHtml(cfg.primary)}</strong>, ` +
-      `Secondary: <strong>${escapeHtml(cfg.secondary)}</strong>, ` +
-      `Intensity: <strong>${escapeHtml(cfg.intensity)}</strong>, ` +
-      `Pacing: <strong>${escapeHtml(cfg.pacing)}</strong>.`;
+    el.innerHTML = `Configured intent — Primary: <strong>${escapeHtml(_rexLabel(cfg.primary))}</strong>, ` +
+      `Secondary: <strong>${escapeHtml(_rexLabel(cfg.secondary))}</strong>, ` +
+      `Intensity: <strong>${escapeHtml(_rexLabel(cfg.intensity))}</strong>, ` +
+      `Pacing: <strong>${escapeHtml(_rexLabel(cfg.pacing))}</strong>.`;
   }
 
   /** Persist the dropdown values as the story's Reader Experience config. */
@@ -5582,6 +5630,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),
       });
+      _applyReaderExperienceSelection(data.config || REX_DEFAULTS);
       _renderExperienceConfigSummary(data.config);
       showMsg('rex-msg', 'Reader Experience saved. Chapters will be synthesised against this intent.', 'success');
     } catch (e) {

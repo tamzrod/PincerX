@@ -41,18 +41,26 @@ const ANALYSIS_RESPONSE = JSON.stringify({
   newQuestions: ['What is Cedric hiding about his past?'],
 });
 
-const SAMPLE_CONFIG = { primary: 'Curiosity', secondary: 'Tension', intensity: 'High', pacing: 'Moderate' };
+const SAMPLE_CONFIG = { primary: 'curiosity', secondary: 'suspense', intensity: 'high', pacing: 'moderate' };
 
 // ── validateConfig ──────────────────────────────────────────────────────────
 
 describe('experience.validateConfig()', () => {
-  it('accepts a valid config and normalises category casing', () => {
+  it('accepts a valid config and normalises category casing to machine ids', () => {
     const { valid, errors, normalized } = experience.validateConfig({
-      primary: 'curiosity', secondary: 'tension', intensity: 'high', pacing: 'moderate',
+      primary: 'curiosity', secondary: 'suspense', intensity: 'high', pacing: 'moderate',
     });
     expect(valid).toBe(true);
     expect(errors).toHaveLength(0);
     expect(normalized).toEqual(SAMPLE_CONFIG);
+  });
+
+  it('accepts display labels at the boundary and normalises them to machine ids', () => {
+    const { valid, normalized } = experience.validateConfig({
+      primary: 'Emotional Investment', secondary: 'Humor', intensity: 'High', pacing: 'Fast',
+    });
+    expect(valid).toBe(true);
+    expect(normalized).toEqual({ primary: 'emotional_investment', secondary: 'humor', intensity: 'high', pacing: 'fast' });
   });
 
   it('rejects an invalid category', () => {
@@ -77,6 +85,21 @@ describe('experience.validateConfig()', () => {
   it('rejects non-object input', () => {
     const { valid } = experience.validateConfig(null);
     expect(valid).toBe(false);
+  });
+
+  it('exposes the full expected category / level vocabularies', () => {
+    expect(experience.EXPERIENCE_CATEGORIES).toEqual([
+      'curiosity', 'suspense', 'tension', 'mystery', 'emotional_investment',
+      'wonder', 'humor', 'excitement', 'romance', 'triumph',
+    ]);
+    expect(experience.INTENSITY_LEVELS).toEqual(['low', 'moderate', 'high']);
+    expect(experience.PACING_LEVELS).toEqual(['slow', 'moderate', 'fast']);
+  });
+
+  it('uses the spec defaults', () => {
+    expect(experience.DEFAULT_CONFIG).toEqual({
+      primary: 'curiosity', secondary: 'suspense', intensity: 'moderate', pacing: 'moderate',
+    });
   });
 });
 
@@ -253,6 +276,66 @@ describe('experience.synthesizeObjective()', () => {
     const prompt = ai.ask.mock.calls[0][0];
     expect(prompt).toMatch(/Detected repetition/);
     expect(prompt).toMatch(/protagonist_wins/);
+  });
+
+  it('passes the stored Reader Experience config into the synthesis prompt as author intent', async () => {
+    ai.ask.mockResolvedValue(SYNTH_RESPONSE);
+    await experience.synthesizeObjective('story-1', 2);
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('Author intent (Reader Experience config)');
+    // Uses the display label + machine id for each dimension.
+    expect(prompt).toContain('Curiosity (curiosity)');
+    expect(prompt).toContain('Suspense (suspense)');
+    expect(prompt).toContain('High (high)');
+    expect(prompt).toContain('Moderate (moderate)');
+  });
+
+  it('does NOT shallowly instruct "make it curious and suspenseful"', async () => {
+    ai.ask.mockResolvedValue(SYNTH_RESPONSE);
+    await experience.synthesizeObjective('story-1', 2);
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toMatch(/do NOT apply a fixed recipe/i);
+    expect(prompt).toMatch(/Derive concrete, story-specific narrative objectives/);
+  });
+
+  it('changes the prompt primary-intent text when primary changes', async () => {
+    storyRag.getExperienceConfig.mockReturnValue({ ...SAMPLE_CONFIG, primary: 'mystery', secondary: 'humor' });
+    ai.ask.mockResolvedValue(SYNTH_RESPONSE);
+    await experience.synthesizeObjective('story-1', 2);
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('Primary: Mystery (mystery)');
+    expect(prompt).toContain('Secondary: Humor (humor)');
+    expect(prompt).toContain('Primary (Mystery) is the DOMINANT experience');
+    expect(prompt).toContain('Secondary (Humor) is a SUPPORTING experience');
+  });
+
+  it('changes the prompt secondary-intent text when secondary changes', async () => {
+    storyRag.getExperienceConfig.mockReturnValue({ ...SAMPLE_CONFIG, secondary: 'romance' });
+    ai.ask.mockResolvedValue(SYNTH_RESPONSE);
+    await experience.synthesizeObjective('story-1', 2);
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('Secondary: Romance (romance)');
+    expect(prompt).toContain('Secondary (Romance) is a SUPPORTING experience');
+  });
+
+  it('changes the prompt intensity text when intensity changes', async () => {
+    storyRag.getExperienceConfig.mockReturnValue({ ...SAMPLE_CONFIG, intensity: 'low' });
+    ai.ask.mockResolvedValue(SYNTH_RESPONSE);
+    await experience.synthesizeObjective('story-1', 2);
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('Emotional intensity: Low (low)');
+    expect(prompt).toMatch(/Intensity \(Low\) controls how strongly/);
+    expect(prompt).toMatch(/"low" = a subtle influence/);
+  });
+
+  it('changes the prompt pacing text when pacing changes', async () => {
+    storyRag.getExperienceConfig.mockReturnValue({ ...SAMPLE_CONFIG, pacing: 'fast' });
+    ai.ask.mockResolvedValue(SYNTH_RESPONSE);
+    await experience.synthesizeObjective('story-1', 2);
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('Pacing: Fast (fast)');
+    expect(prompt).toMatch(/Pacing \(Fast\) controls how quickly the experience changes, NOT sentence/);
+    expect(prompt).toMatch(/"fast" = shorter beats, quicker escalation/);
   });
 
   it('soft-fails (no throw) when the LLM is unreachable', async () => {
