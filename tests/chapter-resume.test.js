@@ -5,6 +5,17 @@
 // persistence (no post-processing), resume continuation + dedup + remaining
 // budget + same model + same Reader Experience objective, timeout before any
 // output, and multiple sequential resumes.
+//
+// Uses an isolated stories directory (PINCERX_STORIES_DIR) so parallel Jest
+// workers running story.test.js (which wipes data/stories/*.json in afterEach)
+// cannot delete our fixtures mid-test.
+
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
+
+const ISOLATED_STORIES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pincerx-resume-stories-'));
+process.env.PINCERX_STORIES_DIR = ISOLATED_STORIES_DIR;
 
 jest.mock('../lib/ai', () => {
   const actual = jest.requireActual('../lib/ai');
@@ -20,14 +31,12 @@ jest.mock('../lib/ai', () => {
 jest.mock('../story/story-rag');
 jest.mock('../story/story-coherence');
 
-const path = require('path');
-const fs = require('fs');
 const ai = require('../lib/ai');
 const storyRag = require('../story/story-rag');
 const coherence = require('../story/story-coherence');
 const storyModule = require('../story/story');
 
-const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
+const STORIES_DIR = ISOLATED_STORIES_DIR;
 
 function cleanupStoriesDir() {
   if (!fs.existsSync(STORIES_DIR)) return;

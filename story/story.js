@@ -7,7 +7,11 @@ const storyRag = require('./story-rag');
 const coherence = require('./story-coherence');
 const experience = require('./story-experience');
 
-const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
+// Overridable via env so test files can isolate their stories directory and
+// avoid racing with parallel Jest workers that share data/stories/ by default.
+const STORIES_DIR = process.env.PINCERX_STORIES_DIR
+  ? path.resolve(process.env.PINCERX_STORIES_DIR)
+  : path.join(__dirname, '..', 'data', 'stories');
 
 /**
  * Generate a story outline using AI and persist it to disk.
