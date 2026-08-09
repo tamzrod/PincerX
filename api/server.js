@@ -1432,7 +1432,7 @@ app.post('/story/create', async (req, res) => {
  */
 app.post('/story/:id/chapter', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model, regenerate } = req.body;
+  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model, regenerate, resume } = req.body;
 
   if (!id || !STORY_ID_RE.test(id)) {
     return res.status(400).json({ error: 'Invalid story ID format.' });
@@ -1472,9 +1472,27 @@ app.post('/story/:id/chapter', async (req, res) => {
       };
     }
   }
+  // Resume a timed-out partial chapter (continue from where it stopped). This
+  // is distinct from regenerate (a full rewrite): only the existing partial is
+  // continued. Missing params are read from the stored partial chapter.
+  if (resume && typeof resume === 'object') {
+    aiOptions.resume = {
+      content: typeof resume.content === 'string' ? resume.content : '',
+      experienceObjective: resume.experienceObjective || null,
+      length: resume.length || undefined,
+      wordTarget: resume.wordTarget || undefined,
+      dialogRatio: resume.dialogRatio || undefined,
+    };
+  }
 
   try {
     const result = await story.generateChapter(id, chapterNumber, aiOptions, prompt);
+    // A partial result (timeout with preserved content) is NOT a completed
+    // chapter — return 202 (accepted, more work needed) so the client can show
+    // the Resume/Regenerate/Discard controls.
+    if (result.status === 'partial') {
+      return res.status(202).json(result);
+    }
     return res.status(201).json(result);
   } catch (e) {
     if (e.message.startsWith('Story not found')) {
@@ -1503,12 +1521,14 @@ function sseEmit(res, event, payload) {
  * Emits:
  *   event: progress  data: { "phase": "Writing chapter" }
  *   event: token     data: { "text": "Once upon" }       (per token fragment)
+ *   event: partial   data: { ...partial result, status:"partial", resumeAvailable:true }
+ *                    (emitted instead of `done` when a timeout preserved content)
  *   event: done      data: { ...generateChapter result }
  *   event: error     data: { "error": "..." }
  */
 app.post('/story/:id/chapter/stream', async (req, res) => {
   const { id } = req.params;
-  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model, regenerate } = req.body;
+  const { chapterNumber, customPrompt, dialogRatio, length, wordTarget, model, regenerate, resume } = req.body;
 
   // SSE headers. Disable Nagle + proxy buffering so tokens flush promptly.
   res.set('Content-Type', 'text/event-stream');
@@ -1555,6 +1575,17 @@ app.post('/story/:id/chapter/stream', async (req, res) => {
       };
     }
   }
+  // Resume a timed-out partial chapter (continue from where it stopped). This
+  // is distinct from regenerate: only the existing partial is continued.
+  if (resume && typeof resume === 'object') {
+    aiOptions.resume = {
+      content: typeof resume.content === 'string' ? resume.content : '',
+      experienceObjective: resume.experienceObjective || null,
+      length: resume.length || undefined,
+      wordTarget: resume.wordTarget || undefined,
+      dialogRatio: resume.dialogRatio || undefined,
+    };
+  }
 
   // Live-progress hooks → SSE events. onToken streams token fragments so the
   // user sees the chapter appear in real time; onPhase marks each phase.
@@ -1567,7 +1598,14 @@ app.post('/story/:id/chapter/stream', async (req, res) => {
 
   try {
     const result = await story.generateChapter(id, chapterNumber, aiOptions, prompt);
-    sseEmit(res, 'done', result);
+    // A partial result (timeout with preserved content) is NOT a completed
+    // chapter. Emit a dedicated `partial` event so the UI shows the
+    // Resume/Regenerate/Discard controls instead of treating it as done.
+    if (result.status === 'partial') {
+      sseEmit(res, 'partial', result);
+    } else {
+      sseEmit(res, 'done', result);
+    }
   } catch (e) {
     if (e.message.startsWith('Story not found')) {
       sseEmit(res, 'error', { error: e.message });

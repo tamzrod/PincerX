@@ -177,6 +177,140 @@ function buildLengthPolicy(length, wordTarget) {
   ].join('\n');
 }
 
+// ── Chapter resume (timeout recovery) ───────────────────────────────────────
+// A streaming chapter generation that is interrupted by a timeout / connection
+// failure after producing partial content preserves that content as a "partial"
+// chapter (status:"partial"). The user may then RESUME — continue writing from
+// the exact end of the existing text — rather than regenerate from scratch.
+
+/** Approximate word count for a chunk of text (used to size the resume budget). */
+function wordCount(text) {
+  if (typeof text !== 'string' || text.trim() === '') return 0;
+  return text.trim().split(/\s+/).length;
+}
+
+/**
+ * Build a generation budget for the REMAINING portion of a chapter being
+ * resumed. The total chapter length (initial generation + all resumes) stays
+ * bounded by the configured chapter length policy; only the unfilled portion is
+ * requested from the model.
+ *
+ * @param {string} length - Length preset key.
+ * @param {number} [wordTarget] - Explicit total word target (if any).
+ * @param {number} alreadyGeneratedWords - Words already present in the partial.
+ * @returns {{ remainingWords: number, maxTokens: number }}
+ */
+function resumeTokenBudget(length, wordTarget, alreadyGeneratedWords) {
+  const preset = CHAPTER_LENGTH_PRESETS[length] || CHAPTER_LENGTH_PRESETS.default;
+  const totalWords = (typeof wordTarget === 'number' && wordTarget > 0)
+    ? wordTarget
+    : preset.targetWords;
+  const remainingWords = Math.max(1, totalWords - Math.max(0, alreadyGeneratedWords));
+  // Same tokens-per-word heuristic as chapterTokenBudget, but never floors at
+  // 1024 (a resume often needs far fewer tokens than a full chapter).
+  const maxTokens = Math.min(
+    MAX_TOKEN_BUDGET,
+    Math.max(256, Math.round(remainingWords * TOKENS_PER_WORD))
+  );
+  return { remainingWords, maxTokens };
+}
+
+/**
+ * Remove leading overlap where the model repeated the tail of the existing
+ * partial text at the start of its continuation. Searches the last
+ * `maxOverlapChars` characters of `existing` for the longest suffix that is also
+ * a prefix of `continuation`, and strips it from `continuation`.
+ *
+ * @param {string} existing - The already-written partial chapter text.
+ * @param {string} continuation - The newly generated continuation text.
+ * @param {number} [maxOverlapChars] - Limit the overlap search window.
+ * @returns {string} The continuation with any duplicate opening removed.
+ */
+function stripContinuationOverlap(existing, continuation, maxOverlapChars = 600) {
+  if (typeof existing !== 'string' || typeof continuation !== 'string') return continuation;
+  const a = existing.trimEnd();
+  const b = continuation.trimStart();
+  if (!a || !b) return continuation;
+  const tail = a.slice(-maxOverlapChars);
+  let best = 0;
+  // Try every suffix length of `tail` to find one that prefixes `b`.
+  for (let len = Math.min(tail.length, b.length); len > 0; len--) {
+    if (tail.endsWith(b.slice(0, len))) { best = len; break; }
+  }
+  if (best === 0) return continuation;
+  return continuation.slice(best);
+}
+
+/**
+ * Build the continuation prompt for a chapter RESUME. The model is asked to
+ * continue from the EXACT end of the existing partial text — never to repeat or
+ * rewrite it. Only the REMAINING word budget is requested so the cumulative
+ * chapter length stays bounded. Coherence constraints (characters, lore, prior
+ * summaries, story law) and the Reader Experience objective are preserved so the
+ * resumed section is still part of the same chapter.
+ *
+ * @param {object} p
+ * @returns {string}
+ */
+function _buildResumePrompt(p) {
+  // Provide the tail of the existing text as the anchor for continuation. If the
+  // full partial is short enough, include it whole; otherwise include only the
+  // last portion (enough to maintain continuity) and explicitly tell the model
+  // the earlier text already exists and must not be reproduced.
+  const MAX_EXISTING_CHARS = 4000;
+  const full = p.existingPartial;
+  const includeTail = full.length > MAX_EXISTING_CHARS;
+  const existingContext = includeTail ? full.slice(-MAX_EXISTING_CHARS) : full;
+
+  return [
+    'You are a creative writing assistant continuing an interrupted chapter.',
+    'This chapter was interrupted during generation. Continue writing from the EXACT end of the existing text.',
+    '',
+    'CRITICAL CONTINUATION RULES:',
+    '- Do NOT repeat, rewrite, paraphrase, or restart any existing text.',
+    '- Do NOT restart the chapter or re-introduce the opening.',
+    '- Continue naturally from the final sentence of the existing text.',
+    '- The following text already exists. Do NOT reproduce it.',
+    '- Maintain the established characters, world knowledge, narrative state,',
+    '  Reader Experience objective, and coherence constraints.',
+    '- Complete the chapter according to the length policy below.',
+    '',
+    'Respond with ONLY a valid JSON object containing exactly this field:',
+    '  "content": the CONTINUATION text only (NOT the whole chapter) as a single well-formatted string (prose paragraphs separated by blank lines)',
+    '',
+    p.remainingLengthPolicy,
+    `Approximately ${p.remainingWords} words REMAIN in this chapter's budget. Do not exceed it.`,
+    '',
+    'FORMATTING RULES (same as the original chapter):',
+    '- Separate every paragraph with a blank line (double newline).',
+    '- Begin EVERY paragraph with a [speaker:X][emotion:Y] tag.',
+    `  emotion must be one of: ${EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ')}.`,
+    `  Aim for approximately ${p.dialogRatio}% dialogue and ${p.narrationRatio}% narration.`,
+    '',
+    p.speakerTagInstruction,
+    '',
+    `Title: ${p.title}`,
+    `Genre: ${p.genre}`,
+    `Tone: ${p.tone}`,
+    `Outline:\n${p.outline}`,
+    p.storyLawBlock ? `\n${p.storyLawBlock}` : '',
+    p.characterContext ? `\n${p.characterContext}` : '',
+    p.loreContext ? `\n${p.loreContext}` : '',
+    p.prior ? `\nPreviously written chapters:\n${p.prior}` : '',
+    p.experienceObjectiveBlock || '',
+    p.customPrompt ? `\nAdditional instructions: ${p.customPrompt}` : '',
+    '',
+    '═══════════════════════════════════════════════════════════════',
+    'EXISTING CHAPTER TEXT (already written — DO NOT reproduce):',
+    '═══════════════════════════════════════════════════════════════',
+    includeTail ? '…(earlier text omitted, already written)…' : '',
+    existingContext.trimEnd(),
+    '═══════════════════════════════════════════════════════════════',
+    `Now continue Chapter ${p.chapterNumber} from the exact end of the text above. Output ONLY the continuation.`,
+  ].filter(Boolean).join('\n');
+}
+
+
 /**
  * Map a character's gender and optional personality description to the
  * best-fit built-in voice preset.
@@ -740,8 +874,17 @@ async function _storeChapterSummary(storyId, chapterNumber, content, aiOptions) 
  *   @param {number} [aiOptions.dialogRatio] - Dialogue ratio 0-100 (default: 60).
  *   @param {string} [aiOptions.length] - 'short', 'default', or 'long' (default: 'default').
  *   @param {number} [aiOptions.wordTarget] - Exact word target (overrides length preset).
+ *   @param {object} [aiOptions.resume] - Resume a timed-out partial chapter. When
+ *     present, the existing partial chapter text is continued from its exact end
+ *     (no rewrite). May carry `{ content, experienceObjective, length, wordTarget,
+ *     dialogRatio, model }`; missing fields are read from the stored partial chapter.
+ *   @param {object} [aiOptions.regenerate] - Coherence-guided full rewrite (see below).
  * @param {string} [customPrompt] - Optional extra instructions for the AI.
- * @returns {Promise<{storyId: string, chapterNumber: number, content: string}>}
+ * @returns {Promise<object>} On completion: `{ storyId, chapterNumber, content,
+ *   status:"complete", coherence, experience, experienceObjective }`. On a
+ *   timeout that preserved partial content: `{ storyId, chapterNumber, content,
+ *   status:"partial", reason, resumeAvailable:true }` (no summary/coherence is
+ *   stored for a partial chapter).
  */
 async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPrompt = '') {
   const filename = path.basename(`${storyId}.json`);
@@ -753,18 +896,60 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
 
   const storyData = JSON.parse(fs.readFileSync(filepath, 'utf8'));
 
-  const dialogRatio = (typeof aiOptions.dialogRatio === 'number')
-    ? Math.max(0, Math.min(100, Math.round(aiOptions.dialogRatio)))
-    : DEFAULT_DIALOG_RATIO;
+  // ── Resume (timeout recovery) ──────────────────────────────────────────────
+  // Resume continues an interrupted partial chapter from its exact end. It is a
+  // distinct operation from regenerate (a full rewrite). The existing partial is
+  // loaded from disk (or taken from aiOptions.resume.content), and the model is
+  // asked ONLY for the remaining portion of the chapter.
+  const resume = aiOptions.resume;
+  const isResume = Boolean(resume);
+
+  // When resuming, prefer the generation params captured on the partial chapter
+  // (length/wordTarget/dialogRatio/model) so the resume matches the original
+  // intent rather than whatever the caller happened to pass this time.
+  const partialChapter = isResume
+    ? (storyData.chapters || []).find((c) => c.number === chapterNumber && c.status === 'partial')
+    : null;
+  const resumeGen = (partialChapter && partialChapter.generation) || {};
+
+  const dialogRatio = (() => {
+    if (isResume) {
+      const r = (typeof resume.dialogRatio === 'number')
+        ? resume.dialogRatio
+        : (typeof resumeGen.dialogRatio === 'number' ? resumeGen.dialogRatio : aiOptions.dialogRatio);
+      if (typeof r === 'number') return Math.max(0, Math.min(100, Math.round(r)));
+    }
+    return (typeof aiOptions.dialogRatio === 'number')
+      ? Math.max(0, Math.min(100, Math.round(aiOptions.dialogRatio)))
+      : DEFAULT_DIALOG_RATIO;
+  })();
   const narrationRatio = 100 - dialogRatio;
 
   // Chapter length: default to 'default' when not specified
-  const length = (aiOptions.length === 'short' || aiOptions.length === 'long')
-    ? aiOptions.length
-    : 'default';
-  const wordTarget = (typeof aiOptions.wordTarget === 'number' && aiOptions.wordTarget > 0)
-    ? aiOptions.wordTarget
-    : undefined;
+  const length = (() => {
+    if (isResume) {
+      const r = resume.length || resumeGen.length || aiOptions.length;
+      if (r === 'short' || r === 'long') return r;
+      return 'default';
+    }
+    return (aiOptions.length === 'short' || aiOptions.length === 'long') ? aiOptions.length : 'default';
+  })();
+  const wordTarget = (() => {
+    if (isResume) {
+      const r = (typeof resume.wordTarget === 'number' && resume.wordTarget > 0)
+        ? resume.wordTarget
+        : (typeof resumeGen.wordTarget === 'number' && resumeGen.wordTarget > 0 ? resumeGen.wordTarget : aiOptions.wordTarget);
+      return (typeof r === 'number' && r > 0) ? r : undefined;
+    }
+    return (typeof aiOptions.wordTarget === 'number' && aiOptions.wordTarget > 0) ? aiOptions.wordTarget : undefined;
+  })();
+
+  // The existing partial content to continue from.
+  const existingPartial = isResume
+    ? (typeof resume.content === 'string' && resume.content.trim()
+        ? resume.content
+        : (partialChapter ? partialChapter.content : ''))
+    : '';
 
   // ── RAG-enriched context ────────────────────────────────────────────────────
   const characters = storyRag.listDocs(storyId, 'character');
@@ -800,10 +985,22 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
   // Give the model a generation budget sized to the requested length so it
   // isn't artificially capped short of the word target (the default Ollama /
   // OpenAI budget can be far smaller than a full chapter needs).
+  //
+  // When resuming, the budget covers only the REMAINING portion of the chapter
+  // (target − already-generated) so the cumulative length stays bounded.
+  let resumeBudget = null;
+  if (isResume) {
+    resumeBudget = resumeTokenBudget(length, wordTarget, wordCount(existingPartial));
+  }
   const askOptions = {
     ...aiOptions,
-    maxTokens: chapterTokenBudget(length, wordTarget),
+    maxTokens: isResume ? resumeBudget.maxTokens : chapterTokenBudget(length, wordTarget),
   };
+  // Resume must use the SAME model as the original generation. Prefer the
+  // caller-provided model, then the model captured on the partial chapter.
+  if (isResume && !askOptions.model && resumeGen.model) {
+    askOptions.model = resumeGen.model;
+  }
 
   // Optional live-progress hooks (used by the streaming endpoint to surface
   // the AI conversation in the UI). onPhase(label) marks a generation phase;
@@ -863,8 +1060,18 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
       // regenerated text targets the same reader experience (and folds in the
       // experience findings from the prior analysis as extra guidance).
       const regenExperience = isRegen && regenerate.experience ? regenerate.experience : null;
+      // When resuming, reuse the objective captured on the partial chapter so
+      // the continuation targets the SAME emotional trajectory — do NOT
+      // synthesize a fresh, unrelated objective simply because the request
+      // resumed after a timeout.
+      const resumeExperience = isResume
+        ? { objective: resume.experienceObjective || resumeGen.experienceObjective || null }
+        : null;
       if (regenExperience && regenExperience.objective) {
         experienceObjective = regenExperience.objective;
+        experienceSynthesis = { synthesized: true, objective: experienceObjective, chapter1: chapterNumber <= 1, reused: true };
+      } else if (resumeExperience && resumeExperience.objective) {
+        experienceObjective = resumeExperience.objective;
         experienceSynthesis = { synthesized: true, objective: experienceObjective, chapter1: chapterNumber <= 1, reused: true };
       } else {
         experienceSynthesis = await experience.synthesizeObjective(storyId, chapterNumber, aiOptions);
@@ -904,84 +1111,175 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
       ].filter(Boolean).join('\n')
     : '';
 
-  const prompt = [
-    isRegen
-      ? 'You are a creative writing assistant. Regenerate a chapter of a story to resolve a coherence issue.'
-      : 'You are a creative writing assistant. Write a detailed, immersive chapter of a story.',
-    'Respond with ONLY a valid JSON object containing exactly this field:',
-    '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
-    '',
-    lengthPolicy,
-    '',
-    'MANDATORY FORMATTING RULES — your chapter MUST follow these exactly:',
-    '',
-    '1. BLANK LINES BETWEEN PARAGRAPHS: Every paragraph MUST be separated by exactly one blank line (double newline).',
-    '   A wall-of-text without paragraph breaks is a FAILURE and will be rejected.',
-    '   Typical chapter has 8-15+ separate paragraphs.',
-    '',
-    '2. DIALOGUE VS NARRATION SEPARATION:',
-    '   - Each dialogue line (character speech) MUST be in its own paragraph.',
-    '   - Each narrative/description block MUST be in its own paragraph.',
-    '   - Never combine multiple sentences of different types into one paragraph.',
-    '',
-    '3. REQUIRED SPEAKER/EMOTION TAGS:',
-    '   Begin EVERY paragraph with a [speaker:X][emotion:Y] tag BEFORE any text.',
-    '   speaker:X must be a character name (e.g. [speaker:Elena]) or "narrator"/"male"/"female" for generic narration.',
-    '   emotion:Y must be one of: ' + EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ') + '.',
-    '   For narrator paragraphs use ONLY [emotion:neutral] or [emotion:calm].',
-    '   Tags are invisible to readers and used only by the audio system.',
-    '',
-    '4. FORBIDDEN — SINGLE WALL-OF-TEXT CHAPTER:',
-    '   Chapters without paragraph breaks (single block of text) are NOT acceptable.',
-    '   You MUST insert blank lines to create distinct paragraphs.',
-    '',
-    speakerTagInstruction,
-    '',
-    '5. CRITICAL — DIALOGUE AND ATTRIBUTION MUST BE SEPARATE PARAGRAPHS:',
-    '   When a character speaks AND the sentence contains a narrative attribution (e.g. "she said", "he murmured"),',
-    '   split them into SEPARATE paragraphs:',
-    '   - First: [speaker:character][emotion:X] "Quoted speech only."',
-    '   - Then: [speaker:narrator][emotion:neutral] Attribution and following narration.',
-    '',
-    'Correct examples:',
-    '[speaker:female][emotion:curious] "I should look into this."',
-    '[speaker:narrator][emotion:neutral] Alex murmured aloud, her voice barely audible over the rustling of papers.',
-    '[speaker:male][emotion:happy] "We finally made it!"',
-    '[speaker:narrator][emotion:neutral] Thomas shouted, punching the air.',
-    '',
-    'Wrong (do NOT do this):',
-    '[speaker:female][emotion:curious] "I should look into this," Alex murmured aloud, her voice barely audible.',
-    '',
-    `Aim for approximately ${dialogRatio}% character dialogue and ${narrationRatio}% narration/description.`,
-    'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tags.',
-    '',
-    `Title: ${storyData.title}`,
-    `Genre: ${storyData.genre}`,
-    `Tone: ${storyData.tone}`,
-    `Outline:\n${storyData.outline}`,
-    storyLawBlock ? `\n${storyLawBlock}` : '',
-    characterContext ? `\n${characterContext}` : '',
-    loreContext ? `\n${loreContext}` : '',
-    prior ? `\nPreviously written chapters:\n${prior}` : '',
-    coherenceRegenBlock || '',
-    experienceRegenBlock || '',
-    experienceObjectiveBlock || '',
-    customPrompt ? `\nAdditional instructions: ${customPrompt}` : '',
-    isRegen
-      ? `\nNow regenerate Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`
-      : `\nNow write Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`,
-  ].join('\n');
+  const prompt = isResume
+    ? _buildResumePrompt({
+        chapterNumber,
+        existingPartial,
+        remainingWords: resumeBudget.remainingWords,
+        remainingLengthPolicy: buildLengthPolicy(length, resumeBudget.remainingWords),
+        dialogRatio, narrationRatio, speakerTagInstruction,
+        title: storyData.title, genre: storyData.genre, tone: storyData.tone, outline: storyData.outline,
+        storyLawBlock, characterContext, loreContext, prior,
+        experienceObjectiveBlock, customPrompt,
+      })
+    : [
+        isRegen
+          ? 'You are a creative writing assistant. Regenerate a chapter of a story to resolve a coherence issue.'
+          : 'You are a creative writing assistant. Write a detailed, immersive chapter of a story.',
+        'Respond with ONLY a valid JSON object containing exactly this field:',
+        '  "content": the full chapter text as a single well-formatted string (prose paragraphs separated by blank lines)',
+        '',
+        lengthPolicy,
+        '',
+        'MANDATORY FORMATTING RULES — your chapter MUST follow these exactly:',
+        '',
+        '1. BLANK LINES BETWEEN PARAGRAPHS: Every paragraph MUST be separated by exactly one blank line (double newline).',
+        '   A wall-of-text without paragraph breaks is a FAILURE and will be rejected.',
+        '   Typical chapter has 8-15+ separate paragraphs.',
+        '',
+        '2. DIALOGUE VS NARRATION SEPARATION:',
+        '   - Each dialogue line (character speech) MUST be in its own paragraph.',
+        '   - Each narrative/description block MUST be in its own paragraph.',
+        '   - Never combine multiple sentences of different types into one paragraph.',
+        '',
+        '3. REQUIRED SPEAKER/EMOTION TAGS:',
+        '   Begin EVERY paragraph with a [speaker:X][emotion:Y] tag BEFORE any text.',
+        '   speaker:X must be a character name (e.g. [speaker:Elena]) or "narrator"/"male"/"female" for generic narration.',
+        '   emotion:Y must be one of: ' + EMOTION_PRESETS.map((e) => `[emotion:${e}]`).join(', ') + '.',
+        '   For narrator paragraphs use ONLY [emotion:neutral] or [emotion:calm].',
+        '   Tags are invisible to readers and used only by the audio system.',
+        '',
+        '4. FORBIDDEN — SINGLE WALL-OF-TEXT CHAPTER:',
+        '   Chapters without paragraph breaks (single block of text) are NOT acceptable.',
+        '   You MUST insert blank lines to create distinct paragraphs.',
+        '',
+        speakerTagInstruction,
+        '',
+        '5. CRITICAL — DIALOGUE AND ATTRIBUTION MUST BE SEPARATE PARAGRAPHS:',
+        '   When a character speaks AND the sentence contains a narrative attribution (e.g. "she said", "he murmured"),',
+        '   split them into SEPARATE paragraphs:',
+        '   - First: [speaker:character][emotion:X] "Quoted speech only."',
+        '   - Then: [speaker:narrator][emotion:neutral] Attribution and following narration.',
+        '',
+        'Correct examples:',
+        '[speaker:female][emotion:curious] "I should look into this."',
+        '[speaker:narrator][emotion:neutral] Alex murmured aloud, her voice barely audible over the rustling of papers.',
+        '[speaker:male][emotion:happy] "We finally made it!"',
+        '[speaker:narrator][emotion:neutral] Thomas shouted, punching the air.',
+        '',
+        'Wrong (do NOT do this):',
+        '[speaker:female][emotion:curious] "I should look into this," Alex murmured aloud, her voice barely audible.',
+        '',
+        `Aim for approximately ${dialogRatio}% character dialogue and ${narrationRatio}% narration/description.`,
+        'Use ONLY the square-bracket format shown above. Do NOT use quotes around the tags.',
+        '',
+        `Title: ${storyData.title}`,
+        `Genre: ${storyData.genre}`,
+        `Tone: ${storyData.tone}`,
+        `Outline:\n${storyData.outline}`,
+        storyLawBlock ? `\n${storyLawBlock}` : '',
+        characterContext ? `\n${characterContext}` : '',
+        loreContext ? `\n${loreContext}` : '',
+        prior ? `\nPreviously written chapters:\n${prior}` : '',
+        coherenceRegenBlock || '',
+        experienceRegenBlock || '',
+        experienceObjectiveBlock || '',
+        customPrompt ? `\nAdditional instructions: ${customPrompt}` : '',
+        isRegen
+          ? `\nNow regenerate Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`
+          : `\nNow write Chapter ${chapterNumber}. Make it complete, engaging, and rich in detail.`,
+      ].join('\n');
 
-  if (onPhase) onPhase('Writing chapter');
-  const raw = onToken
-    ? await ai.askStream(prompt, askOptions, onToken)
-    : await ai.ask(prompt, askOptions);
-  const content = parseChapterContent(raw);
-  const chapter = { number: chapterNumber, content, createdAt: new Date().toISOString() };
+  // ── AI generation (with partial-content preservation on timeout) ──────────
+  // On a streaming timeout / connection failure that already produced partial
+  // text, ai.askStream rejects with an Error carrying `.partial` and `.reason`.
+  // We preserve that partial as a "partial" chapter (no post-processing) so the
+  // user can RESUME rather than lose the work. A timeout with no usable output
+  // rethrows as a normal generation failure.
+  let raw;
+  if (isResume && !existingPartial.trim()) {
+    throw new Error('Cannot resume: no existing partial chapter content was found.');
+  }
+  try {
+    if (onPhase) onPhase(isResume ? 'Resuming chapter' : 'Writing chapter');
+    raw = onToken
+      ? await ai.askStream(prompt, askOptions, onToken)
+      : await ai.ask(prompt, askOptions);
+  } catch (e) {
+    if (e && typeof e.partial === 'string' && ai.isMeaningfulPartial(e.partial)) {
+      // Preserve the partial chapter on disk so it survives UI state changes,
+      // but do NOT run summary / knowledge / coherence / experience analysis —
+      // those run only against a completed chapter.
+      const partialContent = parseChapterContent(e.partial);
+      if (!ai.isMeaningfulPartial(partialContent)) {
+        // The streamed text was too thin to count as a usable chapter draft.
+        throw new Error('Generation timed out before usable chapter content was received.');
+      }
+      const reason = e.reason || 'timeout';
+      const partialChapter = {
+        number: chapterNumber,
+        content: partialContent,
+        status: 'partial',
+        resumeAvailable: true,
+        createdAt: new Date().toISOString(),
+        generation: {
+          reason,
+          length,
+          wordTarget,
+          dialogRatio,
+          model: aiOptions.model || resumeGen.model || undefined,
+          experienceObjective: experienceObjective || undefined,
+        },
+      };
+      if (!storyData.chapters) storyData.chapters = [];
+      const pidx = storyData.chapters.findIndex((c) => c.number === chapterNumber);
+      if (pidx >= 0) storyData.chapters[pidx] = partialChapter;
+      else { storyData.chapters.push(partialChapter); storyData.chapters.sort((a, b) => a.number - b.number); }
+      fs.writeFileSync(filepath, JSON.stringify(storyData, null, 2), 'utf8');
+
+      if (onPhase) onPhase('Generation timed out — partial preserved');
+      return {
+        storyId,
+        chapterNumber,
+        content: partialContent,
+        status: 'partial',
+        reason,
+        resumeAvailable: true,
+        experienceObjective: experienceSynthesis ? {
+          synthesized: experienceSynthesis.synthesized,
+          chapter1: experienceSynthesis.chapter1,
+          reused: experienceSynthesis.reused || false,
+          objective: experienceObjective,
+        } : null,
+      };
+    }
+    // No partial content (or non-streaming ask) — surface a normal failure.
+    if (/timed out/i.test(e.message)) {
+      throw new Error('Generation timed out before usable chapter content was received.');
+    }
+    throw e;
+  }
+
+  // ── Assemble final content ────────────────────────────────────────────────
+  let content;
+  if (isResume) {
+    const continuation = parseChapterContent(raw);
+    // De-duplicate: if the model restated the tail of the existing text, strip it.
+    const cleaned = stripContinuationOverlap(existingPartial, continuation);
+    content = normalizeChapterParagraphs(normalizeText(
+      (existingPartial.trimEnd() + '\n\n' + cleaned.trim()).trim()
+    ));
+  } else {
+    content = parseChapterContent(raw);
+  }
+  const chapter = { number: chapterNumber, content, status: 'complete', createdAt: new Date().toISOString() };
 
   if (!storyData.chapters) storyData.chapters = [];
   const idx = storyData.chapters.findIndex((c) => c.number === chapterNumber);
   if (idx >= 0) {
+    // Preserve original createdAt when replacing an existing (e.g. partial) chapter.
+    const prev = storyData.chapters[idx];
+    chapter.createdAt = (prev && prev.createdAt) || chapter.createdAt;
     storyData.chapters[idx] = chapter;
   } else {
     storyData.chapters.push(chapter);
@@ -1038,11 +1336,13 @@ async function generateChapter(storyId, chapterNumber, aiOptions = {}, customPro
     storyId,
     chapterNumber,
     content,
+    status: 'complete',
     coherence: coherenceResult,
     experience: experienceResult,
     experienceObjective: experienceSynthesis ? {
       synthesized: experienceSynthesis.synthesized,
       chapter1: experienceSynthesis.chapter1,
+      reused: experienceSynthesis.reused || false,
       objective: experienceObjective,
     } : null,
   };
@@ -1167,7 +1467,7 @@ function deleteStory(storyId) {
   return { storyId };
 }
 
-module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get, pickVoicePreset, normalizeChapterParagraphs, buildLengthPolicy, chapterTokenBudget, CHAPTER_LENGTH_PRESETS };
+module.exports = { create, generateChapter, updateChapterContent, deleteChapter, deleteStory, list, get, pickVoicePreset, normalizeChapterParagraphs, buildLengthPolicy, chapterTokenBudget, CHAPTER_LENGTH_PRESETS, wordCount, resumeTokenBudget, stripContinuationOverlap };
 
 /**
  * Return summary metadata for every saved story, newest first.

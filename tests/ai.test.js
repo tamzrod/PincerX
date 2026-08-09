@@ -318,6 +318,60 @@ describe('AI Transport (lib/ai.js)', () => {
       mockHttpStream([JSON.stringify({ error: 'model not found' })], 404);
       await expect(ai.askStream('hi', {})).rejects.toThrow('model not found');
     });
+
+    it('preserves partial text on a timeout by attaching err.partial + err.reason', async () => {
+      // Stream a few tokens, then trigger a timeout (destroy emits 'error').
+      // The accumulated text must be carried on the rejected error.
+      const mockRes = Object.assign(new EventEmitter(), { statusCode: 200 });
+      const mockReq = Object.assign(new EventEmitter(), {
+        write: jest.fn(),
+        destroy: jest.fn(function (err) { this.emit('error', err); }),
+        end: jest.fn(() => {
+          setImmediate(() => {
+            // Tokens long enough to exceed the MIN_PARTIAL_CHARS threshold.
+            mockRes.emit('data', '{"response":"Once upon a midnight dreary, while I pondered"}\n');
+            // Do NOT emit 'end' — the request is still "in progress" when the
+            // timeout fires.
+          });
+        }),
+      });
+      jest.spyOn(http, 'request').mockImplementation((_opts, cb) => { cb(mockRes); return mockReq; });
+      jest.useFakeTimers();
+
+      const tokens = [];
+      const promise = ai.askStream('hi', { timeoutMs: 5000 }, (t) => tokens.push(t));
+
+      // Advance past the timeout — destroy fires the 'error' event.
+      jest.advanceTimersByTime(5000);
+
+      await expect(promise).rejects.toMatchObject({
+        partial: 'Once upon a midnight dreary, while I pondered',
+        reason: 'timeout',
+      });
+      expect(tokens).toEqual(['Once upon a midnight dreary, while I pondered']);
+      jest.useRealTimers();
+    });
+
+    it('does NOT attach a partial when no meaningful text was streamed', async () => {
+      const mockReq = Object.assign(new EventEmitter(), {
+        write: jest.fn(),
+        destroy: jest.fn(function (err) { this.emit('error', err); }),
+        end: jest.fn(() => { /* no data emitted before timeout */ }),
+      });
+      jest.spyOn(http, 'request').mockImplementation((_opts, cb) => {
+        cb(Object.assign(new EventEmitter(), { statusCode: 200 }));
+        return mockReq;
+      });
+      jest.useFakeTimers();
+
+      const promise = ai.askStream('hi', { timeoutMs: 5000 });
+      jest.advanceTimersByTime(5000);
+
+      const err = await promise.catch((e) => e);
+      expect(err.partial).toBeUndefined();
+      expect(err.message).toMatch(/timed out/i);
+      jest.useRealTimers();
+    });
   });
 });
 

@@ -646,6 +646,101 @@ describe('POST /story/:id/chapter/stream', () => {
       customInstruction: 'Keep dialogue minimal.',
     });
   });
+
+  it('emits a partial SSE event (instead of done) when generation times out with partial content', async () => {
+    story.generateChapter.mockResolvedValue({
+      storyId: '1234-my-story',
+      chapterNumber: 3,
+      content: 'Partial chapter text that was preserved.',
+      status: 'partial',
+      reason: 'timeout',
+      resumeAvailable: true,
+    });
+
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter/stream')
+      .send({ chapterNumber: 3 })
+      .buffer(true)
+      .parse((res, cb) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => cb(null, data));
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('event: partial');
+    expect(res.body).toContain('"status":"partial"');
+    expect(res.body).toContain('"resumeAvailable":true');
+    // A partial result must NOT emit a done event.
+    expect(res.body).not.toContain('event: done');
+  });
+
+  it('forwards a resume object into generateChapter aiOptions', async () => {
+    story.generateChapter.mockImplementation(async () => ({
+      storyId: '1234-my-story', chapterNumber: 3, content: 'completed', status: 'complete',
+    }));
+
+    await request(app)
+      .post('/story/1234-my-story/chapter/stream')
+      .send({
+        chapterNumber: 3,
+        resume: { content: 'existing partial', experienceObjective: { trajectory: ['curiosity'] } },
+        model: 'gemma3:27b',
+      })
+      .buffer(true)
+      .parse((res, cb) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => cb(null, data));
+      });
+
+    const [, , aiOptions] = story.generateChapter.mock.calls[0];
+    expect(aiOptions.resume).toEqual({
+      content: 'existing partial',
+      experienceObjective: { trajectory: ['curiosity'] },
+      length: undefined,
+      wordTarget: undefined,
+      dialogRatio: undefined,
+    });
+    expect(aiOptions.model).toBe('gemma3:27b');
+  });
+});
+
+
+// ─── POST /story/:id/chapter — resume / partial responses ──────────────────
+
+describe('POST /story/:id/chapter — resume & partial', () => {
+  it('returns 202 (not 201) when generation yields a partial result', async () => {
+    story.generateChapter.mockResolvedValue({
+      storyId: '1234-my-story',
+      chapterNumber: 2,
+      content: 'Partial text.',
+      status: 'partial',
+      reason: 'timeout',
+      resumeAvailable: true,
+    });
+
+    const res = await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({ chapterNumber: 2 });
+
+    expect(res.status).toBe(202);
+    expect(res.body.status).toBe('partial');
+    expect(res.body.resumeAvailable).toBe(true);
+  });
+
+  it('forwards a resume object into generateChapter aiOptions (non-stream)', async () => {
+    story.generateChapter.mockResolvedValue({
+      storyId: '1234-my-story', chapterNumber: 2, content: 'done', status: 'complete',
+    });
+
+    await request(app)
+      .post('/story/1234-my-story/chapter')
+      .send({ chapterNumber: 2, resume: {} });
+
+    const [, , aiOptions] = story.generateChapter.mock.calls[0];
+    expect(aiOptions.resume).toBeDefined();
+  });
 });
 
 

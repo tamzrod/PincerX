@@ -1363,6 +1363,19 @@
     .coherence-banner strong {
       color: #c9302c;
     }
+
+    .partial-banner {
+      background: #eef6ff;
+      border: 1px solid #3b82f6;
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin: 10px 0;
+      font-size: 13px;
+      color: #1e3a8a;
+    }
+    .partial-banner-title { font-weight: 600; margin-bottom: 8px; }
+    .partial-banner-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .partial-banner-actions button:disabled { opacity: 0.5; cursor: default; }
   </style>
 </head>
 <body>
@@ -2351,6 +2364,7 @@
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       let doneResult = null;
+      let partialResult = null;
 
       // Parse SSE frames. Each frame ends with "\n\n"; within a frame, lines
       // are "event: X" and "data: {...}".
@@ -2368,6 +2382,11 @@
         if (event === 'progress') _aiConvoPhaseLine(data.phase || 'Working');
         else if (event === 'token') _aiConvoToken(data.text || '');
         else if (event === 'done') doneResult = data;
+        else if (event === 'partial') {
+          // A timeout preserved partial content — surface it so the caller can
+          // offer Resume/Regenerate/Discard. Not a completed chapter.
+          partialResult = data;
+        }
         else if (event === 'error') {
           _aiConvoError(data.error || 'Unknown error');
           if (handlers.onError) handlers.onError(new Error(data.error || 'Unknown error'));
@@ -2388,6 +2407,13 @@
       // Flush any trailing frame.
       if (buffer.trim()) dispatchFrame(buffer);
 
+      if (partialResult) {
+        // Generation timed out but partial content was preserved. Report it to
+        // the caller (NOT as a normal done) so the UI can show resume controls.
+        if (handlers.onPartial) handlers.onPartial(partialResult);
+        else if (handlers.onError) handlers.onError(new Error('Generation timed out, but partial chapter content was preserved.'));
+        return;
+      }
       if (doneResult) {
         _aiConvoDone(handlers.doneLabel || 'Done');
         if (handlers.onDone) handlers.onDone(doneResult);
@@ -4151,9 +4177,29 @@
           title: `Chapter ${chapterNumber}`,
           doneLabel: `Chapter ${chapterNumber} ready`,
           onDone: resolve,
+          onPartial: (partial) => {
+            // Timeout preserved partial content — show Resume/Regenerate/Discard
+            // instead of treating it as a completed chapter. Keep nextChapter at
+            // this number so a resume continues the same chapter.
+            showPartialChapterBanner(chapterNumber, partial);
+            showAIStatus(
+              `Chapter ${chapterNumber} generation timed out — partial preserved`,
+              'error',
+              'Your generated content was preserved. Resume, regenerate, or discard.'
+            );
+            // Resolve with the partial so the caller can record state, but mark
+            // it as partial via the banner; do NOT append as a completed chapter.
+            resolve({ __partial: true, ...partial });
+          },
           onError: reject,
         });
       }).catch((e) => { throw e; });
+
+      if (data && data.__partial) {
+        // Partial chapter: do not advance nextChapter, do not append to reading.
+        clearMsg('chapter-msg');
+        return;
+      }
 
       appendChapterToReading(chapterNumber, data.content || '');
       storyState.nextChapter = chapterNumber + 1;
@@ -4620,10 +4666,20 @@
       document.querySelectorAll('.reading-chapter').forEach((el) => el.remove());
 
       const chapters = (data.chapters || []).sort((a, b) => a.number - b.number);
+      // A partial (timed-out) chapter is NOT a completed reading chapter — don't
+      // render it in the reading view. If one exists, show the resume banner so
+      // the user can resume/regenerate/discard it.
+      const partial = chapters.find((c) => c.status === 'partial');
       for (const ch of chapters) {
+        if (ch.status === 'partial') continue;
         appendChapterToReading(ch.number, ch.content);
       }
-      storyState.nextChapter = chapters.length > 0 ? chapters[chapters.length - 1].number + 1 : 1;
+      if (partial) {
+        storyState.nextChapter = partial.number; // resume continues the same chapter
+        showPartialChapterBanner(partial.number, partial);
+      } else {
+        storyState.nextChapter = chapters.length > 0 ? chapters[chapters.length - 1].number + 1 : 1;
+      }
       document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
 
       // Load character manager and voice map
@@ -5784,8 +5840,192 @@
   }
 
   /**
-   * Handle chapter generation response (show coherence banner if needed)
+   * Show a banner offering Resume / Regenerate / Discard for a timed-out
+   * partial chapter. The partial is already persisted on disk (status:"partial"),
+   * so resume works even after a page reload. The banner is inserted near the
+   * chapter message area and tagged so only one shows per chapter at a time.
    */
+  function showPartialChapterBanner(chapterNumber, partial) {
+    const msgArea = document.getElementById('chapter-msg') || document.getElementById('story-msg');
+    if (!msgArea) return;
+
+    // Remove any existing partial banner for this chapter.
+    const old = document.querySelector(`[data-partial-banner="${chapterNumber}"]`);
+    if (old) old.remove();
+
+    const banner = document.createElement('div');
+    banner.className = 'partial-banner';
+    banner.dataset.partialBanner = String(chapterNumber);
+    banner.innerHTML = `
+      <div class="partial-banner-title">⏱ Generation timed out, but partial Chapter ${chapterNumber} content was preserved.</div>
+      <div class="partial-banner-actions">
+        <button class="btn-primary" data-action="resume">▶ Resume Chapter</button>
+        <button class="btn-warning" data-action="regenerate">↻ Regenerate Chapter</button>
+        <button class="btn-danger" data-action="discard">🗑 Discard</button>
+      </div>
+    `;
+    banner.querySelector('[data-action="resume"]').onclick = () => resumeChapterUI(chapterNumber, banner);
+    banner.querySelector('[data-action="regenerate"]').onclick = () => {
+      banner.remove();
+      regenerateChapterFromScratch(chapterNumber);
+    };
+    banner.querySelector('[data-action="discard"]').onclick = () => discardPartialChapterUI(chapterNumber, banner);
+    msgArea.parentNode.insertBefore(banner, msgArea.nextSibling);
+  }
+
+  /**
+   * Resume a timed-out partial chapter: continue writing from the exact end of
+   * the existing partial text (no rewrite). Uses the same model, length, and
+   * Reader Experience objective as the original generation. Multiple resumes are
+   * supported if the continuation itself times out again.
+   */
+  async function resumeChapterUI(chapterNumber, bannerEl) {
+    if (!storyState.id) return;
+    clearMsg('chapter-msg');
+    setLoading('chapter-btn', true, `Resume Chapter ${chapterNumber}`);
+
+    // Disable the banner buttons while resuming.
+    if (bannerEl) bannerEl.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    showMsg('chapter-msg', `Resuming Chapter ${chapterNumber}…`, 'loading');
+
+    try {
+      const cfg = await _loadAIConfig();
+      showAIStatus(`Resuming Chapter ${chapterNumber}…`, 'loading', _aiEndpointLabel(cfg));
+
+      // The server reads the partial + its captured generation params from disk,
+      // so we only need to pass the model (kept identical to the original).
+      const storyModelEl = document.getElementById('story-model');
+      const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+      const body = { chapterNumber, resume: {} };
+      if (storyModel) body.model = storyModel;
+
+      const data = await new Promise((resolve, reject) => {
+        streamAIRequest(`/story/${encodeURIComponent(storyState.id)}/chapter/stream`, body, {
+          title: `Chapter ${chapterNumber} (resume)`,
+          doneLabel: `Chapter ${chapterNumber} ready`,
+          onDone: resolve,
+          onPartial: (partial) => {
+            // The resume itself timed out with partial content — refresh the
+            // banner so the user can resume again (cumulative length is tracked).
+            showPartialChapterBanner(chapterNumber, partial);
+            showAIStatus(
+              `Chapter ${chapterNumber} resume timed out — partial preserved`,
+              'error',
+              'Your generated content was preserved. Resume again, regenerate, or discard.'
+            );
+            resolve({ __partial: true, ...partial });
+          },
+          onError: reject,
+        });
+      }).catch((e) => { throw e; });
+
+      // Reload to reflect the completed (or updated partial) chapter on disk.
+      await loadStory(storyState.id);
+
+      if (data && data.__partial) {
+        // Still partial — banner was refreshed above; nothing else to do.
+        clearMsg('chapter-msg');
+        return;
+      }
+
+      // Completed: render the finished chapter and run the normal post-processing.
+      if (bannerEl) bannerEl.remove();
+      appendChapterToReading(chapterNumber, data.content || '');
+      storyState.nextChapter = chapterNumber + 1;
+      document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
+      clearMsg('chapter-msg');
+      showAIStatus(`Chapter ${chapterNumber} completed`, 'success', '', 4000);
+      handleChapterResponse(data);
+      await loadCharacters();
+      await refreshCharacterVoiceMap();
+      updateStoryKnowledgeVisibility();
+    } catch (e) {
+      showMsg('chapter-msg', e.message, 'error');
+      showAIStatus(`Chapter ${chapterNumber} resume failed`, 'error', e.message);
+      if (bannerEl) bannerEl.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    } finally {
+      setLoading('chapter-btn', false, `Generate Chapter ${storyState.nextChapter}`);
+    }
+  }
+
+  /**
+   * Discard a timed-out partial chapter: remove the partial from the story and
+   * reset the chapter button so the user can generate (or regenerate) fresh.
+   */
+  async function discardPartialChapterUI(chapterNumber, bannerEl) {
+    if (!storyState.id) return;
+    if (bannerEl) {
+      bannerEl.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+      bannerEl.querySelector('.partial-banner-title').textContent = `Discarding Chapter ${chapterNumber}…`;
+    }
+    try {
+      await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter/${chapterNumber}`, { method: 'DELETE' });
+      if (bannerEl) bannerEl.remove();
+      await loadStory(storyState.id);
+      clearMsg('chapter-msg');
+      showAIStatus(`Chapter ${chapterNumber} partial discarded`, 'success', '', 3000);
+    } catch (e) {
+      showMsg('chapter-msg', e.message, 'error');
+      if (bannerEl) bannerEl.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    }
+  }
+
+  /**
+   * Regenerate a chapter from scratch (full rewrite) — used when the user picks
+   * "Regenerate" from the partial banner. Clears the partial first so the
+   * regeneration produces a clean new chapter.
+   */
+  async function regenerateChapterFromScratch(chapterNumber) {
+    if (!storyState.id) return;
+    clearMsg('chapter-msg');
+    // Remove the existing partial so regeneration starts clean.
+    try {
+      await apiFetch(`/story/${encodeURIComponent(storyState.id)}/chapter/${chapterNumber}`, { method: 'DELETE' });
+    } catch { /* a partial may not have a summary; ignore delete errors */ }
+
+    const dialogRatio = Number(document.getElementById('chapter-dialog-ratio').value);
+    const lengthSelect = document.getElementById('chapter-length');
+    const length = lengthSelect ? lengthSelect.value : 'default';
+    const storyModelEl = document.getElementById('story-model');
+    const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+    const body = { chapterNumber, dialogRatio, length };
+    if (storyModel) body.model = storyModel;
+
+    setLoading('chapter-btn', true, `Regenerate Chapter ${chapterNumber}`);
+    showMsg('chapter-msg', `Regenerating Chapter ${chapterNumber}…`, 'loading');
+    try {
+      const data = await new Promise((resolve, reject) => {
+        streamAIRequest(`/story/${encodeURIComponent(storyState.id)}/chapter/stream`, body, {
+          title: `Chapter ${chapterNumber}`,
+          doneLabel: `Chapter ${chapterNumber} ready`,
+          onDone: resolve,
+          onPartial: (partial) => {
+            showPartialChapterBanner(chapterNumber, partial);
+            resolve({ __partial: true, ...partial });
+          },
+          onError: reject,
+        });
+      }).catch((e) => { throw e; });
+
+      await loadStory(storyState.id);
+      if (data && data.__partial) { clearMsg('chapter-msg'); return; }
+      appendChapterToReading(chapterNumber, data.content || '');
+      storyState.nextChapter = chapterNumber + 1;
+      document.getElementById('chapter-btn').textContent = `Generate Chapter ${storyState.nextChapter}`;
+      clearMsg('chapter-msg');
+      showAIStatus(`Chapter ${chapterNumber} generated`, 'success', '', 4000);
+      handleChapterResponse(data);
+      await loadCharacters();
+      await refreshCharacterVoiceMap();
+      updateStoryKnowledgeVisibility();
+    } catch (e) {
+      showMsg('chapter-msg', e.message, 'error');
+      showAIStatus(`Chapter ${chapterNumber} regeneration failed`, 'error', e.message);
+    } finally {
+      setLoading('chapter-btn', false, `Generate Chapter ${storyState.nextChapter}`);
+    }
+  }
+
   function handleChapterResponse(result) {
     if (result.coherence && result.coherence.warnings && result.coherence.warnings.length > 0) {
       const banner = document.getElementById('coherence-banner');
@@ -5892,12 +6132,28 @@
           title: `Chapter ${reqBody.chapterNumber}`,
           doneLabel: `Chapter ${reqBody.chapterNumber} ready`,
           onDone: resolve,
+          onPartial: (partial) => {
+            showPartialChapterBanner(reqBody.chapterNumber, partial);
+            showAIStatus(
+              `Chapter ${reqBody.chapterNumber} generation timed out — partial preserved`,
+              'error',
+              'Your generated content was preserved. Resume, regenerate, or discard.'
+            );
+            resolve({ __partial: true, ...partial });
+          },
           onError: reject,
         });
       }).catch((e) => { throw e; });
 
-      // Reload the story to get updated state
+      // Reload the story to get updated state (the partial is persisted on disk).
       await loadStory(storyState.id);
+
+      if (result && result.__partial) {
+        // Partial chapter: banner already shown by loadStory; do not run the
+        // completed-chapter post-processing (coherence/experience analysis).
+        clearMsg('chapter-msg');
+        return;
+      }
 
       // Handle coherence result
       handleChapterResponse(result);
