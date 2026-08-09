@@ -1396,7 +1396,7 @@ app.get('/story/:id', (req, res) => {
  * model (optional) overrides the configured AI model for this generation only.
  */
 app.post('/story/create', async (req, res) => {
-  const { title, genre, tone, model } = req.body;
+  const { title, genre, tone, model, customPrompt } = req.body;
 
   const titleErr = validateStringField(title, 'title');
   if (titleErr) return res.status(400).json({ error: titleErr });
@@ -1411,9 +1411,10 @@ app.post('/story/create', async (req, res) => {
   if (typeof model === 'string' && model.trim()) {
     aiOptions.model = model.trim();
   }
+  const prompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
 
   try {
-    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions);
+    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions, prompt);
     return res.status(201).json(result);
   } catch (e) {
     return res.status(502).json({ error: `Story generation error: ${e.message}` });
@@ -1568,7 +1569,7 @@ app.post('/story/:id/chapter/stream', async (req, res) => {
  * SSE events while the outline is being generated.
  */
 app.post('/story/create/stream', async (req, res) => {
-  const { title, genre, tone, model } = req.body;
+  const { title, genre, tone, model, customPrompt } = req.body;
 
   res.set('Content-Type', 'text/event-stream');
   res.set('Cache-Control', 'no-cache, no-transform');
@@ -1587,11 +1588,12 @@ app.post('/story/create/stream', async (req, res) => {
   if (typeof model === 'string' && model.trim()) {
     aiOptions.model = model.trim();
   }
+  const prompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
   aiOptions.onPhase = (phase) => sseEmit(res, 'progress', { phase });
   aiOptions.onToken = (text) => { if (text) sseEmit(res, 'token', { text }); };
 
   try {
-    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions);
+    const result = await story.create(title.trim(), genre.trim(), tone.trim(), aiOptions, prompt);
     sseEmit(res, 'done', result);
   } catch (e) {
     sseEmit(res, 'error', { error: `Story generation error: ${e.message}` });

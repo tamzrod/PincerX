@@ -17,11 +17,13 @@ const STORIES_DIR = path.join(__dirname, '..', 'data', 'stories');
  * @param {string} genre   - The story genre (e.g. "fantasy", "thriller").
  * @param {string} tone    - The desired tone (e.g. "dark", "humorous").
  * @param {object} [aiOptions] - Options forwarded to ai.ask().
+ * @param {string} [customPrompt] - Optional user instructions appended to the outline prompt.
  * @returns {Promise<{id: string, title: string, genre: string, tone: string, outline: string, createdAt: string}>}
  */
-async function create(title, genre, tone, aiOptions = {}) {
+async function create(title, genre, tone, aiOptions = {}, customPrompt = '') {
   const onPhase = aiOptions.onPhase;
   const onToken = aiOptions.onToken;
+  const custom = typeof customPrompt === 'string' ? customPrompt.trim() : '';
   const prompt = [
     'You are a creative writing assistant. Generate a structured story outline with an initial world.',
     'Respond with ONLY a valid JSON object containing exactly these fields:',
@@ -34,6 +36,7 @@ async function create(title, genre, tone, aiOptions = {}) {
     `Title: ${title}`,
     `Genre: ${genre}`,
     `Tone: ${tone}`,
+    custom ? `\nAdditional instructions: ${custom}` : '',
   ].join('\n');
 
   if (onPhase) onPhase('Generating outline');

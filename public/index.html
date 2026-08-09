@@ -1625,6 +1625,8 @@
             </select>
             <button type="button" class="btn-secondary" id="story-model-refresh" onclick="populateStoryModelSelect(true)" title="Re-detect available models">↻</button>
           </div>
+          <label for="story-custom-prompt">Custom instructions (optional)</label>
+          <textarea id="story-custom-prompt" placeholder="e.g. Include a heist subplot and a morally grey mentor…" style="min-height:70px;margin-bottom:8px;"></textarea>
           <div class="row">
             <button class="btn-primary" id="story-btn" onclick="generateStory()">Generate Outline</button>
             <button class="btn-danger" id="reset-story-btn" onclick="resetStory()" style="display:none">Reset</button>
@@ -3881,6 +3883,8 @@
     document.getElementById('story-title').value = '';
     document.getElementById('story-genre').value = '';
     document.getElementById('story-tone').value = '';
+    const _storyCustomPrompt = document.getElementById('story-custom-prompt');
+    if (_storyCustomPrompt) _storyCustomPrompt.value = '';
     document.getElementById('chapter-custom-prompt').value = '';
 
     const _resultBox = document.getElementById('story-result-knowledge');
@@ -3947,8 +3951,10 @@
 
       const storyModelEl = document.getElementById('story-model');
       const storyModel = storyModelEl ? storyModelEl.value.trim() : '';
+      const customPrompt = (document.getElementById('story-custom-prompt') || {}).value || '';
       const body = { title, genre, tone };
       if (storyModel) body.model = storyModel;
+      if (customPrompt.trim()) body.customPrompt = customPrompt.trim();
 
       const data = await new Promise((resolve, reject) => {
         streamAIRequest('/story/create/stream', body, {

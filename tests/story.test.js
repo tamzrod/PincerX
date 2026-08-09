@@ -236,6 +236,24 @@ describe('story.js — create()', () => {
     expect(prompt).toContain('"characters"');
     expect(prompt).toContain('"locations"');
   });
+
+  it('appends customPrompt to the outline prompt when provided', async () => {
+    ai.ask.mockResolvedValue(JSON.stringify({ outline: 'Outline.' }));
+
+    await storyModule.create('Custom Story', 'fantasy', 'epic', {}, 'Include a heist subplot.');
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).toContain('Additional instructions: Include a heist subplot.');
+  });
+
+  it('omits the additional-instructions block when customPrompt is empty', async () => {
+    ai.ask.mockResolvedValue(JSON.stringify({ outline: 'Outline.' }));
+
+    await storyModule.create('No Custom', 'fantasy', 'epic', {}, '   ');
+
+    const prompt = ai.ask.mock.calls[0][0];
+    expect(prompt).not.toMatch(/Additional instructions/);
+  });
 });
 
 // ── story.js — generateChapter() ────────────────────────────────────────────
