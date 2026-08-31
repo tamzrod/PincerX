@@ -126,6 +126,53 @@ _VOICE_PRESETS: dict[str, dict] = {
 }
 
 
+def _sync_spk_clone_device() -> None:
+    """Reconcile the speaker-clone model's device string attributes with ``_DEVICE``.
+
+    ``nn.Module.to(device)`` migrates registered parameters and buffers but
+    does **not** update plain Python attributes such as
+    ``SpeakerEmbeddingLDA.device`` or ``SpeakerEmbedding.device``.  Those
+    attributes are used inside ``make_speaker_embedding`` to:
+
+    * route the input wav tensor to the correct device via
+      ``wav.to(self.spk_clone_model.device)``; and
+    * create and cache the ``torchaudio.transforms.Resample`` transform via
+      the ``@functools.cache``-decorated ``_get_resampler`` method.
+
+    When the string attributes fall out of sync — e.g. after a ``_model.to()``
+    call that migrates the ResNet backbone from CPU to CUDA but leaves the
+    string as ``"cpu"`` — the wav is sent to CPU while the backbone weights
+    are on CUDA, producing the "Expected all tensors to be on the same device"
+    runtime error.
+
+    The ``@cache``-d ``Resample`` transform is also **not** a registered
+    sub-module, so ``_model.to()`` cannot move it.  Clearing the cache forces
+    it to be re-created on the correct device at the next call.
+    """
+    spk = _model.spk_clone_model
+    if spk is None:
+        return
+
+    # Update the top-level device attribute used to route the input wav.
+    spk.device = _DEVICE
+
+    # Update the inner SpeakerEmbedding's device attribute.
+    inner = getattr(spk, "model", None)
+    if inner is None:
+        return
+    inner.device = _DEVICE  # type: ignore[attr-defined]
+
+    # Clear the @functools.cache on _get_resampler so the Resample transform
+    # is re-created on _DEVICE at the next call.  The method lives on the
+    # class, so cache_clear() must be called via the type, not the instance.
+    get_resampler_fn = getattr(type(inner), "_get_resampler", None)
+    if get_resampler_fn is not None and hasattr(get_resampler_fn, "cache_clear"):
+        try:
+            get_resampler_fn.cache_clear()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _ensure_prebuilt_voices() -> None:
     """Generate and save speaker embeddings for all built-in voice presets.
 
@@ -162,6 +209,11 @@ def _ensure_prebuilt_voices() -> None:
         # raised a device-mismatch error, those lazy CPU buffers now exist and
         # must be migrated before the preset generation loop runs.
         _model.to(_DEVICE)
+        # Sync the SpeakerEmbeddingLDA device string attribute and clear the
+        # cached resampler so they are consistent with _DEVICE.  This must be
+        # done after _model.to() because nn.Module.to() does not update plain
+        # Python attributes or @cache-d objects.
+        _sync_spk_clone_device()
 
     for preset_id, spec in _VOICE_PRESETS.items():
         pt_path = _VOICES_DIR / f"{preset_id}.pt"
@@ -171,6 +223,12 @@ def _ensure_prebuilt_voices() -> None:
             emotion = _EMOTION_PRESETS["neutral"]
             chunks  = _split_into_chunks(spec["phrase"])
             all_wavs: list[torch.Tensor] = []
+
+            # Migrate any lazily-created sub-module buffers to the target
+            # device before generation.  This also syncs the device string
+            # attributes so that make_speaker_embedding routes audio correctly.
+            _model.to(_DEVICE)
+            _sync_spk_clone_device()
 
             with torch.inference_mode():
                 for chunk in chunks:
@@ -203,6 +261,7 @@ def _ensure_prebuilt_voices() -> None:
             # created inside the speaker encoder during generate()) to the
             # target device before extracting the speaker embedding.
             _model.to(_DEVICE)
+            _sync_spk_clone_device()
 
             with torch.inference_mode():
                 speaker = _model.make_speaker_embedding(
